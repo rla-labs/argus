@@ -1,0 +1,37 @@
+{
+  "name": "@argus-agent/meter",
+  "version": "0.1.0",
+  "description": "Real-time token and cost accounting, attributed to exactly one owner and priced from ops.yaml",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@deepseek-ai/dsh-session": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/testkit": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

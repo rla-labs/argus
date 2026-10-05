@@ -1,0 +1,67 @@
+# == ARGUS AGENT PROJECT ==
+# One file per project, at <config_dir>/projects/<id>.yaml.
+#
+# The file is the source of truth for CONFIGURATION. The database stores runtime
+# state (the current session id, the status). Removing a file archives the
+# project; it never deletes it.
+
+# Slug: ^[a-z0-9][a-z0-9-]{1,40}$. Must match the file name.
+id: site-firma
+
+# The agent's working directory. Must resolve inside <data_dir>/projects/;
+# anything else, including a symlink that escapes it, is rejected at load.
+cwd: /data/projects/site-firma
+
+# One sentence the orchestrator uses to route a request here.
+description: The company website — marketing pages, blog, contact form.
+
+# Provider and model. The model name must match what the provider expects.
+provider: anthropic
+model: claude-sonnet-x
+
+# Used when the project crosses its soft budget threshold with
+# `soft_action: downgrade`.
+fallback_model: deepseek/deepseek-v4-flash
+
+# The dsh agent preset mounted into this project's agent scope. It decides the
+# tool set; a project with no shell uses a preset without shell tools.
+preset: standard
+
+limits:
+  # A run stops at its next step once it reaches any of these.
+  max_steps_per_run: 60
+  max_wallclock_min: 45
+  max_tokens_per_request: 8000
+  # How deep this project's internal subagents may nest.
+  max_subagent_depth: 1
+  # Stop the run when the same tool with identical arguments repeats this often.
+  loop_repeat_threshold: 5
+
+budget:
+  day_usd: 3.00
+  month_usd: 40.00
+  info_pct: 50
+  soft_pct: 80
+  # At the soft threshold: `warn` (notify only) or `downgrade` (fallback_model).
+  soft_action: downgrade
+  # At 100%: `pause` (project stops accepting work) or `reject_new`.
+  hard_action: pause
+
+approvals:
+  # `auto`  — allow the commands in auto_allow, ask for everything else.
+  # `ask`   — ask for every risky action.
+  # `deny`  — refuse every risky action without asking.
+  mode: ask
+  # Matched on the parsed argv: exact token equality, never substring or regex,
+  # so `git status; rm -rf /` cannot slip through.
+  auto_allow:
+    - git status
+    - git diff
+  timeout_minutes: 30
+
+memory:
+  # Inject the global USER.md into this project's agents.
+  user_profile: true
+
+# Show a periodically edited progress message during long runs.
+progress: true

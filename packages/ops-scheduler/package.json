@@ -1,0 +1,35 @@
+{
+  "name": "@argus-agent/scheduler",
+  "version": "0.1.0",
+  "description": "Reliable cron scheduling: fires on time, exactly once, surviving restarts and respecting budgets",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "croner": "9.1.0",
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@argus-agent/scheduler": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "4.0.4" }
+}

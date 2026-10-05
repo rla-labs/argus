@@ -1,0 +1,43 @@
+{
+  "name": "@argus-agent/commands",
+  "version": "0.1.0",
+  "description": "The deterministic command layer: every system action a human can trigger, with no model turn",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@deepseek-ai/dsh-commands": "0.2.0-rc.2",
+    "yaml": "2.6.1",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/testkit": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

@@ -1,0 +1,54 @@
+# == ARGUS AGENT PROJECT ==
+# An overlay that adds a local Ollama, for a deployment with no external provider.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
+#
+# Ollama is on an INTERNAL network: Argus Agent can reach it, and it cannot reach the
+# internet. That matters because a local model server has no authentication — it is
+# safe only because nothing else can route to it.
+#
+# `internal: true` blocks egress as well as ingress, so Ollama cannot download a
+# model on its own. Pull one explicitly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml \
+#     exec ollama ollama pull llama3.2
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: argus-agent-ollama
+    restart: unless-stopped
+    volumes:
+      - ${OLLAMA_MODELS_PATH:-/srv/argus-agent/ollama}:/root/.ollama
+    networks:
+      - internal
+    # No ports: Ollama is reachable ONLY from the internal network. Publishing 11434
+    # would put an unauthenticated model server on the host.
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ops:
+    depends_on:
+      - ollama
+    environment:
+      # The provider base URL Argus Agent should use. Point a project's provider at
+      # `http://ollama:11434` and it will resolve on the internal network.
+      OLLAMA_BASE_URL: http://ollama:11434
+    networks:
+      - internal
+      # Each service joins BOTH networks: `default` for Telegram, `internal` for
+      # Ollama. A service that replaced its networks instead of adding one would lose
+      # its route to the outside world, and the bot would go silent.
+      - default
+
+networks:
+  internal:
+    driver: bridge
+    internal: true

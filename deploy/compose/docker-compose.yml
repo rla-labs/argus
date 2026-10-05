@@ -1,0 +1,93 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent, one service.
+#
+# Usage, from this directory:
+#
+#   cp ../templates/env.example .env       # then edit it
+#   mkdir -p /srv/argus-agent/data
+#   docker compose up -d
+#   docker compose logs -f
+#
+# The data lives in a BIND MOUNT by default rather than a named volume, because the
+# backup script archives the data directory directly and an operator should be able
+# to `ls` it. Swap to the named volume below if you prefer Docker to own it — but
+# then read deploy/docs/BACKUP-RESTORE.md first: `docker volume` is not a path.
+
+services:
+  ops:
+    image: ${ARGUS_AGENT_IMAGE:-ghcr.io/rla-labs/argus-agent:latest}
+    # Uncomment to build from a checkout instead of pulling.
+    # build:
+    #   context: ../..
+    #   dockerfile: deploy/docker/Dockerfile
+    container_name: argus-agent
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      # The volume, and the config inside it. Both are overridable from `.env`, and
+      # the defaults are what the entrypoint and the image expect.
+      ARGUS_AGENT_DATA_DIR: /data
+      ARGUS_AGENT_CONFIG: /data/config/ops.yaml
+      DSH_HOME: /data/dsh-home
+      TZ: ${TZ:-UTC}
+
+    volumes:
+      # The ONLY persistent path. Everything else in the container is replaceable.
+      - ${ARGUS_AGENT_DATA_PATH:-/srv/argus-agent/data}:/data
+      # Uncomment for a named volume instead of a bind mount.
+      # - argus-agent-data:/data
+
+    # The health endpoint is loopback-only inside the container, which is where the
+    # HEALTHCHECK calls it. Publishing it would expose an unauthenticated report of
+    # the system's shape — see deploy/docs/SECURITY.md.
+    #
+    # ports:
+    #   - "127.0.0.1:3090:3090"
+
+    # The Web UI, when health/web is enabled, is also loopback-only. Reach it through
+    # an SSH tunnel rather than publishing it:
+    #
+    #   ssh -N -L 3080:127.0.0.1:3080 user@host
+    #
+    # ports:
+    #   - "127.0.0.1:3080:3080"
+
+    # The container is the primary barrier when a sandbox backend is unavailable
+    # inside it. These settings are what make that true rather than nominal.
+    read_only: true
+    # `exec` is required: dsh copies its native addons into $TMPDIR and loads them
+    # from there, and Docker mounts a tmpfs `noexec` by default — the service then
+    # dies at boot with "failed to map segment from shared object".
+    tmpfs:
+      - /tmp:size=256m,mode=1777,exec
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # A confined agent needs to write only under /data; everything else is read-only
+    # or tmpfs. `pids_limit` stops a fork bomb from taking the host with it.
+    pids_limit: 512
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        # An agent that logs every tool call produces a lot of lines. Without a cap,
+        # the log is what fills the disk — the opposite of what the health plugin's
+        # disk warning is watching for.
+        max-size: "20m"
+        max-file: "5"
+
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--max-time", "8", "http://127.0.0.1:3090/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+# Uncomment when using the named volume above.
+# volumes:
+#   argus-agent-data:

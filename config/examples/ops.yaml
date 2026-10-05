@@ -1,0 +1,112 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent global configuration — example.
+#
+# Copy to <data_dir>/config/ops.yaml and edit. Every value here is a safe
+# default for a first run: budgets are low, approvals ask, and the allowlist is
+# empty (deny all).
+#
+# Secrets never belong in this file. Use ${ENV_VAR} references and put the
+# values in the environment (see deploy/templates/env.example).
+
+# Required. Every day/month budget boundary, cron schedule, and displayed time
+# uses this zone. Changing it moves when daily budgets reset.
+timezone: Europe/Bucharest
+
+# Root of the persistent tree. In Docker this is the mounted volume.
+data_dir: /data
+config_dir: config
+dsh_home: dsh-home
+
+# ── ops-meter ──────────────────────────────────────────────────────────────
+# USD per 1M tokens. Update manually; prices change without notice.
+pricing:
+  deepseek/deepseek-v4-flash: { input: 0.0, cached: 0.0, output: 0.0 }
+  deepseek/deepseek-v4-pro:   { input: 0.0, cached: 0.0, output: 0.0 }
+  anthropic/claude-sonnet-x:  { input: 3.0, cached: 0.3, output: 15.0 }
+  ollama/*:                   { input: 0,   cached: 0,   output: 0 }
+
+# A model with no price must not run "for free" in the accounting.
+# block (default) refuses admission; warn prices it at zero and warns once a day.
+unknown_model_policy: block
+
+# ── ops-governor ───────────────────────────────────────────────────────────
+concurrency:
+  # Top-level agents allowed to be `running` at the same time.
+  global_max_running: 4
+  # Per-provider ceilings. `ollama: 1` because there is one GPU.
+  per_provider:
+    anthropic: 2
+    deepseek: 4
+    ollama: 1
+  # Simultaneous one-off tasks.
+  adhoc_max_running: 2
+  # Slots that scheduled and background work may never occupy, so a human
+  # message always finds room.
+  reserve_interactive: 1
+
+# Global budgets. Per-project budgets live in the project's own YAML.
+budgets:
+  global:
+    day_usd: 10.00
+    month_usd: 150.00
+    # Thresholds, in percent of the limit.
+    info_pct: 50
+    soft_pct: 80
+    # At the hard limit: pause the scope, or let the current run finish and
+    # refuse new admissions.
+    action_hard: pause
+  # Above this percentage of the global budget, only interactive requests run.
+  global_interactive_only_pct: 90
+  # How long a request may stay pending before the channel is notified.
+  queue_stall_minutes: 15
+
+# Optional provider rate limits, in tokens per minute over a 60-second window.
+# rate_limits:
+#   anthropic:
+#     tokens_per_minute: 200000
+
+# ── ops-channel ────────────────────────────────────────────────────────────
+# Access control is checked here, not in each adapter. Empty means deny all.
+access:
+  allowed_users: []
+  #   - { channel: telegram, userId: "123456789" }
+
+# ── ops-telegram ───────────────────────────────────────────────────────────
+# telegram:
+#   bot_token: ${TELEGRAM_BOT_TOKEN}
+#   # Ignore group chats unless explicitly enabled.
+#   allow_groups: false
+
+# ── ops-orchestrator ───────────────────────────────────────────────────────
+orchestrator:
+  model: deepseek/deepseek-v4-flash
+  # Reset the orchestrator session daily so its context stays small.
+  reset_daily: true
+  # A tool may only create tasks on these models.
+  allowed_task_models:
+    - deepseek/deepseek-v4-flash
+
+# ── ops-scheduler ──────────────────────────────────────────────────────────
+scheduler:
+  # Reject a cron expression that fires more often than this.
+  min_interval_minutes: 1
+
+# ── ops-approvals-bridge ───────────────────────────────────────────────────
+# One-off tasks have no project policy, so they get their own. Deny by default.
+approvals_adhoc:
+  mode: deny
+  timeout_minutes: 30
+
+# ── ops-memory ─────────────────────────────────────────────────────────────
+memory:
+  max_inject_tokens: 2000
+  max_file_bytes: 16384
+
+# ── ops-health ─────────────────────────────────────────────────────────────
+health:
+  port: 3090
+  # Local time, in `timezone` above.
+  daily_report_time: "08:00"
+  backup_time: "03:00"
+  backup_keep: 7
+  disk_warn_pct: 85

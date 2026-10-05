@@ -1,0 +1,254 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent configuration.
+#
+# Copy to /data/config/ops.yaml and edit. Every key is listed, with the default and
+# what it does; the reference is deploy/docs/CONFIGURE.md.
+#
+# Two rules shape the defaults below:
+#
+#   1. NOTHING IS OPEN. The allowlist is empty, so every message is refused until you
+#      add yourself. A system that spends money and runs code must not be usable
+#      because a file was left at its defaults.
+#   2. THE BUDGETS ARE LOW. A first deployment should surprise you by stopping, not
+#      by spending. Raise them once you have watched a day of real usage.
+
+# ── required by every deployment ────────────────────────────────────────────────
+
+# Your IANA timezone. Used for day/month budget boundaries, the daily report, the
+# backup time and `/usage` — never for storage, which is always UTC.
+timezone: Europe/Bucharest
+
+# The data directory INSIDE the container. It must match the mount, or the database
+# is created somewhere the volume does not cover.
+data_dir: /data
+
+# Where ops.yaml and projects/*.yaml live, relative to data_dir.
+config_dir: config
+
+# ── access ──────────────────────────────────────────────────────────────────────
+#
+# WHO MAY OPERATE THE SYSTEM. With this empty, every message is refused — and the
+# plugin says so at boot, because an operator should learn that before a user does.
+#
+# The user id is the platform's own immutable identity. NEVER a username: a username
+# can be changed or released, so it is not an identity. Message @userinfobot on
+# Telegram to find yours.
+
+access:
+  allowed_users: []
+  # - { channel: telegram, userId: '99887766' }
+  # - { channel: '*', userId: '11223344' }        # every adapter
+
+  # Where a refusal warning goes. Rate-limited, and it names the user id and NEVER
+  # the message content — a stranger's text is untrusted.
+  admin: null
+  # warn_interval_minutes: 15
+
+# ── channel ─────────────────────────────────────────────────────────────────────
+
+channel:
+  # Where a message goes when there is no address to inherit: a scheduled run's
+  # output, a budget threshold, a panic notice.
+  default_address: null
+  # default_address: telegram:99887766
+
+  # Where an attachment lands when no project is active. Relative paths resolve
+  # against data_dir. With an active project, attachments go to <cwd>/inbox/.
+  attachment_scratch: scratch
+
+  # One progress message per run, edited rather than reposted. The first is
+  # immediate; later ones wait for this interval.
+  progress_interval_s: 20
+  progress_enabled: true
+
+# ── telegram ────────────────────────────────────────────────────────────────────
+#
+# The token is almost always an environment interpolation, so the secret lives in the
+# environment rather than in a file that gets committed. It is NEVER logged.
+
+telegram:
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  # Below Telegram's own 4096, because HTML escaping expands the text: a message that
+  # fits before escaping can exceed the limit after, and Telegram rejects it whole.
+  max_text_length: 4000
+  # Telegram's bot upload limit.
+  max_file_bytes: 52428800
+  # Group messages are ignored unless this is true. Even then, the allowlist applies
+  # per USER.
+  allow_groups: false
+  register_commands: true
+  # Long polling. A webhook needs a public domain, a TLS certificate and a reverse
+  # proxy, which a self-hosted deployment rarely has — so polling is the default and
+  # the only mode this deployment supports.
+  polling: true
+  send_interval_ms: 1000
+  max_attempts: 5
+
+# ── budgets ─────────────────────────────────────────────────────────────────────
+#
+# Integer micro-USD internally (1 USD = 1,000,000); these are dollars for a human.
+# The per-project budget lives in the project's own YAML and overrides these.
+
+budgets:
+  default_day_usd: 3
+  default_month_usd: 40
+  # Where the global budget stops spending on unattended work while still allowing a
+  # human's message through.
+  global_interactive_only_pct: 95
+
+# ── concurrency ─────────────────────────────────────────────────────────────────
+
+concurrency:
+  global_max_running: 4
+  # How many slots a human's message always finds. Without a reserve, a busy
+  # deployment would queue the operator behind its own scheduled work.
+  reserve_interactive: 1
+  per_provider: {}
+  # openai: 2
+  adhoc_max_running: 1
+
+# ── limits ──────────────────────────────────────────────────────────────────────
+#
+# Per-run ceilings. They exist so a runaway loop stops rather than spending until
+# someone notices.
+
+limits:
+  max_steps_per_run: 60
+  max_wallclock_min: 45
+  max_tokens_per_request: 8000
+  max_subagent_depth: 1
+  loop_repeat_threshold: 5
+
+# ── queues ──────────────────────────────────────────────────────────────────────
+
+queues:
+  # A request waiting longer than this emits `ops/queue-stalled`.
+  queue_stall_minutes: 15
+  # The safety tick, in seconds.
+  tick_seconds: 30
+
+# ── paused_policy ───────────────────────────────────────────────────────────────
+#
+# What a paused project does with an arriving request. `keep` holds a HUMAN's message
+# until the pause lifts; unattended work is rejected either way.
+
+paused_policy: keep
+
+# ── pricing ─────────────────────────────────────────────────────────────────────
+#
+# What a model costs per million tokens. Required: an unpriced model is REFUSED under
+# the default policy, because a system that cannot say what something costs should not
+# buy it.
+
+pricing:
+  # deepseek/*: { input: 0.14, cached: 0.014, output: 0.28 }
+  # openai/gpt-4o-mini: { input: 0.15, cached: 0.075, output: 0.6 }
+
+# `block` refuses an unpriced model; `warn` allows it and logs.
+unknown_model_policy: block
+
+# ── tasks ───────────────────────────────────────────────────────────────────────
+#
+# The model `/task` and an ad-hoc schedule use when none is named.
+
+tasks:
+  model: deepseek/deepseek-v4-flash
+
+# ── orchestrator ────────────────────────────────────────────────────────────────
+#
+# The front desk: it routes free text to a project, or answers a question about the
+# system. Cheap on purpose — it runs on every free-text message.
+
+orchestrator:
+  enabled: true
+  model: deepseek/deepseek-v4-flash
+  # The agent preset mounted into the orchestrator's own scope. The default gives it
+  # its six fixed tools; a custom preset would change what the front desk can do.
+  preset: default
+  # Makes a project the chat's active one when the orchestrator sends work there.
+  switch_active_on_send: true
+  # Models `run_task` may be asked for. EMPTY PERMITS NONE: a model chosen by a model
+  # is a cost decision made by the thing being cost-controlled.
+  allowed_task_models: []
+  # A hard bound on context growth, in addition to dsh's compaction.
+  reset_daily: true
+  # The longest a `note` may be. The orchestrator records context for the next turn
+  # through `remember`; an unbounded note is a way to grow its context without limit.
+  max_note_length: 500
+  day_usd: 1
+
+# ── scheduler ───────────────────────────────────────────────────────────────────
+
+scheduler:
+  enabled: true
+  # The fastest a cron expression may fire. Below this is refused, because each
+  # firing is a submission that can spend money.
+  min_interval_minutes: 5
+  # The default timezone for a schedule that does not name one. Null means the
+  # deployment's `timezone` above.
+  timezone: null
+  # How long before a due time the timer wakes, in milliseconds. The timer fires once
+  # the due time has passed; this is how early it is allowed to look.
+  grace_ms: 1000
+  # What a past-due schedule does after a restart. `run_once` fires it once and
+  # resumes; `skip` drops the missed window. NEITHER catches up.
+  default_misfire: run_once
+  max_schedules: 200
+
+# ── approvals ───────────────────────────────────────────────────────────────────
+#
+# dsh asks before a risky action; this bridge turns the question into a Telegram
+# message. Every path that is not an explicit Approve is a refusal.
+
+approvals:
+  enabled: true
+  # The policy for a task with no project. `deny`: an unattended one-off has no
+  # allowlist, so nothing justifies a grant.
+  approvals_adhoc: deny
+  timeout_minutes: 30
+  # How long the CHANNEL has to deliver the question, in seconds. Separate from the
+  # above: that is how long a person has to answer, this is how long the transport
+  # may take to reach them.
+  ask_timeout_s: 30
+  # Whether the "approve all of this kind for this run" button is offered.
+  allow_run_grant: true
+  # The longest action rendering inside a question. A very long command is truncated
+  # in the MESSAGE only; the full text is what runs.
+  max_action_length: 500
+
+# ── memory ──────────────────────────────────────────────────────────────────────
+
+memory:
+  enabled: true
+  # The token budget for everything injected into one agent. Over it, the most recent
+  # sections are kept and the agent is TOLD that memory was truncated.
+  max_inject_tokens: 2000
+  max_file_bytes: 16384
+  user_profile: true
+  index_turns: true
+  recall_limit: 5
+
+# ── health ──────────────────────────────────────────────────────────────────────
+
+health:
+  enabled: true
+  endpoint: true
+  # LOOPBACK ONLY. There is no setting to publish it: the endpoint reports the shape
+  # of the system and has no authentication.
+  port: 3090
+  daily_report: true
+  daily_report_time: '09:00'
+  backup: true
+  # Before the report, so the report reflects a backed-up day.
+  backup_time: '03:30'
+  backup_keep: 7
+  disk_warn_pct: 85
+  alert_interval_minutes: 60
+  startup_report: true
+  error_alert_threshold: 5
+
+# ── rate limits ─────────────────────────────────────────────────────────────────
+
+rate_limits: {}
+  # default_tpm: 200000
+  # deepseek: 500000

@@ -1,0 +1,140 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent as a systemd service — a NATIVE (non-Docker) deployment.
+#
+# ============================================================================
+#  READ THIS BEFORE INSTALLING IT.
+#
+#  This is SECONDARY to the Docker install, and the reason is containment.
+#
+#  A container gives a deployment a filesystem, a network and a process
+#  boundary that `ctx.sandbox` can fall back on. A systemd unit gives it none
+#  of those: the hardening directives below ARE the only barrier, and a tool a
+#  project runs has exactly the access this unit grants. Everything a project
+#  is allowed to do, it can do to this host.
+#
+#  That is a reasonable trade when the host is dedicated to Argus Agent and the
+#  projects are your own. It is NOT reasonable for running untrusted work.
+#  See deploy/docs/SECURITY.md.
+# ============================================================================
+#
+# This file is a TEMPLATE. `install-native.sh` substitutes the @PLACEHOLDER@
+# values for the paths you chose and writes the result to
+# /etc/systemd/system/argus-agent.service. Do not copy it by hand without doing the
+# same substitutions — a unit with a literal `@APP_DIR@` in it will not start.
+#
+# Installation is automated:  ./deploy/native/install-native.sh
+# Manual installation is documented in:  deploy/docs/INSTALL-NATIVE.md
+
+[Unit]
+Description=Argus Agent — a self-hosted autonomous agent system
+Documentation=file:@APP_DIR@/deploy/docs/INSTALL-NATIVE.md
+Documentation=file:@APP_DIR@/deploy/docs/TROUBLESHOOTING.md
+# `network-online` rather than `network`: the service must reach Telegram and the
+# provider, and one that starts before the route exists spends its first minutes
+# retrying connections it will never make.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_USER@
+
+WorkingDirectory=@APP_DIR@
+
+# The secrets. Mode 600, owned by @SERVICE_USER@ — systemd REFUSES to read a
+# world-readable EnvironmentFile, which is a useful safety net rather than an
+# obstacle: it fails the start rather than leaking the token.
+EnvironmentFile=@SECRETS_FILE@
+
+# Where dsh keeps the profile and its own state. Inside the DATA directory, so
+# the profile and the data it describes travel together in one backup.
+Environment=DSH_HOME=@DSH_HOME@
+Environment=ARGUS_AGENT_CONFIG=@CONFIG_FILE@
+Environment=ARGUS_AGENT_DATA_DIR=@DATA_DIR@
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--enable-source-maps
+# The service account's HOME. pnpm and dsh both write under it.
+Environment=HOME=@SERVICE_HOME@
+
+# The absolute path to dsh, rather than relying on PATH: systemd's PATH is
+# minimal, and a service that cannot find its own entry point fails in a way
+# that looks like a plugin problem.
+ExecStart=@DSH_BIN@ --profile ops
+
+# `always`, not `on-failure`. Argus Agent RECOVERS AT STARTUP: the health plugin's
+# recovery pass marks a run left `running` as interrupted and reports it, and
+# that pass only runs when the process starts. A restart after a crash is the
+# recovery mechanism itself, not merely a retry.
+Restart=always
+RestartSec=10
+
+# A run is cancelled on SIGTERM and the process exits when it can. 45s covers a
+# tool call that has to be cut short without risking a half-written database.
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+# ── containment ────────────────────────────────────────────────────────────────
+#
+# These directives ARE the barrier. With no container, `ProtectSystem=strict`
+# plus a short `ReadWritePaths` is what stops a project's shell from writing
+# anywhere else on the host.
+
+# Everything is read-only except what is listed below.
+ProtectSystem=strict
+ReadWritePaths=@DATA_DIR@ @APP_DIR@
+# The data directory must be writable; the application directory must not be,
+# but pnpm and node may write caches there, so it is listed deliberately.
+# Narrow it to @DATA_DIR@ once you are sure nothing writes to the app tree.
+
+# The service account's home may be read (pnpm's store lives there) but not the
+# homes of real users.
+ProtectHome=read-only
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+
+# NO capabilities at all. The service binds no privileged port (3090 is
+# unprivileged), mounts nothing and changes nothing about the system.
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=true
+
+# systemd's own baseline for a service that is not a sandbox manager, narrowed
+# further by removing the groups an agent has no business using.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug
+SystemCallErrorNumber=EPERM
+
+# The network is unrestricted, deliberately: Telegram, the provider API and the
+# health endpoint all need it. Egress filtering is the host firewall's job.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# A runaway agent must not take the host with it.
+LimitNOFILE=65536
+LimitNPROC=512
+MemoryMax=4G
+TasksMax=512
+
+# ── logging ────────────────────────────────────────────────────────────────────
+#
+# The journal. An agent that logs every tool call produces a lot of lines, so
+# cap it in /etc/systemd/journald.conf (SystemMaxUse=) — an uncapped journal is
+# what fills the disk the health plugin is watching.
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=argus-agent
+
+[Install]
+WantedBy=multi-user.target

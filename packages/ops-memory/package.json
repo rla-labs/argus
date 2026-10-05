@@ -1,0 +1,47 @@
+{
+  "name": "@argus-agent/memory",
+  "version": "0.1.0",
+  "description": "Durable per-project memory and a global user profile, isolated from every other project",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "better-sqlite3": "11.5.0"
+  },
+  "devDependencies": {
+    "@argus-agent/memory": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*",
+    "@types/better-sqlite3": "7.6.11"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

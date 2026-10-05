@@ -1,0 +1,138 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent as a systemd service — the NON-DOCKER alternative.
+#
+# SECONDARY, and it should be. Docker gives the deployment a filesystem, a network and
+# a process boundary that the sandbox can use when no kernel-level sandbox is
+# available; a bare systemd unit gives it none of those, so a tool a project runs has
+# the same access as the ops user. Read deploy/docs/SECURITY.md before choosing this.
+#
+# Use it when Docker is genuinely unavailable, or when the deployment must share a host
+# filesystem in a way a container makes awkward.
+#
+# Install:
+#
+#   sudo useradd --system --home /srv/argus-agent --create-home ops
+#   sudo mkdir -p /srv/argus-agent/data
+#   sudo chown -R ops:ops /srv/argus-agent
+#
+#   # The application: a checkout built in place, or an unpacked release.
+#   sudo mkdir -p /opt/argus-agent && cd /opt/argus-agent
+#   sudo pnpm install --frozen-lockfile && sudo pnpm build
+#   sudo chown -R ops:ops /opt/argus-agent
+#
+#   # The profile must live under the service's DSH_HOME.
+#   sudo -u ops mkdir -p /srv/argus-agent/data/dsh-home/profiles
+#   sudo -u ops cp -r /opt/argus-agent/profiles/ops /srv/argus-agent/data/dsh-home/profiles/ops
+#
+#   # The secrets, readable ONLY by the ops user.
+#   sudo install -m 600 -o ops -g ops /dev/null /srv/argus-agent/secrets.env
+#   sudo -u ops sh -c 'echo "TELEGRAM_BOT_TOKEN=..." > /srv/argus-agent/secrets.env'
+#   sudo -u ops sh -c 'echo "DEEPSEEK_API_KEY=..."  >> /srv/argus-agent/secrets.env'
+#
+#   sudo cp deploy/systemd/argus-agent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now argus-agent
+#   sudo journalctl -u argus-agent -f
+#
+# The same ops.yaml as the container, but `data_dir` points at the HOST path here: there
+# is no /data inside a container to map it to.
+
+[Unit]
+Description=Argus Agent — a self-hosted autonomous agent system
+Documentation=file:/opt/argus-agent/deploy/docs/INSTALL.md
+Documentation=file:/opt/argus-agent/deploy/docs/TROUBLESHOOTING.md
+# `network-online` rather than `network`: Argus Agent must reach Telegram and the provider,
+# and a service that starts before the route exists spends its first minutes retrying.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ops
+Group=ops
+
+WorkingDirectory=/opt/argus-agent
+
+# The environment file carries the secrets. Mode 600, owned by ops — systemd refuses to
+# read a world-readable EnvironmentFile, which is a useful safety net.
+EnvironmentFile=/srv/argus-agent/secrets.env
+
+Environment=DSH_HOME=/srv/argus-agent/data/dsh-home
+Environment=ARGUS_AGENT_CONFIG=/srv/argus-agent/data/config/ops.yaml
+Environment=ARGUS_AGENT_DATA_DIR=/srv/argus-agent/data
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--enable-source-maps
+
+# `exec` semantics are built in: systemd starts this directly, so signals reach dsh.
+ExecStart=/usr/bin/env dsh --profile ops
+
+# `always` rather than `on-failure`: the health plugin's own recovery pass is what
+# resolves interrupted runs, and it only runs at startup — so a restart after a crash
+# is the recovery mechanism, not merely a retry.
+Restart=always
+RestartSec=10
+
+# The grace period for a run to finish. systemd sends SIGTERM, dsh cancels its runs and
+# exits; 45s covers a tool call that has to be cut short.
+TimeoutStopSec=45
+KillMode=mixed
+KillSignal=SIGTERM
+
+# ── hardening ──────────────────────────────────────────────────────────────────
+#
+# A systemd unit has no container to confine the agent, so these directives ARE the
+# barrier. They are the reason this can be offered as an option at all.
+#
+# `ProtectSystem=strict` makes everything read-only except what is listed below, and
+# `ReadWritePaths` is the short list of what a run may write. Without it, an agent with
+# a shell could write anywhere the ops user can.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+# `@system-service` is systemd's own baseline for a service that is not a sandbox
+# manager; the additions below narrow it further.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug
+SystemCallErrorNumber=EPERM
+# No new privileges, no arbitrary personality changes.
+NoNewPrivileges=true
+# NO capabilities at all. The service binds no privileged port (3090 is unprivileged),
+# mounts nothing and changes nothing about the system. `AmbientCapabilities` is
+# deliberately absent, so the empty set is also the effective set.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# The network is unrestricted, deliberately: Telegram, the provider API and (when
+# enabled) the Web UI all need it. Egress filtering is the host firewall's job.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# What the service may write. Everything else under ProtectSystem=strict is read-only.
+ReadWritePaths=/srv/argus-agent/data
+
+# A runaway agent should not take the host down with it. These are generous for
+# Argus Agent's own footprint and small enough that a fork bomb hits the limit.
+LimitNOFILE=65536
+LimitNPROC=512
+MemoryMax=4G
+TasksMax=512
+
+# ── logging ────────────────────────────────────────────────────────────────────
+#
+# The journal, with a cap. An agent that logs every tool call produces a lot of lines,
+# and an uncapped journal is what fills the disk.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=argus-agent
+
+[Install]
+WantedBy=multi-user.target

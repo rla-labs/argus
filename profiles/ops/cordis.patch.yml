@@ -1,0 +1,27 @@
+# == ARGUS AGENT PROJECT ==
+# The Argus Agent profile user patch layer.
+#
+# This is applied AFTER every bundle layer (base, headless, Argus Agent), so it is
+# the right place for deployment-specific overrides: disabling a shipped plugin,
+# retargeting a model, or adding a plugin that is not part of the bundle.
+#
+# A patch REPLACES the targeted row's whole `config`; it does not merge into it.
+# To change one key of a row, restate that row's complete config.
+#
+# Everything Argus Agent itself configures lives in `/data/config/ops.yaml`
+# (overridable with ARGUS_AGENT_CONFIG), NOT here — this file is for the dsh tree.
+#
+# Examples:
+#
+#   # Keep HMR off in a container: no file watcher, no reload races.
+#   - id: hmr
+#     disabled: true
+#
+#   # Point the default model somewhere else for this deployment.
+#   - id: agent-default-model
+#     config:
+#       provider: deepseek-official
+#       model: deepseek-flash
+#
+# An empty patch list is valid and is what a fresh install starts with.
+[]

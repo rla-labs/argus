@@ -1,0 +1,39 @@
+{
+  "name": "@argus-agent/store",
+  "version": "0.1.0",
+  "description": "The only component that touches SQLite: schema, migrations, typed repositories, transactions and backups",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "lib/migrations/*.sql"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node --eval \"require('node:fs').cpSync('src/migrations','lib/migrations',{recursive:true})\"",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "better-sqlite3": "11.5.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.11",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

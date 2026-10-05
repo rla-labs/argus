@@ -1,0 +1,19 @@
+{
+  "name": "dsh-profile-ops",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Argus Agent profile: the headless bundle plus the Argus Agent bundle",
+  "type": "module",
+  "dependencies": {
+    "@argus-agent/argus-agent": "workspace:*"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": [
+        "@deepseek-ai/dsh-base",
+        "@deepseek-ai/dsh-headless",
+        "@argus-agent/argus-agent"
+      ]
+    }
+  }
+}

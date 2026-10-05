@@ -1,0 +1,5 @@
+# == ARGUS AGENT PROJECT ==
+packages:
+  - 'packages/*'
+  - 'profiles/*'
+  - 'test/*'

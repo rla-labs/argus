@@ -1,0 +1,36 @@
+{
+  "name": "@argus-agent/approvals-bridge",
+  "version": "0.1.0",
+  "description": "Bridges dsh's approval requests to Telegram, so risky actions can be approved from a phone and denied by default",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@deepseek-ai/dsh-user-approval": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@argus-agent/approvals-bridge": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "4.0.4" }
+}

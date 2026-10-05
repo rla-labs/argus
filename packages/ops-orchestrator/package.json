@@ -1,0 +1,49 @@
+{
+  "name": "@argus-agent/orchestrator",
+  "version": "0.1.0",
+  "description": "The front-desk agent: a cheap model that answers questions about the system and routes work without rewriting it",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "lib/**/*.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node --eval \"require('node:fs').cpSync('src/prompts','lib/prompts',{recursive:true})\"",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.0-rc.2"
+  },
+  "devDependencies": {
+    "@argus-agent/orchestrator": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*",
+    "@deepseek-ai/dsh-agent-loop": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

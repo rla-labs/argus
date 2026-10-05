@@ -1,0 +1,38 @@
+{
+  "name": "@argus-agent/health",
+  "version": "0.1.0",
+  "description": "Observability and recovery: a health endpoint, a daily report, alerts and backups",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["lib/**/*.js", "lib/**/*.d.ts"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@argus-agent/scheduler": "workspace:*",
+    "@deepseek-ai/schemastery": "3.18.4"
+  },
+  "devDependencies": {
+    "@argus-agent/health": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/memory": "workspace:*",
+    "@argus-agent/approvals-bridge": "workspace:*",
+    "@argus-agent/orchestrator": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": { "@deepseek-ai/cordis": "4.0.4" }
+}

@@ -1,0 +1,41 @@
+{
+  "name": "@argus-agent/channel",
+  "version": "0.1.0",
+  "description": "The channel abstraction: routing, access control and delivery, independent of the platform",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@argus-agent/types": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "@argus-agent/argus-agent": "workspace:*"
+  },
+  "devDependencies": {
+    "@argus-agent/channel": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

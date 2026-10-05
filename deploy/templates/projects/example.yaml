@@ -1,0 +1,94 @@
+# == ARGUS AGENT PROJECT ==
+# One project.
+#
+# Copy to /data/config/projects/<id>.yaml. The FILE NAME must match `id`, and the id
+# must be a slug: lowercase letters, digits and hyphens, at least two characters.
+#
+# A project is a top-level dsh agent with its own working directory, model, budget
+# and memory. It is the unit that does work.
+
+id: example
+
+# The working directory. It MUST be inside <data_dir>/projects/ — the loader refuses
+# a path outside it, because that boundary is what keeps one project out of another's
+# files.
+cwd: /data/projects/example
+
+# One line, and it matters more than it looks: this is the ONLY thing the orchestrator
+# knows about what a project is for. "example" tells a model nothing; "the customer
+# site's build and deploy" tells it when to route here.
+description: An example project — replace this with what the project is FOR.
+
+provider: deepseek
+model: deepseek/deepseek-v4
+
+# Used at the soft budget threshold when `soft_action: downgrade`. A cheaper model
+# doing a degraded job beats a stopped project.
+fallback_model: deepseek/deepseek-v4-flash
+
+# The dsh agent preset mounted into this project's scope. Leave null for the default;
+# a restricted preset is how a project gets a smaller tool surface.
+preset: null
+
+# ── limits ──────────────────────────────────────────────────────────────────────
+#
+# Per-run ceilings, overriding the deployment's.
+
+limits:
+  max_steps_per_run: 60
+  max_wallclock_min: 45
+  max_tokens_per_request: 8000
+  max_subagent_depth: 1
+  loop_repeat_threshold: 5
+
+# ── budget ──────────────────────────────────────────────────────────────────────
+
+budget:
+  day_usd: 3
+  month_usd: 40
+  # Where the report starts mentioning this project.
+  info_pct: 50
+  # Where the soft action fires.
+  soft_pct: 80
+  # `warn` reports; `downgrade` switches to `fallback_model`.
+  soft_action: warn
+  # `pause` stops the project and keeps a human's message queued; `reject_new`
+  # refuses new work and lets the current run finish.
+  hard_action: pause
+
+# ── approvals ───────────────────────────────────────────────────────────────────
+#
+# `ask`   every risky action becomes a Telegram question
+# `deny`  refused WITHOUT asking, deterministically
+# `auto`  the allowlist runs unattended; everything else asks
+
+approvals:
+  mode: ask
+  # Each entry is a COMMAND LINE, matched on parsed argv tokens:
+  #
+  #   - git status        matches `git status` and `git status --short`
+  #   - npm test          matches `npm test` and `npm test -- --watch`
+  #
+  # It does NOT match `git push`, `git status; rm -rf /`, or `git status && rm -rf /`
+  # — a compound command is refused however neatly its prefix matches.
+  #
+  # Write the rule as you would type the command, and extend it with a flag rather
+  # than relying on a prefix:
+  auto_allow: []
+  # - git status
+  # - git diff
+  # - npm test
+
+  # How long the question waits. After it, the answer is NO. Silence is the likeliest
+  # outcome for an operator who is asleep.
+  timeout_minutes: 30
+
+# ── memory ──────────────────────────────────────────────────────────────────────
+
+memory:
+  # Whether this project receives the global USER.md. A project may opt OUT of the
+  # profile; it can never opt INTO another project's memory.
+  user_profile: true
+
+# Whether each run's progress is reported to the chat, as one edited message.
+progress: true

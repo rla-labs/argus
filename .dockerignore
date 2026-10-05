@@ -1,0 +1,51 @@
+# What must never reach a build context.
+#
+# It lives at the REPOSITORY ROOT because that is the build context
+# (`docker build -f deploy/docker/Dockerfile .`): Docker only reads the
+# `.dockerignore` at the root of the context, so a copy next to the Dockerfile
+# would be silently ignored.
+#
+# A context is copied to the daemon, so a large directory is a slow build — and a
+# SECRETS file that reaches a context is a secret in a layer's history, which no
+# later `rm` removes.
+
+# State. The image contains no data; `/data` is the volume.
+**/data/
+**/*.sqlite
+**/*.sqlite-wal
+**/*.sqlite-shm
+**/sessions/
+**/backups/
+**/scratch/
+
+# Secrets.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+**/secrets.env
+**/state/*/secrets.env
+
+# Build output and tooling caches: rebuilt in the image.
+**/node_modules/
+**/lib/
+**/dist/
+.tooling/
+cache/
+**/.pnpm-store/
+**/.npm/
+
+# Development and tests.
+**/test/
+**/*.test.ts
+**/coverage/
+.git/
+.github/
+**/.DS_Store
+**/*.log
+
+# Editors.
+.idea/
+.vscode/
+*.swp

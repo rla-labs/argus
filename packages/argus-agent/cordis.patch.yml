@@ -1,0 +1,111 @@
+# == ARGUS AGENT PROJECT ==
+# The Argus Agent bundle patch.
+#
+# Applied AFTER the base and headless bundle layers, BEFORE the profile's own
+# cordis.patch.yml. One row per ops-* plugin, in dependency order (see
+# docs/developer-docs.md#plugins-and-build-order).
+#
+# A patch REPLACES a targeted row's whole `config` rather than merging into it,
+# so a row that a profile wants to retune must be restated completely there.
+#
+# Rules:
+#   - Every plugin added to packages/ gets its row here in the same change.
+#   - Rows are ordered by dependency, not by the order they happen to be written.
+#   - `disabled` is reserved for a plugin a deployment opts out of; the bundle
+#     itself enables everything it composes. The one exception is the headless
+#     bundle's one-shot app, disabled at the end of this file.
+
+- insert:
+    # ── logging ──────────────────────────────────────────────────────────────
+    # Plugin logs to stderr. Cordis only buffers them in memory by default, so
+    # without this row `docker logs` and `journalctl` show nothing of the system.
+    - id: ops-log
+      name: '@argus-agent/argus-agent/log-row'
+
+    # ── configuration ────────────────────────────────────────────────────────
+    # Two rows, deliberately: the registry must exist before any plugin
+    # contributes its section, and the loader must run after every plugin has.
+    # Ordering is expressed as a dependency, not as row order.
+    - id: ops-config-registry
+      name: '@argus-agent/argus-agent/registry-row'
+
+    - id: ops-config
+      name: '@argus-agent/argus-agent/loader-row'
+
+    # ── foundation ───────────────────────────────────────────────────────────
+    # Filled in as each plugin lands, in this order.
+    #
+    # `@argus-agent/types` and `@argus-agent/testkit` are LIBRARIES, not plugins: they
+    # have no service, no config section and no row here. `ops-types` is a
+    # runtime dependency of every plugin; `ops-testkit` is a devDependency only.
+    #
+    # The registry of agent presets. Neither the base nor the headless bundle
+    # mounts it, and ops-projects needs `ctx.agentPresets` to create an agent:
+    # without this row the whole ops chain waits forever.
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: default
+
+    - id: ops-store
+      name: '@argus-agent/store'
+
+    - id: ops-projects
+      name: '@argus-agent/projects'
+
+    - id: ops-meter
+      name: '@argus-agent/meter'
+
+    - id: ops-governor
+      name: '@argus-agent/governor'
+
+    - id: ops-commands
+      name: '@argus-agent/commands'
+
+    - id: ops-channel
+      name: '@argus-agent/channel'
+
+    # The Telegram adapter. Without a bot token it logs a warning and stays
+    # unmounted, so a deployment that has not created a bot still boots; with a
+    # token that Telegram rejects, the channel reports `degraded` and says why.
+    - id: ops-telegram
+      name: '@argus-agent/telegram'
+
+    # The orchestrator answers free text when no project is active. It runs on a
+    # cheap model under its own budget scope; `orchestrator.enabled: false` turns
+    # it off.
+    - id: ops-orchestrator
+      name: '@argus-agent/orchestrator'
+
+    # Recurring cron schedules. A skipped or failing schedule reports to its reply
+    # address.
+    - id: ops-scheduler
+      name: '@argus-agent/scheduler'
+
+    # Approvals on Telegram. Requires dsh's own approval service, which the
+    # bundle mounts, and a channel so a question can reach a person. Fail-closed:
+    # no answer is a denial.
+    - id: ops-approvals-bridge
+      name: '@argus-agent/approvals-bridge'
+
+    # Per-project memory and the global user profile. Its state lives outside every
+    # project's workspace, so a project's own file tools cannot reach it.
+    - id: ops-memory
+      name: '@argus-agent/memory'
+
+    # Health aggregation, the loopback endpoint, the daily report, backups and the
+    # startup recovery pass. Mount it LAST, so every other plugin is up when it
+    # takes its first report.
+    - id: ops-health
+      name: '@argus-agent/health'
+
+# ── the app ──────────────────────────────────────────────────────────────────
+# The headless bundle's app answers ONE task and exits — without a task it exits
+# at once with "a task is required". Argus Agent is a long-running service, so
+# that app is switched off; the service lives on its own plugins (the health
+# endpoint, the channel adapters, the scheduler's timer).
+- id: headless-startup
+  disabled: true
+
+- id: headless-runner
+  disabled: true
