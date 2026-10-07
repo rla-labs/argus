@@ -361,7 +361,7 @@ ok "profile composes (${COMPOSED} Argus Agent rows)"
 
 info "writing ${CONFIG_FILE}"
 
-TEMPLATE="${DEPLOY_DIR}/templates/ops.yaml.example"
+TEMPLATE="${DEPLOY_DIR}/templates/ops.yaml.minimal"
 [ -f "${TEMPLATE}" ] || die "the template ${TEMPLATE} is missing. This is a broken checkout."
 
 if [ -f "${CONFIG_FILE}" ] && data_is_initialized; then
@@ -377,8 +377,8 @@ else
 fi
 
 if [ "${REPLACED_CONFIG}" = "1" ]; then
-  # The template is copied and edited with sed rather than regenerated, so every comment
-  # survives — the file an operator opens is the documented one.
+  # The minimal template: only what differs per install. Every other key has a default,
+  # documented in templates/ops.yaml.example.
   TMP_YAML="${CONFIG_FILE}.tmp"
   cp "${TEMPLATE}" "${TMP_YAML}"
 
@@ -386,18 +386,17 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
   # data_dir points at the HOST path here: there is no container to map /data from. This
   # is the one line that differs from the Docker install.
   sed -i "s|^data_dir: .*|data_dir: ${DATA_DIR}|" "${TMP_YAML}"
-  sed -i "s|^  allowed_users: \[\]|  allowed_users:\n    - { channel: telegram, userId: '${V_ADMIN_ID}' }|" "${TMP_YAML}"
-  # Quoted, because YAML reads an unquoted `telegram:123` as a MAPPING rather than a string.
-  sed -i "s|^  default_address: null|  default_address: \"telegram:${V_ADMIN_ID}\"|" "${TMP_YAML}"
+  # The admin: allowed to use the bot, and where reports and warnings go.
+  sed -i "s|^  admin: null|  admin: '${V_ADMIN_ID}'|" "${TMP_YAML}"
   sed -i "s|^  default_day_usd: .*|  default_day_usd: ${V_DAY_BUDGET}|" "${TMP_YAML}"
   sed -i "s|^  default_month_usd: .*|  default_month_usd: ${V_MONTH_BUDGET}|" "${TMP_YAML}"
   # Only an OpenRouter key: the default models run through OpenRouter.
   if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
-    sed -i "s|^  model: deepseek/deepseek-flash|  model: openrouter/deepseek/deepseek-v4-flash|" "${TMP_YAML}"
+    printf '\n# Only an OpenRouter key was given, so the defaults run through it.\ntasks:\n  model: openrouter/deepseek/deepseek-v4-flash\norchestrator:\n  model: openrouter/deepseek/deepseek-v4-flash\n' >> "${TMP_YAML}"
   fi
 
   mv "${TMP_YAML}" "${CONFIG_FILE}"
-  ok "ops.yaml written (allowlist: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
+  ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
 
   if [ -f "${DEPLOY_DIR}/templates/projects/example.yaml" ]; then
     # The template is written for the container, where the data is at /data. Here it

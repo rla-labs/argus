@@ -110,7 +110,7 @@ one restores into the other.
 | `scripts/smoke.sh` | Is this deployment actually working? |
 | `scripts/lib.sh` | Shared logging, confirmation, health and compose helpers |
 | `native/` | The full non-Docker install: scripts, unit template, and `INSTALL-NATIVE.md` |
-| `templates/` | `ops.yaml.example`, `env.example`, `projects/example.yaml` |
+| `templates/` | `ops.yaml.minimal` (what the installers write), `ops.yaml.example` (every key), `env.example`, `projects/example.yaml` |
 
 ### Everyday commands
 
@@ -309,32 +309,38 @@ visible before the first boot rather than as a `SQLITE_CANTOPEN` later.
 
 ```sh
 git clone https://github.com/rla-labs/argus.git /tmp/argus-agent
-sudo cp /tmp/argus-agent/deploy/templates/ops.yaml.example /srv/argus-agent/data/config/ops.yaml
+sudo cp /tmp/argus-agent/deploy/templates/ops.yaml.minimal /srv/argus-agent/data/config/ops.yaml
 sudo chown 10001:10001 /srv/argus-agent/data/config/ops.yaml
 sudo chmod 0640 /srv/argus-agent/data/config/ops.yaml
 ```
 
-Edit it. The minimum is three changes:
+It is a short file: everything not in it has a default. Edit it:
 
 ```yaml
 timezone: Europe/Bucharest        # your timezone
 data_dir: /data                   # the path INSIDE the container — leave as /data
 access:
-  allowed_users:
-    - { channel: telegram, userId: '99887766' }
+  admin: '99887766'               # your Telegram user id
+budgets:
+  default_day_usd: 3
+  default_month_usd: 40
 ```
+
+The admin may use the bot and receives the reports and warnings. To change any other
+default, copy its section from `templates/ops.yaml.example`, which lists every key.
 
 **Leave `data_dir` as `/data`.** It is the container's path; the host path is the mount
 in the compose file. Setting it to the host path creates the database outside the
 volume.
 
-Then add the provider key and the pricing for the model you use:
+The provider key goes in the environment, next. The default model is
+`deepseek/deepseek-flash`; with only an OpenRouter key, add:
 
 ```yaml
-pricing:
-  deepseek/*: { input: 0.14, cached: 0.014, output: 0.28 }
 tasks:
-  model: deepseek/deepseek-flash
+  model: openrouter/deepseek/deepseek-v4-flash
+orchestrator:
+  model: openrouter/deepseek/deepseek-v4-flash
 ```
 
 #### 3. The environment
@@ -806,14 +812,15 @@ the link is wrong or `/opt/argus-agent/packages/argus-agent/lib` was not built.
 #### 5.7 The configuration
 
 ```sh
-sudo -u ops cp /opt/argus-agent/deploy/templates/ops.yaml.example \
+sudo -u ops cp /opt/argus-agent/deploy/templates/ops.yaml.minimal \
                 /srv/argus-agent/data/config/ops.yaml
 sudo -u ops cp /opt/argus-agent/deploy/templates/projects/example.yaml \
                 /srv/argus-agent/data/config/projects/example.yaml
 sudo chmod 0640 /srv/argus-agent/data/config/ops.yaml
 ```
 
-Edit `/srv/argus-agent/data/config/ops.yaml`. **The minimum is four changes:**
+Edit `/srv/argus-agent/data/config/ops.yaml`. It is a short file: everything not in
+it has a default.
 
 ```yaml
 timezone: Europe/Bucharest          # your timezone
@@ -823,15 +830,15 @@ timezone: Europe/Bucharest          # your timezone
 data_dir: /srv/argus-agent/data
 
 access:
-  allowed_users:
-    - { channel: telegram, userId: '99887766' }   # YOUR numeric id
+  admin: '99887766'                 # YOUR numeric Telegram id
 
-channel:
-  default_address: "telegram:99887766"            # note the QUOTES
+budgets:
+  default_day_usd: 3
+  default_month_usd: 40
 ```
 
-> **Quote `default_address`.** YAML reads an unquoted `telegram:99887766` as a
-> *mapping*, not a string, and the plugin refuses to start.
+The admin may use the bot and receives the reports and warnings. Every other key is
+listed, with its default, in `deploy/templates/ops.yaml.example`.
 
 Then tell it what your models cost and which one to use by default:
 
@@ -938,22 +945,16 @@ Three things must all be true for a message to be answered:
 
 | # | Requirement | Where |
 |---|---|---|
-| 1 | The token is correct and the adapter is running | `secrets.env`, and `telegram.bot_token` referencing it |
-| 2 | **Your user id is in the allowlist** | `access.allowed_users` |
+| 1 | The token is correct and the adapter is running | `TELEGRAM_BOT_TOKEN` in `secrets.env` |
+| 2 | **You are the admin, or on the allowlist** | `access.admin`, `access.allowed_users` |
 | 3 | You have sent `/start` to your own bot | Telegram itself |
 
 #### 6.2 The token
 
-In `ops.yaml` the token is a **reference**, never the value:
-
-```yaml
-telegram:
-  bot_token: ${TELEGRAM_BOT_TOKEN}
-```
-
-dsh interpolates it from the environment, and systemd supplies the environment from
-`/srv/argus-agent/secrets.env`. So the configuration file can be copied, shown or committed
-without leaking anything.
+The token is read from the `TELEGRAM_BOT_TOKEN` environment variable, which systemd
+supplies from `/srv/argus-agent/secrets.env`. `ops.yaml` does not mention it, so the
+configuration file can be copied, shown or committed without leaking anything. (To read
+it from another variable, set `telegram.bot_token: ${OTHER_VARIABLE}`.)
 
 **The token is never logged**, not even truncated. A leaked token is a system anyone can
 drive as your bot. If it leaks, revoke it with BotFather's `/revoke` and update
@@ -963,14 +964,14 @@ drive as your bot. If it leaks, revoke it with BotFather's `/revoke` and update
 
 ```yaml
 access:
+  admin: '99887766'                                 # you: always allowed
   allowed_users:
-    - { channel: telegram, userId: '99887766' }    # you
     - { channel: telegram, userId: '11223344' }    # someone you trust
     # - { channel: '*', userId: '55667788' }       # every adapter
 ```
 
-**Empty means everyone is refused** — the shipped default, so a configuration left alone
-is not an open system.
+**With neither, everyone is refused** — the shipped default, so a configuration left
+alone is not an open system.
 
 The id is compared as a **string**, which is why it is quoted. A numeric id read as a
 YAML number loses a leading zero and, for a very large id, precision.
@@ -1345,7 +1346,9 @@ rule is that `/opt/argus-agent` is replaceable and `/srv/argus-agent/data` is no
 
 Every configuration key, in one place. The reference implementation is
 [`templates/ops.yaml.example`](../deploy/templates/ops.yaml.example) — a commented file with
-safe defaults that you can copy and edit.
+every key at its default. The installers write the short
+[`templates/ops.yaml.minimal`](../deploy/templates/ops.yaml.minimal) instead: timezone,
+data directory, admin and budgets. Copy a section from the reference to change it.
 
 Configuration lives in two files:
 
@@ -1354,9 +1357,9 @@ Configuration lives in two files:
 | `${DATA_DIR}/config/ops.yaml` | Everything below | 640, owned by uid 10001 |
 | `deploy/compose/.env` | Secrets and deployment settings | **600** |
 
-**Secrets are never in `ops.yaml`.** The bot token and the provider keys are read from
-the environment, and `ops.yaml` interpolates them (`bot_token: ${TELEGRAM_BOT_TOKEN}`)
-so the file can be copied, committed or shown without leaking anything.
+**Secrets are never in `ops.yaml`.** The bot token (`TELEGRAM_BOT_TOKEN`) and the provider
+keys (`<PROVIDER>_API_KEY`) are read from the environment, so the file can be copied,
+committed or shown without leaking anything.
 
 ### Top level
 
@@ -1376,16 +1379,15 @@ so the file can be copied, committed or shown without leaking anything.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `allowed_users` | list | `[]` | `{ channel, userId }` entries. **Empty refuses everyone.** |
-| `admin` | `{channel, userId}` | `null` | Where refusal warnings go. |
+| `admin` | id or address | `null` | You. A bare id (`'99887766'`) is a Telegram chat. **Always allowed**; where reports, warnings and unaddressed output go. |
+| `allowed_users` | list | `[]` | More `{ channel, userId }` entries. **With no admin either, everyone is refused.** |
 | `warn_interval_minutes` | int | `15` | Rate limit for refusal warnings. |
 
 ```yaml
 access:
+  admin: '99887766'
   allowed_users:
-    - { channel: telegram, userId: '99887766' }
     - { channel: '*', userId: '11223344' }        # every adapter
-  admin: { channel: telegram, userId: '99887766' }
 ```
 
 **The user id is the platform's immutable identity, never a username.** A username can
@@ -1400,7 +1402,7 @@ arbitrary text in front of them.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `default_address` | address | `null` | Where output goes when there is nothing to inherit. |
+| `default_address` | address | the admin | Where output goes when there is nothing to inherit. |
 | `attachment_scratch` | path | `scratch` | Where an attachment lands with no active project. |
 | `progress_enabled` | boolean | `true` | Whether runs report progress. |
 | `progress_interval_s` | int | `20` | The minimum gap between progress edits. |
@@ -1416,7 +1418,7 @@ silently — but nothing is delivered either.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `bot_token` | string | — | From `@BotFather`. Use `${TELEGRAM_BOT_TOKEN}`. |
+| `bot_token` | string | `TELEGRAM_BOT_TOKEN` | From `@BotFather`. Unset, read from the environment; never write the value here. |
 | `max_text_length` | int | `4000` | Below Telegram's 4096 because HTML escaping expands text. |
 | `max_file_bytes` | int | `52428800` | Telegram's bot upload limit (50 MB). |
 | `allow_groups` | boolean | `false` | Whether group messages are processed at all. |
@@ -1435,8 +1437,8 @@ trust everyone in the group.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `default_day_usd` | number | — | The daily budget a project inherits. |
-| `default_month_usd` | number | — | The monthly budget a project inherits. |
+| `default_day_usd` | number | `3` | The daily budget a project inherits. |
+| `default_month_usd` | number | `40` | The monthly budget a project inherits. |
 | `global_interactive_only_pct` | number | `95` | Where the global budget stops spending on unattended work. |
 
 Internally these are **integer micro-USD** (1 USD = 1,000,000). Dollars appear only in
@@ -1478,7 +1480,7 @@ These exist so a runaway loop **stops** rather than spending until someone notic
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `queue_stall_minutes` | int | `15` | A request waiting longer emits `ops/queue-stalled`. |
-| `tick_seconds` | int | `30` | The safety tick. |
+| `tick_seconds` | int | `5` | The safety tick. |
 
 ### `paused_policy`
 
@@ -1546,7 +1548,7 @@ gets noticed.
 |---|---|---|---|
 | `enabled` | boolean | `true` | Whether the front desk is mounted. |
 | `model` | `provider/model` | — | **Use a cheap one**: it runs on every free-text message. |
-| `preset` | string | `default` | The preset mounted into the orchestrator's scope. |
+| `preset` | string | `ops-orchestrator` | The preset mounted into the orchestrator's scope. Its own: no shell, files or web. |
 | `switch_active_on_send` | boolean | `true` | Whether routing to a project makes it active. |
 | `allowed_task_models` | list | `[]` | Models `run_task` may be asked for. **Empty permits none.** |
 | `reset_daily` | boolean | `true` | Whether its context resets each day. |
@@ -1561,7 +1563,7 @@ model is a cost decision made by the thing being cost-controlled.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Whether schedules run. |
-| `min_interval_minutes` | int | `1` | The fastest a cron expression may fire. |
+| `min_interval_minutes` | int | `5` | The fastest a cron expression may fire. |
 | `timezone` | string \| null | `null` | Default for a schedule that names none. |
 | `grace_ms` | int | `1000` | How early the timer may wake. |
 | `default_misfire` | `run_once` \| `skip` | `run_once` | What a past-due schedule does after a restart. |
@@ -2922,7 +2924,7 @@ is at fault.
 |---|---|
 | `grep 'telegram connected'` | Absent: the adapter never reached Telegram. The next log line says why. |
 | `grep 'bot_token'` | A warning naming `TELEGRAM_BOT_TOKEN` means the variable is unset or unexpanded |
-| Is your user id in `access.allowed_users` for `channel: telegram`? | The most common cause of a bot that works but ignores you |
+| Is your user id `access.admin`, or in `access.allowed_users` for `channel: telegram`? | The most common cause of a bot that works but ignores you |
 | `grep 'channel.refused'` | The audit row names the id it saw — put **that** in the allowlist |
 | `/health` → `opsChannel` | `degraded` with "a channel adapter failed to start: …" names the Telegram error; a 401 is a wrong token |
 

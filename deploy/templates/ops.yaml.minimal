@@ -1,0 +1,27 @@
+# == ARGUS AGENT PROJECT ==
+# Argus Agent configuration.
+#
+# Only what differs between installs is here: every other key has a default. The
+# full reference, every key with its default and the reason for it, is
+# templates/ops.yaml.example (in the image: /app/templates/ops.yaml.example) and
+# docs/user-docs.md#configuration. To change a default, copy its section here.
+#
+# The Telegram token and the API keys are NOT here: they are read from the
+# environment (TELEGRAM_BOT_TOKEN, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, ...).
+
+# Day and month boundaries, the daily report and the backup time use this zone.
+timezone: UTC
+
+# Where everything persistent lives.
+data_dir: /data
+
+access:
+  # Your Telegram user id. The admin may use the bot, and receives the reports and
+  # warnings. Until it is set, every message is refused. More users: allowed_users.
+  admin: null
+
+# The daily and monthly limit, in dollars, for every budget not set explicitly.
+# Past it, work pauses. /budget changes one from the chat.
+budgets:
+  default_day_usd: 3
+  default_month_usd: 40

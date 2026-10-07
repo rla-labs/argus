@@ -370,11 +370,11 @@ if [ "${KEEP_CONFIG}" = "1" ]; then
 else
   info "writing ${OPS_YAML}"
 
-  TEMPLATE="${DEPLOY_DIR}/templates/ops.yaml.example"
+  TEMPLATE="${DEPLOY_DIR}/templates/ops.yaml.minimal"
   [ -f "${TEMPLATE}" ] || die "the template ${TEMPLATE} is missing. This is a broken checkout."
 
-  # The template is copied and then edited with sed rather than regenerated, so every
-  # comment survives — the file an operator opens is the documented one.
+  # The minimal template: only what differs per install. Every other key has a default,
+  # documented in templates/ops.yaml.example.
   #
   # `TMP_YAML` is written beside the target because a cross-device `mv` fails, and the
   # target is often a different mount.
@@ -386,25 +386,22 @@ else
   # The data directory INSIDE the container, which is always /data: the host path is
   # the mount, and putting it here would be the mismatch the entrypoint warns about.
   sed -i "s|^data_dir: .*|data_dir: /data|" "${TMP_YAML}"
-  # The allowlist: the operator's own id, as YAML. Quoted because a numeric id read as
-  # a number loses a leading zero and a very large id loses precision.
-  sed -i "s|^  allowed_users: \[\]|  allowed_users:\n    - { channel: telegram, userId: '${V_ADMIN_ID}' }|" "${TMP_YAML}"
-  # The default address, so scheduled output and budget warnings have somewhere to go.
-  # It is quoted because `telegram:123` parses as a MAP, not a string.
-  sed -i "s|^  default_address: null|  default_address: \"telegram:${V_ADMIN_ID}\"|" "${TMP_YAML}"
+  # The admin: allowed to use the bot, and where reports and warnings go. Quoted
+  # because a very large id read as a number would lose precision.
+  sed -i "s|^  admin: null|  admin: '${V_ADMIN_ID}'|" "${TMP_YAML}"
   # The budgets.
   sed -i "s|^  default_day_usd: .*|  default_day_usd: ${V_DAY_BUDGET}|" "${TMP_YAML}"
   sed -i "s|^  default_month_usd: .*|  default_month_usd: ${V_MONTH_BUDGET}|" "${TMP_YAML}"
   # Only an OpenRouter key: the default models run through OpenRouter.
   if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
-    sed -i "s|^  model: deepseek/deepseek-flash|  model: openrouter/deepseek/deepseek-v4-flash|" "${TMP_YAML}"
+    printf '\n# Only an OpenRouter key was given, so the defaults run through it.\ntasks:\n  model: openrouter/deepseek/deepseek-v4-flash\norchestrator:\n  model: openrouter/deepseek/deepseek-v4-flash\n' >> "${TMP_YAML}"
   fi
 
   # The container reads it as uid 10001, so it must be readable by it.
   mv "${TMP_YAML}" "${OPS_YAML}" 2>/dev/null || { cat "${TMP_YAML}" > "${OPS_YAML}"; rm -f "${TMP_YAML}"; }
   chmod 0640 "${OPS_YAML}" 2>/dev/null || sudo chmod 0640 "${OPS_YAML}"
   chown 10001:10001 "${OPS_YAML}" 2>/dev/null || sudo chown 10001:10001 "${OPS_YAML}" 2>/dev/null || true
-  ok "ops.yaml written (allowlist: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
+  ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
 
   if [ -f "${DEPLOY_DIR}/templates/projects/example.yaml" ]; then
     cp "${DEPLOY_DIR}/templates/projects/example.yaml" "${FINAL_DATA_PATH}/config/projects/example.yaml"

@@ -24,7 +24,7 @@ import {
   summarise,
   textOf,
 } from '../../src/format.js'
-import { parseAddress } from '../../src/config.js'
+import { adminOf, allowedWithAdmin, parseAddress } from '../../src/config.js'
 
 /** An access config, with defaults. */
 function accessConfig(overrides: Partial<AccessConfig> = {}): AccessConfig {
@@ -464,6 +464,27 @@ describe('chunkText', () => {
     for (const text of [`${'line one\n'.repeat(50)}end`, 'x'.repeat(250), 'a\nb\nc\nd\ne']) {
       expect(chunkText(text, 40).join(''), JSON.stringify(text.slice(0, 20))).toBe(text)
     }
+  })
+})
+
+describe('adminOf and allowedWithAdmin', () => {
+  it('reads a bare id as a Telegram chat', () => {
+    expect(adminOf(888878901)).toEqual({ channel: 'telegram', chatId: '888878901' })
+    expect(adminOf('888878901')).toEqual({ channel: 'telegram', chatId: '888878901' })
+    expect(adminOf('-100123')).toEqual({ channel: 'telegram', chatId: '-100123' })
+    expect(adminOf('slack:U1')).toEqual({ channel: 'slack', chatId: 'U1' })
+    expect(adminOf(null)).toBeUndefined()
+    expect(adminOf(1.5)).toBeUndefined()
+  })
+
+  it('puts the admin on the allowlist once', () => {
+    const admin = { channel: 'telegram', chatId: '42' }
+    expect(allowedWithAdmin([], admin)).toEqual([{ channel: 'telegram', userId: '42' }])
+    const listed = [{ channel: '*', userId: '42' }]
+    expect(allowedWithAdmin(listed, admin)).toBe(listed)
+    // Same id on another channel is a different person.
+    expect(allowedWithAdmin([{ channel: 'slack', userId: '42' }], admin)).toHaveLength(2)
+    expect(allowedWithAdmin(listed, undefined)).toBe(listed)
   })
 })
 

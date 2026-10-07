@@ -13,7 +13,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { ChannelAddress, Owner } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { OpsChannel, type ChannelOptions, type OrchestratorInput } from './service.js'
-import { accessOf, accessSchema, channelOf, channelSchema, parseAddress } from './config.js'
+import { accessOf, accessSchema, adminOf, allowedWithAdmin, channelOf, channelSchema, parseAddress } from './config.js'
 import { progressText, type OutputSubject } from './format.js'
 import './events.js'
 
@@ -64,8 +64,9 @@ export function apply(ctx: Context): void {
   // name never depends on the process's working directory.
   const pathsOfDir = pathsOf(raw).dataDirAbs
 
-  const admin = parseAddress(access.admin)
-  const defaultAddress = parseAddress(channel.default_address)
+  const admin = adminOf(access.admin)
+  // Unaddressed output goes to the admin unless another address is configured.
+  const defaultAddress = parseAddress(channel.default_address) ?? admin
 
   // Resolved LIVE rather than captured: `ops-orchestrator` may be mounted after
   // this plugin, and a captured `undefined` would make the channel answer "I do
@@ -80,7 +81,7 @@ export function apply(ctx: Context): void {
     governor: ctx.opsGovernor,
     commands: ctx.opsCommands,
     access: {
-      allowed_users: access.allowed_users,
+      allowed_users: allowedWithAdmin(access.allowed_users, admin),
       admin,
       warnIntervalMs: access.warn_interval_minutes * 60_000,
     },
@@ -114,7 +115,7 @@ export function apply(ctx: Context): void {
   if (service.access.isEmpty) {
     ctx
       .logger('ops-channel')
-      .warn('no access.allowed_users is configured: every incoming message will be refused')
+      .warn('neither access.admin nor access.allowed_users is configured: every incoming message will be refused')
   }
 
   ctx.effect(() => () => {

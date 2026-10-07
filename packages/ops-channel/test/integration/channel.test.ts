@@ -318,6 +318,23 @@ describe('routing', () => {
 // ── access control ─────────────────────────────────────────────────────────
 
 describe('access control', () => {
+  it('lets `access.admin: <id>` alone operate, and sends unaddressed output there', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-chan-'))
+    dirs.push(dataDir)
+    // The whole access configuration of a single-operator install.
+    const opsYaml =
+      `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+      `tasks:\n  model: fake/fake-model\n` +
+      `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+      `access:\n  admin: 4242\n`
+    const booted = await bootChannel({ dataDir, opsYaml, projects: { alpha: {} } })
+    const telegram = { channel: 'telegram', chatId: '4242' }
+
+    expect(booted.channel.defaultAddress()).toEqual(telegram)
+    expect(booted.channel.access.isAllowed('telegram', '4242')).toBe(true)
+    expect(booted.channel.access.isAllowed('telegram', '4243')).toBe(false)
+  }, 30_000)
+
   it('drops a message from a user who is not allowlisted', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
     const route = await booted.channel.handleIncoming(message('/projects', { userId: 'stranger' }))

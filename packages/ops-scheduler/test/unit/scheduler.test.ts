@@ -459,7 +459,7 @@ describe('schedulerOf', () => {
   it('applies every default', () => {
     const config = schedulerOf({})
     expect(config.enabled).toBe(true)
-    expect(config.min_interval_minutes).toBe(1)
+    expect(config.min_interval_minutes).toBe(5)
     expect(config.default_misfire).toBe('run_once')
     expect(config.grace_ms).toBe(1_000)
   })

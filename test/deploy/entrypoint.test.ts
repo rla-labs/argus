@@ -134,12 +134,12 @@ describe('entrypoint.sh — refusals', () => {
     expect(result.code).toBe(1)
     expect(result.stderr).toContain('is missing')
     // The instruction must include the actual copy command and the actual path.
-    expect(result.stderr).toContain('ops.yaml.example')
+    expect(result.stderr).toContain('ops.yaml.minimal')
     expect(result.stderr).toContain(join(dataDir, 'config', 'ops.yaml'))
     // And the three things the operator must set.
     expect(result.stderr).toContain('timezone')
     expect(result.stderr).toContain('data_dir')
-    expect(result.stderr).toContain('allowed_users')
+    expect(result.stderr).toContain('access.admin')
   })
 
   it('refuses when the profile is missing from the image', async () => {

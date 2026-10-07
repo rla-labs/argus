@@ -89,7 +89,7 @@ export interface GovernorConfig {
 /** The `concurrency` section. */
 export const concurrencySchema: Schema = z
   .object({
-    global_max_running: z.number().min(1).default(3),
+    global_max_running: z.number().min(1).default(4),
     per_provider: z.dict(z.number().min(1)).default({}),
     adhoc_max_running: z.number().min(0).default(1),
     reserve_interactive: z.number().min(0).default(1),
@@ -103,9 +103,9 @@ export const budgetsSchema: Schema = z
     soft_pct: z.number().min(0).max(100).default(80),
     soft_action: z.union(SOFT_ACTIONS.map((value) => z.const(value))).default('warn'),
     hard_action: z.union(HARD_ACTIONS.map((value) => z.const(value))).default('pause'),
-    global_interactive_only_pct: z.number().min(0).max(100).default(90),
-    default_day_usd: z.number().min(0).default(10),
-    default_month_usd: z.number().min(0).default(100),
+    global_interactive_only_pct: z.number().min(0).max(100).default(95),
+    default_day_usd: z.number().min(0).default(3),
+    default_month_usd: z.number().min(0).default(40),
   })
   .default({})
 

@@ -761,6 +761,13 @@ describe('config', () => {
     expect(config.polling).toBe(false)
   })
 
+  it('reads TELEGRAM_BOT_TOKEN when ops.yaml does not set one', () => {
+    expect(telegramOf({}, { TELEGRAM_BOT_TOKEN: '1:env' }).bot_token).toBe('1:env')
+    expect(telegramOf({}, { TELEGRAM_BOT_TOKEN: '' }).bot_token).toBeNull()
+    // An explicit value wins.
+    expect(telegramOf({ telegram: { bot_token: '2:yaml' } }, { TELEGRAM_BOT_TOKEN: '1:env' }).bot_token).toBe('2:yaml')
+  })
+
   it('declares a text limit below Telegram’s own', () => {
     // Escaping expands the text, so a message that fits before it may not after.
     expect(TELEGRAM_TEXT_LIMIT).toBeLessThan(4096)

@@ -35,9 +35,9 @@ export const approvalsSchema: Schema = z
      */
     approvals_adhoc: z.union([z.const('auto'), z.const('ask'), z.const('deny')]).default('deny'),
     timeout_minutes: z.number().min(1).default(30),
-    ask_timeout_s: z.number().min(1).default(5),
+    ask_timeout_s: z.number().min(1).default(30),
     allow_run_grant: z.boolean().default(true),
-    max_action_length: z.number().min(50).default(300),
+    max_action_length: z.number().min(50).default(500),
   })
   .default({})
 

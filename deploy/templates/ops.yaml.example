@@ -125,7 +125,7 @@ queues:
   # A request waiting longer than this emits `ops/queue-stalled`.
   queue_stall_minutes: 15
   # The safety tick, in seconds.
-  tick_seconds: 30
+  tick_seconds: 5
 
 # ── paused_policy ───────────────────────────────────────────────────────────────
 #
@@ -199,7 +199,7 @@ orchestrator:
   model: deepseek/deepseek-flash
   # The agent preset mounted into the orchestrator's own scope. The default gives it
   # its six fixed tools; a custom preset would change what the front desk can do.
-  preset: default
+  preset: ops-orchestrator
   # Makes a project the chat's active one when the orchestrator sends work there.
   switch_active_on_send: true
   # Models `run_task` may be asked for. EMPTY PERMITS NONE: a model chosen by a model

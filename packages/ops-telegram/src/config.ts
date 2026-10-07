@@ -9,7 +9,7 @@ import type { Schema } from './schema-type.js'
 
 /** The `telegram` section. */
 export interface TelegramSection {
-  /** The BotFather token. Usually `${TELEGRAM_BOT_TOKEN}`. */
+  /** The BotFather token; unset, `TELEGRAM_BOT_TOKEN` from the environment. */
   readonly bot_token: string | null
   /** Maximum characters per message, below Telegram's own 4096. */
   readonly max_text_length: number
@@ -47,14 +47,17 @@ export const telegramSchema: Schema = z
  * @param raw the raw parsed `ops.yaml`.
  * @returns the section, with its defaults.
  */
-export function telegramOf(raw: Record<string, unknown>): TelegramSection {
+export function telegramOf(raw: Record<string, unknown>, env: NodeJS.ProcessEnv = process.env): TelegramSection {
   const parse = telegramSchema as unknown as (value: unknown) => TelegramSection
   const parsed = parse(raw['telegram'] ?? {})
   // `bot_token` is materialized explicitly: schemastery does not apply a union
   // member's default when the whole section is omitted, so a deployment with no
   // `telegram:` block would otherwise get `undefined` where the type promises
   // `string | null` — and the token check would compare against a missing key.
-  return { ...parsed, bot_token: parsed.bot_token ?? null }
+  // Unset, it is `TELEGRAM_BOT_TOKEN`: the installers put the token there, so a
+  // minimal ops.yaml need not mention it.
+  const fromEnv = env['TELEGRAM_BOT_TOKEN']
+  return { ...parsed, bot_token: parsed.bot_token ?? (fromEnv === undefined || fromEnv === '' ? null : fromEnv) }
 }
 
 /**

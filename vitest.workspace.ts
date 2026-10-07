@@ -16,6 +16,9 @@ export default defineWorkspace([
     test: {
       name: 'packages',
       root: '.',
+      // ops-telegram falls back to TELEGRAM_BOT_TOKEN; a developer's real token must
+      // never put a test on the live Bot API.
+      env: { TELEGRAM_BOT_TOKEN: '' },
       include: ['packages/*/test/**/*.test.ts'],
       testTimeout: 60_000,
       hookTimeout: 60_000,
@@ -38,6 +41,9 @@ export default defineWorkspace([
     test: {
       name: 'e2e',
       root: '.',
+      // ops-telegram falls back to TELEGRAM_BOT_TOKEN; a developer's real token must
+      // never put a test on the live Bot API.
+      env: { TELEGRAM_BOT_TOKEN: '' },
       include: ['test/e2e/**/*.test.ts'],
       testTimeout: 120_000,
       hookTimeout: 120_000,

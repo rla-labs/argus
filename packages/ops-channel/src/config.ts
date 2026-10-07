@@ -12,8 +12,11 @@ import type { AllowedUser } from './access.js'
 /** The `access` section. */
 export interface AccessSection {
   readonly allowed_users: readonly AllowedUser[]
-  /** Where warnings go, as an address string. */
-  readonly admin: string | null
+  /**
+   * The operator: an address string, or a bare Telegram id. The admin is always
+   * allowed, and is where warnings and unaddressed messages go.
+   */
+  readonly admin: string | number | null
   readonly warn_interval_minutes: number
 }
 
@@ -40,7 +43,7 @@ export const accessSchema: Schema = z
         }),
       )
       .default([]),
-    admin: z.union([z.string(), z.const(null)]).default(null),
+    admin: z.union([z.string(), z.number(), z.const(null)]).default(null),
     warn_interval_minutes: z.number().min(1).default(15),
   })
   .default({})
@@ -75,6 +78,38 @@ export function accessOf(raw: Record<string, unknown>): AccessSection {
 export function channelOf(raw: Record<string, unknown>): ChannelSection {
   const parse = channelSchema as unknown as (value: unknown) => ChannelSection
   return parse(raw['channel'] ?? {})
+}
+
+/**
+ * Decode `access.admin`.
+ *
+ * A bare id (`888878901`, as a number or a string) is a Telegram chat, which for
+ * a private chat is also the user's id: that is what makes `admin: <your id>` the
+ * whole access configuration of a single-operator deployment.
+ *
+ * @param value the configured value.
+ * @returns the address, or `undefined` when absent or malformed.
+ */
+export function adminOf(value: string | number | null | undefined): ChannelAddress | undefined {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? { channel: 'telegram', chatId: String(value) } : undefined
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return { channel: 'telegram', chatId: value.trim() }
+  return parseAddress(value)
+}
+
+/**
+ * The allowlist with the admin in it.
+ *
+ * The admin operates the system by definition; listing them twice was the
+ * redundancy that let a deployment name an admin who could not send a command.
+ *
+ * @param users the configured `allowed_users`.
+ * @param admin the decoded admin address.
+ * @returns the allowlist.
+ */
+export function allowedWithAdmin(users: readonly AllowedUser[], admin: ChannelAddress | undefined): readonly AllowedUser[] {
+  if (admin === undefined) return users
+  const listed = users.some((user) => user.userId === admin.chatId && (user.channel === admin.channel || user.channel === '*'))
+  return listed ? users : [...users, { channel: admin.channel, userId: admin.chatId }]
 }
 
 /**

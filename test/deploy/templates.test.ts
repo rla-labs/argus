@@ -18,7 +18,7 @@ import { parse } from 'yaml'
 import { parseRawConfig, pathsOf } from '@argus-agent/argus-agent'
 import { projectConfigSchema } from '@argus-agent/projects'
 import { governorConfigOf } from '@argus-agent/governor'
-import { channelOf, parseAddress } from '@argus-agent/channel'
+import { accessOf, adminOf, channelOf, parseAddress } from '@argus-agent/channel'
 import { telegramOf } from '@argus-agent/telegram'
 import { orchestratorOf } from '@argus-agent/orchestrator'
 import { schedulerOf } from '@argus-agent/scheduler'
@@ -320,6 +320,7 @@ describe('the deploy tree is complete', () => {
       'scripts/smoke.sh',
       'scripts/lib.sh',
       'templates/ops.yaml.example',
+      'templates/ops.yaml.minimal',
       'templates/env.example',
       'templates/projects/example.yaml',
       // The deployment guide is a section of the public docs/user-docs.md.
@@ -354,5 +355,54 @@ describe('the deploy tree is complete', () => {
       const text = readFileSync(file, 'utf8')
       expect(text, `${file} contains a TODO`).not.toMatch(/\bTODO\b/)
     }
+  })
+})
+
+describe('templates/ops.yaml.minimal', () => {
+  // What the installers write: the minimal template with the operator's answers.
+  const minimal = parseTemplate(
+    readTemplate('ops.yaml.minimal')
+      .replace('timezone: UTC', 'timezone: Europe/Bucharest')
+      .replace('  admin: null', "  admin: '888878901'"),
+  )
+
+  it('changes nothing but what an install must choose', () => {
+    // Every other key must resolve exactly as the full reference documents it, so the
+    // two templates cannot drift into two different products.
+    const readers: Array<[string, (raw: Record<string, unknown>) => unknown]> = [
+      ['governor', governorConfigOf],
+      ['telegram', (raw) => telegramOf(raw, {})],
+      ['orchestrator', orchestratorOf],
+      ['scheduler', schedulerOf],
+      ['approvals', approvalsOf],
+      ['memory', memoryOf],
+      ['health', healthOf],
+    ]
+    const reference = { ...opsYaml, timezone: 'Europe/Bucharest', telegram: { ...(opsYaml['telegram'] as object), bot_token: null } }
+    for (const [name, read] of readers) {
+      const left = read(minimal) as Record<string, unknown>
+      const right = read(reference) as Record<string, unknown>
+      for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+        // `limits.max_tokens_per_request` is a project key the reference repeats for
+        // documentation; the governor passes it through unread.
+        if (name === 'governor' && key === 'limits') continue
+        expect(left[key], `${name}.${key}`).toEqual(right[key])
+      }
+    }
+  })
+
+  it('makes the admin the allowlist and the default address', () => {
+    expect(adminOf(accessOf(minimal).admin)).toEqual({ channel: 'telegram', chatId: '888878901' })
+    expect(channelOf(minimal).default_address ?? null).toBeNull()
+  })
+
+  it('is refused-by-default until an admin is set', () => {
+    const untouched = parseTemplate(readTemplate('ops.yaml.minimal'))
+    expect(accessOf(untouched).admin).toBeNull()
+    expect(accessOf(untouched).allowed_users).toEqual([])
+  })
+
+  it('resolves its paths through the bundle loader', () => {
+    expect(pathsOf(minimal).dataDirAbs).toBe('/data')
   })
 })

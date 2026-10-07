@@ -70,13 +70,14 @@ ${LOG_PREFIX}: error: ${CONFIG_FILE} is missing.
 
 Argus Agent will not start without a configuration. Create one:
 
-  cp /app/templates/ops.yaml.example ${CONFIG_FILE}
+  cp /app/templates/ops.yaml.minimal ${CONFIG_FILE}
   \$EDITOR ${CONFIG_FILE}
 
-At minimum, set:
+Set:
   timezone        your IANA timezone, e.g. Europe/Bucharest
   data_dir        ${DATA_DIR}
-  access.allowed_users   at least one { channel, userId }, or every message is refused
+  access.admin    your Telegram user id, or every message is refused
+Everything else has a default; /app/templates/ops.yaml.example lists every key.
 
 Then set TELEGRAM_BOT_TOKEN in the environment or in a .env file, and restart.
 The full reference is docs/user-docs.md#configuration.

@@ -33,11 +33,11 @@ export interface SchedulerSection {
 export const schedulerSchema: Schema = z
   .object({
     enabled: z.boolean().default(true),
-    min_interval_minutes: z.number().min(1).default(1),
+    min_interval_minutes: z.number().min(1).default(5),
     timezone: z.union([z.string(), z.const(null)]).default(null),
     grace_ms: z.number().min(0).max(60_000).default(1_000),
     default_misfire: z.union([z.const('run_once'), z.const('skip')]).default('run_once'),
-    max_schedules: z.number().min(1).default(500),
+    max_schedules: z.number().min(1).default(200),
   })
   .default({})
 
