@@ -1077,6 +1077,7 @@ write into its neighbour's workspace has no isolation at all.
 
 | You send | What happens |
 |---|---|
+| `/start` | Says what to do next: create a project, pick one, or just write |
 | `/p reports` | Makes `reports` the active project |
 | `check the nightly aggregation` | Goes to the active project, **verbatim** |
 | `/task summarize the logs` | A one-off task with no project and no memory |
@@ -1772,6 +1773,27 @@ Command      What it does
 
 `/help budget` shows the syntax line, the full explanation and the examples —
 so the help text and the parser cannot drift apart.
+
+---
+
+### `/start`
+
+Telegram sends it when you first open the chat with the bot. It says whether there
+are projects, which one this chat talks to, and the next step.
+
+```
+Argus is running.
+
+You have no projects yet.
+/new <id> creates one: a folder with its own agent, memory and budget.
+/task <text> runs a one-off task.
+Or just write what you need.
+
+/help lists every command.
+```
+
+"Or just write what you need" appears only when the orchestrator is on, because
+without it a free message with no active project has nowhere to go.
 
 ---
 

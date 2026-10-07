@@ -80,6 +80,8 @@ export function apply(ctx: Context): void {
   const health = ctx.get('opsHealth' as never) as unknown as HealthPort | undefined
   if (scheduler !== undefined) options.scheduler = scheduler
   if (health !== undefined) options.health = health
+  // Live, like ops-channel's: the orchestrator may mount after this plugin.
+  options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
 
   const commands = new OpsCommands(options)
   ctx.provide('opsCommands', commands)

@@ -216,6 +216,29 @@ describe('registration', () => {
   }, 30_000)
 })
 
+// ── /start ─────────────────────────────────────────────────────────────────
+
+describe('/start', () => {
+  it('points a new install at /new and /task', async () => {
+    const booted = await bootCommands()
+    const text = await run(booted, '/start')
+    expect(text).toContain('no projects yet')
+    expect(text).toContain('/new <id>')
+    expect(text).toContain('/task <text>')
+    // No orchestrator here: free text would not be routed, so it is not offered.
+    expect(text).not.toContain('just write')
+  }, 30_000)
+
+  it('names the projects and where this chat’s messages go', async () => {
+    const booted = await bootCommands({ projects: { alpha: {}, beta: {} } })
+    expect(await run(booted, '/start')).toContain('Pick the project this chat talks to with /p <id>.')
+    await run(booted, '/p beta')
+    const text = await run(booted, '/start')
+    expect(text).toContain('Projects: alpha, beta.')
+    expect(text).toContain('Messages in this chat go to beta.')
+  }, 30_000)
+})
+
 // ── /help ──────────────────────────────────────────────────────────────────
 
 describe('/help', () => {

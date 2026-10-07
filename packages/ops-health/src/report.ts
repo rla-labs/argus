@@ -47,38 +47,37 @@ export interface DailySnapshot {
 /**
  * Build the daily report.
  *
- * A **fixed shape**, including the sections with nothing in them. A report that
- * omits an empty section reads as "nothing happened" when it means "I did not
- * look", and an operator who learns to skim it stops reading the one that matters.
+ * **Short on a quiet day, complete on a busy one.** A section with something in it
+ * gets its own lines; the checks that found nothing share one "All clear" line,
+ * so an empty check still reads as "I looked" rather than being dropped — but a
+ * quiet day is four lines, not twenty, and the one that matters stands out.
  *
  * @param snapshot what happened today.
  * @returns the report text.
  */
 export function dailyReport(snapshot: DailySnapshot): string {
   const lines: string[] = [`Daily report — ${snapshot.day}`, '']
+  const clear: string[] = []
 
   const total: number = snapshot.projects.reduce((sum, project) => sum + project.costMicros, 0) + snapshot.unscopedMicros
-  lines.push(`Cost today: ${formatUsd(total)}`)
-  if (snapshot.projects.length === 0 && snapshot.unscopedMicros === 0) {
-    lines.push('  (nothing was spent)')
+  const statuses = Object.entries(snapshot.runsByStatus).sort(([a], [b]) => a.localeCompare(b))
+  if (total === 0 && statuses.length === 0) {
+    lines.push('Nothing ran and nothing was spent.')
   } else {
+    lines.push(`Cost today: ${formatUsd(total)}`)
     for (const project of [...snapshot.projects].sort((a, b) => b.costMicros - a.costMicros)) {
       lines.push(`  ${project.projectId.padEnd(16)} ${formatUsd(project.costMicros).padStart(10)}  ${project.runs} run(s)`)
     }
     if (snapshot.unscopedMicros > 0) {
       lines.push(`  ${'(tasks and the front desk)'.padEnd(16)} ${formatUsd(snapshot.unscopedMicros).padStart(10)}`)
     }
+    if (statuses.length > 0) lines.push(`Runs: ${statuses.map(([status, count]) => `${count} ${status}`).join(', ')}`)
   }
 
-  lines.push('', 'Runs')
-  const statuses = Object.entries(snapshot.runsByStatus).sort(([a], [b]) => a.localeCompare(b))
-  if (statuses.length === 0) lines.push('  none')
-  else for (const [status, count] of statuses) lines.push(`  ${status.padEnd(14)} ${count}`)
-
-  lines.push('', 'Budgets')
   const tight = snapshot.budgets.filter((budget) => budget.level !== 'ok')
-  if (tight.length === 0) lines.push('  all within their limits')
+  if (tight.length === 0) clear.push('budgets within their limits')
   else {
+    lines.push('', 'Budgets')
     for (const budget of tight) {
       const pct = budget.pct === undefined ? '—' : `${Math.round(budget.pct)}%`
       const limit = budget.limitMicros === undefined ? 'no limit' : formatUsd(budget.limitMicros)
@@ -86,19 +85,27 @@ export function dailyReport(snapshot: DailySnapshot): string {
     }
   }
 
-  lines.push('', 'Schedules')
   const skips = Object.entries(snapshot.skips).sort(([a], [b]) => a.localeCompare(b))
-  if (skips.length === 0) lines.push('  nothing was skipped')
-  else for (const [reason, count] of skips) lines.push(`  ${reason.padEnd(14)} ${count} skipped`)
+  if (skips.length === 0) clear.push('no schedule skipped')
+  else {
+    lines.push('', 'Schedules')
+    for (const [reason, count] of skips) lines.push(`  ${reason.padEnd(14)} ${count} skipped`)
+  }
 
-  lines.push('', 'Errors')
   const errors = Object.entries(snapshot.errors).sort(([a], [b]) => a.localeCompare(b))
-  if (errors.length === 0) lines.push('  none')
-  else for (const [kind, count] of errors) lines.push(`  ${kind.padEnd(20)} ${count}`)
+  if (errors.length === 0) clear.push('no errors')
+  else {
+    lines.push('', 'Errors')
+    for (const [kind, count] of errors) lines.push(`  ${kind.padEnd(20)} ${count}`)
+  }
 
-  lines.push('', 'Disk')
-  if (snapshot.disk === undefined) lines.push('  unknown')
-  else lines.push(`  ${Math.round(snapshot.disk.usedPct)}% used, ${formatBytes(snapshot.disk.freeBytes)} free`)
+  lines.push('')
+  if (clear.length > 0) lines.push(`All clear: ${clear.join(', ')}.`)
+  lines.push(
+    snapshot.disk === undefined
+      ? 'Disk: unknown'
+      : `Disk: ${Math.round(snapshot.disk.usedPct)}% used, ${formatBytes(snapshot.disk.freeBytes)} free`,
+  )
 
   return lines.join('\n')
 }

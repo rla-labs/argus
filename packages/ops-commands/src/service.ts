@@ -41,6 +41,8 @@ export interface CommandsOptions {
   readonly scheduler?: SchedulerPort
   /** Delegate for `/health`, when `ops-health` is mounted. */
   readonly health?: HealthPort
+  /** Whether free text has a destination without an active project; for `/start`. */
+  readonly hasOrchestrator?: () => boolean
   /** Re-read the project directory after a change; returns what the load did. */
   readonly reloadProjects: () => ReloadReport
   /** Reads the current time; injected so tests control it. */

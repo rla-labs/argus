@@ -174,6 +174,41 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /start ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'start',
+        description: 'What to do next',
+        syntax: '/start',
+        detail:
+          'Telegram sends it when a chat with the bot is opened. Says whether there are ' +
+          'projects, which one this chat talks to, and the next step.',
+        examples: ['/start'],
+        mutating: false,
+      },
+      run(_input, context): CommandResult {
+        const ids = projects.configuredIds()
+        const active = projectOf(undefined, context)
+        const free = options.hasOrchestrator?.() === true
+        const lines = ['Argus is running.', '']
+        if (ids.length === 0) {
+          lines.push(
+            'You have no projects yet.',
+            '/new <id> creates one: a folder with its own agent, memory and budget.',
+            '/task <text> runs a one-off task.',
+          )
+          if (free) lines.push('Or just write what you need.')
+        } else {
+          lines.push(`Projects: ${ids.join(', ')}.`)
+          if (active !== undefined) lines.push(`Messages in this chat go to ${active}. /p <id> switches.`)
+          else if (free) lines.push('Write what you need and I will route it, or pick a project with /p <id>.')
+          else lines.push('Pick the project this chat talks to with /p <id>.')
+        }
+        lines.push('', '/help lists every command.')
+        return result(lines.join('\n'))
+      },
+    },
+
     // ── /projects ──────────────────────────────────────────────────────────
     {
       spec: {

@@ -433,12 +433,12 @@ describe('the daily report', () => {
     expect(snapshot.disk).toBeDefined()
   }, 40_000)
 
-  it('renders every section', async () => {
+  it('names every check on a quiet day', async () => {
     const booted = await bootHealth()
     const text = await booted.health.runDailyReport()
-    for (const heading of ['Cost today', 'Runs', 'Budgets', 'Schedules', 'Errors', 'Disk']) {
-      expect(text, heading).toContain(heading)
-    }
+    expect(text).toContain('Nothing ran and nothing was spent.')
+    expect(text).toContain('All clear: budgets within their limits, no schedule skipped, no errors.')
+    expect(text).toMatch(/Disk: \d+% used/)
   }, 40_000)
 })
 

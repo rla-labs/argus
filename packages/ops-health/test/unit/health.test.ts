@@ -327,10 +327,8 @@ describe('dailyReport', () => {
     expect(dailyReport(snapshot)).toContain('tasks and the front desk')
   })
 
-  it('lists runs by status', () => {
-    const text = dailyReport(snapshot)
-    expect(text).toContain('completed')
-    expect(text).toContain('error')
+  it('sums runs by status on one line', () => {
+    expect(dailyReport(snapshot)).toContain('Runs: 4 completed, 1 error')
   })
 
   it('shows only the budgets that are not ok', () => {
@@ -339,11 +337,6 @@ describe('dailyReport', () => {
     expect(text).toContain('85%')
     // alpha is within its limit, so it is not listed.
     expect(text).not.toContain('project:alpha')
-  })
-
-  it('says so when every budget is fine', () => {
-    const text = dailyReport({ ...snapshot, budgets: [] })
-    expect(text).toContain('all within their limits')
   })
 
   it('lists schedule skips by reason', () => {
@@ -360,28 +353,15 @@ describe('dailyReport', () => {
     expect(dailyReport(snapshot)).toContain('42% used')
   })
 
-  it('KEEPS EVERY SECTION even when empty', () => {
-    // A report that omits an empty section reads as "nothing happened" when it
-    // means "I did not look", and an operator who learns to skim stops reading the
-    // one that matters.
-    const text = dailyReport({
-      day: '2026-10-03',
-      projects: [],
-      unscopedMicros: 0,
-      runsByStatus: {},
-      budgets: [],
-      skips: {},
-      errors: {},
-      disk: undefined,
-    })
-    for (const heading of ['Cost today', 'Runs', 'Budgets', 'Schedules', 'Errors', 'Disk']) {
-      expect(text, heading).toContain(heading)
-    }
-    expect(text).toContain('none')
-    expect(text).toContain('unknown')
+  it('folds the checks that found nothing into one line', () => {
+    const text = dailyReport({ ...snapshot, budgets: [], skips: {} })
+    expect(text).toContain('All clear: budgets within their limits, no schedule skipped.')
+    expect(text).not.toContain('Budgets\n')
+    expect(text).toContain('RATE_LIMIT')
   })
 
-  it('says nothing was spent when nothing was', () => {
+  it('is a few lines on a quiet day, and still says what it checked', () => {
+    // Dropping an empty check would read as "I did not look"; one line keeps it.
     const text = dailyReport({
       day: '2026-10-03',
       projects: [],
@@ -392,8 +372,10 @@ describe('dailyReport', () => {
       errors: {},
       disk: undefined,
     })
-    expect(text).toContain('nothing was spent')
-    expect(text).toContain('nothing was skipped')
+    expect(text).toBe(
+      'Daily report — 2026-10-03\n\nNothing ran and nothing was spent.\n\n' +
+        'All clear: budgets within their limits, no schedule skipped, no errors.\nDisk: unknown',
+    )
   })
 })
 
