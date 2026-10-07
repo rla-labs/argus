@@ -12,7 +12,7 @@
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { OpsCommands, type CommandsOptions, type HealthPort, type SchedulerPort } from './service.js'
+import { OpsCommands, type CommandsOptions, type HealthPort, type MemoryPort, type SchedulerPort } from './service.js'
 import type { CommandInvocation, CommandResult as DshCommandResult } from '@deepseek-ai/dsh-commands'
 import type { CommandContext, CommandResult } from './types.js'
 import { pathsOf } from '@argus-agent/argus-agent'
@@ -82,6 +82,7 @@ export function apply(ctx: Context): void {
   if (health !== undefined) options.health = health
   // Live, like ops-channel's: the orchestrator may mount after this plugin.
   options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
+  options.memory = () => ctx.get('opsMemory' as never) as unknown as MemoryPort | undefined
 
   const commands = new OpsCommands(options)
   ctx.provide('opsCommands', commands)
@@ -159,7 +160,12 @@ function toDshResult(outcome: CommandResult): DshCommandResult {
   // directly and never goes through here.
   const extra: string[] = []
   if (outcome.files !== undefined && outcome.files.length > 0) {
-    extra.push('', ...outcome.files.flatMap((entry) => [`--- ${entry.name} ---`, entry.content]))
+    extra.push(
+      '',
+      ...outcome.files.flatMap((entry) =>
+        'path' in entry ? [`--- ${entry.name}: ${entry.path} ---`] : [`--- ${entry.name} ---`, entry.content],
+      ),
+    )
   }
   if (outcome.buttons !== undefined && outcome.buttons.length > 0) {
     extra.push('', ...outcome.buttons.map((button) => `[ ${button.label} ]  ${button.command}`))
@@ -208,4 +214,4 @@ function reload(ctx: Context): ReloadReport {
 }
 
 export { decodeAddress }
-export type { CommandContext, CommandResult, SchedulerPort, HealthPort }
+export type { CommandContext, CommandResult, SchedulerPort, HealthPort, MemoryPort }

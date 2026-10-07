@@ -6,7 +6,7 @@
  * depends on another plugin — with that plugin absent. Confirmations and audit
  * rows are asserted directly, because both are easy to get subtly wrong.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'files', 'get', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -527,6 +527,150 @@ describe('/task', () => {
     await waitIdle(booted)
     expect(booted.store.audit.byAction('command.task')).toHaveLength(1)
   }, 40_000)
+})
+
+// ── /runs ──────────────────────────────────────────────────────────────────
+
+describe('/runs', () => {
+  it('lists a project’s runs with their outcome and cost', async () => {
+    const booted = await bootCommands({ projects: { alpha: {}, beta: {} } })
+    expect(await run(booted, '/runs alpha')).toBe('No runs yet for alpha.')
+    submit(booted, 'alpha')
+    await waitRan(booted)
+
+    const text = await run(booted, '/runs alpha')
+    expect(text).toContain('Recent runs: alpha')
+    expect(text).toContain('completed')
+    // 1000 input tokens at $1 per million.
+    expect(text).toContain('$0.001')
+    expect(await run(booted, '/runs beta')).toBe('No runs yet for beta.')
+  }, 40_000)
+
+  it('uses the active project, and "all" lists everything', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    await booted.commands.runCommand('/task something', contextFor())
+    await waitRan(booted)
+    // No active project: every run, with its owner.
+    expect(await run(booted, '/runs')).toMatch(/^adhoc\s+\S+ ago\s+completed/m)
+    await run(booted, '/p alpha')
+    expect(await run(booted, '/runs')).toBe('No runs yet for alpha.')
+    expect(await run(booted, '/runs all')).toMatch(/^adhoc\s/m)
+  }, 40_000)
+
+  it('refuses an unknown project', async () => {
+    const booted = await bootCommands()
+    const out = await booted.commands.runCommand('/runs nope', contextFor())
+    expect(out.error).toBe(true)
+    expect(out.text).toContain('No project "nope"')
+  }, 30_000)
+})
+
+// ── /approvals ─────────────────────────────────────────────────────────────
+
+describe('/approvals', () => {
+  it('lists what is waiting and the last decisions', async () => {
+    const booted = await bootCommands()
+    expect(await run(booted, '/approvals')).toBe('Nothing is waiting for your approval.')
+
+    const now = Date.now()
+    const request = (action: string): string => JSON.stringify({ toolName: 'bash', action, kind: 'shell' })
+    booted.store.approvals.insert({ id: 'a1', run_id: 'r1', project_id: 'alpha', request_json: request('rm -rf build'), status: 'pending' }, now)
+    booted.store.approvals.insert({ id: 'a2', run_id: 'r1', project_id: 'alpha', request_json: request('git push'), status: 'pending' }, now)
+    booted.store.approvals.decide('a2', 'granted', 'user-1', now)
+
+    const text = await run(booted, '/approvals')
+    expect(text).toContain('Waiting for your answer (1)')
+    expect(text).toContain('rm -rf build')
+    expect(text).toContain('Last decisions:')
+    expect(text).toMatch(/git push\s+granted\s+user-1/)
+  }, 30_000)
+})
+
+// ── /memory ────────────────────────────────────────────────────────────────
+
+describe('/memory', () => {
+  it('says so when ops-memory is not installed', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const out = await booted.commands.runCommand('/memory alpha', contextFor())
+    expect(out.error).toBe(true)
+    expect(out.text).toContain('not installed')
+  }, 30_000)
+
+  it('shows a short memory inline and sends a long one as a file', async () => {
+    const booted = await bootCommands({ projects: { alpha: {}, beta: {}, gamma: {} } })
+    const memories: Record<string, string> = { alpha: '# Notes\nThe site uses Astro.', beta: 'x'.repeat(5_000), gamma: '' }
+    const ctx = booted.ctx as unknown as { provide(name: string): void; set(name: string, value: unknown): void }
+    ctx.provide('opsMemory')
+    ctx.set('opsMemory', {
+      memoryPath: (id: string) => `/data/state/${id}/MEMORY.md`,
+      readMemory: (id: string) => memories[id] ?? '',
+    })
+
+    expect(await run(booted, '/memory alpha')).toBe('Memory of alpha:\n\n# Notes\nThe site uses Astro.')
+    const long = await booted.commands.runCommand('/memory beta', contextFor())
+    expect(long.text).toContain('attached as a file')
+    expect(long.files?.[0]).toEqual({ name: 'beta-MEMORY.md', content: 'x'.repeat(5_000) })
+    expect(await run(booted, '/memory gamma')).toContain('no memory yet')
+    expect((await booted.commands.runCommand('/memory', contextFor())).text).toContain('no active project')
+  }, 30_000)
+})
+
+// ── /files and /get ────────────────────────────────────────────────────────
+
+describe('/files and /get', () => {
+  /** A project folder with a file, a subfolder and a link that leads out of it. */
+  async function withFolder(): Promise<Booted> {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const cwd = join(booted.dataDir, 'projects', 'alpha')
+    mkdirSync(join(cwd, 'reports'), { recursive: true })
+    writeFileSync(join(cwd, 'notes.md'), 'hello')
+    writeFileSync(join(cwd, 'reports', 'day 1.md'), 'report')
+    writeFileSync(join(booted.dataDir, 'secret.txt'), 'outside')
+    symlinkSync(join(booted.dataDir, 'secret.txt'), join(cwd, 'escape.txt'))
+    return booted
+  }
+
+  it('lists a folder, subfolders first', async () => {
+    const booted = await withFolder()
+    const text = await run(booted, '/files alpha')
+    expect(text.indexOf('reports/')).toBeGreaterThan(-1)
+    expect(text.indexOf('reports/')).toBeLessThan(text.indexOf('notes.md'))
+    expect(text).toContain('5 B')
+    expect(text).toContain('/get alpha <name> sends a file.')
+
+    // A folder of the active project, without naming it.
+    await run(booted, '/p alpha')
+    const sub = await run(booted, '/files reports')
+    expect(sub).toContain('alpha/reports')
+    expect(sub).toContain('day 1.md')
+    expect(sub).toContain('/get alpha reports/<name>')
+  }, 30_000)
+
+  it('sends a file by its path, spaces included', async () => {
+    const booted = await withFolder()
+    const out = await booted.commands.runCommand('/get alpha reports/day 1.md', contextFor())
+    expect(out.error).toBeUndefined()
+    expect(out.files?.[0]).toMatchObject({ name: 'day 1.md', sizeBytes: 6 })
+    expect(readFileSync((out.files?.[0] as { path: string }).path, 'utf8')).toBe('report')
+  }, 30_000)
+
+  it('never leaves the project’s folder', async () => {
+    const booted = await withFolder()
+    for (const line of ['/get alpha ../../secret.txt', '/get alpha escape.txt', `/get alpha ${join(booted.dataDir, 'secret.txt')}`, '/files alpha ..']) {
+      const out = await booted.commands.runCommand(line, contextFor())
+      expect(out.error, line).toBe(true)
+      expect(out.files, line).toBeUndefined()
+    }
+    expect((await booted.commands.runCommand('/get alpha ../../secret.txt', contextFor())).text).toContain('outside')
+  }, 30_000)
+
+  it('explains a missing file, a folder and a missing project', async () => {
+    const booted = await withFolder()
+    expect(await run(booted, '/get alpha nope.md')).toContain('No "nope.md"')
+    expect(await run(booted, '/get alpha reports')).toContain('is not a file')
+    expect(await run(booted, '/get beta x')).toContain('No project "beta"')
+    expect(await run(booted, '/get alpha')).toContain('Syntax: /get <project-id> <path>')
+  }, 30_000)
 })
 
 // ── /usage ─────────────────────────────────────────────────────────────────

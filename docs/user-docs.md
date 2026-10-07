@@ -1084,6 +1084,7 @@ write into its neighbour's workspace has no isolation at all.
 | `/task summarize the logs` | A one-off task with no project and no memory |
 | `/status` | Every project and its state |
 | `/usage` | Cost, per project and global |
+| `/runs`, `/files`, `/get` | What it ran, and the files it made |
 | `/help` | Everything else |
 
 ---
@@ -1946,6 +1947,105 @@ Total: $0.42
 
 A period with no usage reports `No usage in this period.` rather than an empty
 table.
+
+---
+
+### `/runs [project-id | all]`
+
+The last 10 runs: when each started, how it ended, its steps, how long it took and
+what it cost. Defaults to the active project; with none set, or with `all`, it lists
+every run, one-off tasks included.
+
+```
+/runs
+/runs site-firma
+/runs all
+```
+
+```
+Recent runs: site-firma
+
+Started   Status     Steps  Took   Cost
+12m ago   completed  6      1m 4s  $0.0312
+2h ago    error      2      9s     $0.004
+```
+
+The status is `running`, `completed`, `aborted` (`/stop` or `/panic`), `error`,
+`budget_stopped`, `limit_stopped` (a step or time limit) or `interrupted` (cut off by a
+restart; the startup report offers to retry it).
+
+---
+
+### `/approvals`
+
+The actions waiting for your approval, and the last five decisions. A waiting
+action is answered with the buttons on its question; no answer by the timeout means
+no.
+
+```
+Waiting for your answer (1):
+Asked   Project     Action
+2m ago  site-firma  rm -rf build
+Answer with the buttons on the question. No answer by the timeout means no.
+
+Last decisions:
+When     Project     Action      Outcome  By
+1h ago   site-firma  git push    granted  888878901
+3h ago   site-firma  git status  granted  policy
+```
+
+`policy` means the project's approval rules decided, without asking.
+
+---
+
+### `/memory [project-id]`
+
+What a project remembers: the notes it keeps across resets and compactions.
+Defaults to the active project. A memory longer than 3,000 characters is sent as a
+`.md` file.
+
+```
+/memory
+/memory site-firma
+```
+
+---
+
+### `/files [project-id] [folder]`
+
+One folder of a project: subfolders first, then files, newest first, at most 40.
+The folder is relative to the project's own; nothing outside it can be listed.
+
+```
+/files
+/files site-firma
+/files site-firma reports
+```
+
+```
+site-firma/reports
+
+Name          Size    Modified
+archive/              3d ago
+weekly.md     4.2 KB  10m ago
+summary.pdf   88.0 KB 1d ago
+
+/get site-firma reports/<name> sends a file.
+```
+
+---
+
+### `/get <project-id> <path>`
+
+Sends one file from a project's folder as an attachment. The path is relative to the
+project's folder and may contain spaces. A path, or a link, that leads outside the
+folder is refused. A file larger than Telegram can send (`telegram.max_file_bytes`,
+50 MB) is named instead, so you can fetch it from the server.
+
+```
+/get site-firma reports/weekly.md
+/get site-firma out/day 1.csv
+```
 
 ---
 

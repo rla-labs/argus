@@ -582,6 +582,22 @@ describe('delivery', () => {
     expect((withFile?.message.text.length ?? 0)).toBeLessThan(200)
   }, 40_000)
 
+  it('attaches a file /get names, and names one too large to send', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} }, limits: { maxTextLength: 4000, maxFileBytes: 10 } })
+    const cwd = join(booted.dataDir, 'projects', 'alpha')
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(cwd, 'small.txt'), 'tiny')
+    writeFileSync(join(cwd, 'big.txt'), 'x'.repeat(50))
+
+    await booted.channel.handleIncoming(message('/get alpha small.txt'))
+    expect(booted.adapter.sent.at(-1)?.message.files).toEqual([{ name: 'small.txt', path: join(cwd, 'small.txt') }])
+
+    await booted.channel.handleIncoming(message('/get alpha big.txt'))
+    const big = booted.adapter.sent.at(-1)?.message
+    expect(big?.files).toBeUndefined()
+    expect(big?.text).toContain(`Too large to send here: ${join(cwd, 'big.txt')}`)
+  }, 30_000)
+
   it('delivers a stop notice', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
     booted.ctx.emit('ops/run-stopped', {

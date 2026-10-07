@@ -311,11 +311,20 @@ export class OpsChannel {
             label: button.label,
           }))
 
+    // A file on disk larger than the adapter can send is named in the text instead,
+    // as a run's produced files are: the operator can still fetch it.
+    const maxBytes = this.registry.get(message.address.channel)?.limits.maxFileBytes ?? Number.POSITIVE_INFINITY
+    const files: OutgoingFile[] = []
+    let text = out.text
+    for (const file of out.files ?? []) {
+      if (!('path' in file)) files.push({ name: file.name, bytes: new TextEncoder().encode(file.content) })
+      else if (file.sizeBytes <= maxBytes) files.push({ name: file.name, path: file.path })
+      else text += `\nToo large to send here: ${file.path}`
+    }
+
     await this.send(message.address, {
-      text: out.text,
-      ...(out.files === undefined
-        ? {}
-        : { files: out.files.map((file) => ({ name: file.name, bytes: new TextEncoder().encode(file.content) }) satisfies OutgoingFile) }),
+      text,
+      ...(files.length === 0 ? {} : { files }),
       ...(buttons === undefined ? {} : { buttons }),
     })
   }

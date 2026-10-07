@@ -11,15 +11,23 @@
  */
 import type { ChannelAddress } from '@argus-agent/types'
 
-/** A file a command wants delivered. */
-export interface CommandFile {
-  /** The file name shown to the user. */
-  readonly name: string
-  /** The content. */
-  readonly content: string
-  /** A MIME type, when it is not text. */
-  readonly contentType?: string
-}
+/** A file a command wants delivered: text it built, or a file on disk. */
+export type CommandFile =
+  | {
+      /** The file name shown to the user. */
+      readonly name: string
+      /** The content. */
+      readonly content: string
+      /** A MIME type, when it is not text. */
+      readonly contentType?: string
+    }
+  | {
+      readonly name: string
+      /** An absolute path, read by the channel when it sends. */
+      readonly path: string
+      /** The size, so a channel can refuse what it cannot send. */
+      readonly sizeBytes: number
+    }
 
 /** One tappable button. */
 export interface CommandButton {

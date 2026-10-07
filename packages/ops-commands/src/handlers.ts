@@ -8,8 +8,8 @@
  *
  * @module @argus-agent/commands/handlers
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import { stringify as toYaml } from 'yaml'
 import type { ModelRef, Scope } from '@argus-agent/types'
 import {
@@ -132,6 +132,39 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       running: projects.isRunning({ kind: 'project', projectId }),
       cost: meter.spending(scopeOf(projectId)),
     }
+  }
+
+  /**
+   * Resolve a path inside a project's folder, or say why not.
+   *
+   * Links are followed before the check, so a symlink the agent created cannot
+   * lead a command outside the folder the project is confined to.
+   */
+  function insideProject(
+    projectId: string,
+    path: string,
+  ):
+    | { readonly ok: true; readonly path: string; readonly relative: string; readonly shown: string }
+    | { readonly ok: false; readonly text: string } {
+    const cwd = projects.configOf(projectId)?.cwd
+    if (cwd === undefined) return { ok: false, text: `No project "${projectId}". Send /projects to see them.` }
+    let root: string
+    let real: string
+    try {
+      root = realpathSync(cwd)
+    } catch {
+      return { ok: false, text: `${projectId}'s folder does not exist yet. It is created with the first run.` }
+    }
+    try {
+      real = realpathSync(resolve(root, path))
+    } catch {
+      return { ok: false, text: `No "${path}" in ${projectId}'s folder. /files ${projectId} lists it.` }
+    }
+    if (real !== root && !real.startsWith(root + sep)) {
+      return { ok: false, text: `"${path}" is outside ${projectId}'s folder.` }
+    }
+    const rel = relative(root, real)
+    return { ok: true, path: real, relative: rel, shown: rel.length === 0 ? `${projectId}/` : `${projectId}/${rel}` }
   }
 
   return [
@@ -507,6 +540,234 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         lines.push('', `Total: $${formatUsd(report.totalMicros)}`)
         return result(lines.join('\n'))
+      },
+    },
+
+    // ── /runs ──────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'runs',
+        description: 'List recent runs: how each ended and what it cost',
+        syntax: '/runs [project-id | all]',
+        detail:
+          `Lists the last ${RUNS_SHOWN} runs: when each started, how it ended, its steps, ` +
+          'how long it took and what it cost. With no argument, uses this chat’s active ' +
+          'project; with none set, or with "all", lists every run, one-off tasks included.',
+        examples: ['/runs', '/runs site-firma', '/runs all'],
+        mutating: false,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const argument = tokenize(input)[0]
+        const projectId = argument?.toLowerCase() === 'all' ? undefined : projectOf(argument, context)
+        if (projectId !== undefined) {
+          const state = projectState(projectId)
+          if (!state.found) return errorResult(state.text)
+        }
+        const runs =
+          projectId === undefined ? store.runs.recent(RUNS_SHOWN) : store.runs.byOwner(scopeOf(projectId), RUNS_SHOWN)
+        const subject = projectId ?? 'all projects and tasks'
+        if (runs.length === 0) return result(`No runs yet for ${subject}.`)
+
+        // Usage is written in batches; a run that just ended would read as $0.
+        await meter.flush()
+        const now = options.now()
+        const rows = [[...(projectId === undefined ? ['Owner'] : []), 'Started', 'Status', 'Steps', 'Took', 'Cost']]
+        for (const run of runs) {
+          const cost = store.usage.totalsByRun(run.id).cost_micros
+          rows.push([
+            ...(projectId === undefined ? [truncate(run.owner_key.replace(/^project:/, ''), 16)] : []),
+            formatAge(run.started_at, now),
+            run.status,
+            String(run.steps),
+            formatDuration((run.ended_at ?? now) - run.started_at),
+            `$${formatUsd(cost)}`,
+          ])
+        }
+        return result([`Recent runs: ${subject}`, '', ...renderTable(rows)].join('\n'))
+      },
+    },
+
+    // ── /approvals ─────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'approvals',
+        description: 'Show the approvals waiting for an answer, and the last decisions',
+        syntax: '/approvals',
+        detail:
+          'Lists every action waiting for your approval, and the last decisions taken. ' +
+          'Answer a waiting one with the buttons on its question; no answer before the ' +
+          'timeout means no.',
+        examples: ['/approvals'],
+        mutating: false,
+      },
+      run(): CommandResult {
+        const now = options.now()
+        const pending = store.approvals.listPending()
+        const decided = store.approvals
+          .recent(APPROVALS_SHOWN * 4)
+          .filter((row) => row.status !== 'pending')
+          .slice(0, APPROVALS_SHOWN)
+
+        const lines: string[] = []
+        if (pending.length === 0) lines.push('Nothing is waiting for your approval.')
+        else {
+          lines.push(`Waiting for your answer (${pending.length}):`)
+          lines.push(
+            ...renderTable([
+              ['Asked', 'Project', 'Action'],
+              ...pending.map((row) => [formatAge(row.created_at, now), row.project_id ?? 'task', actionOf(row.request_json)]),
+            ]),
+          )
+          lines.push('Answer with the buttons on the question. No answer by the timeout means no.')
+        }
+        if (decided.length > 0) {
+          lines.push('', 'Last decisions:')
+          lines.push(
+            ...renderTable([
+              ['When', 'Project', 'Action', 'Outcome', 'By'],
+              ...decided.map((row) => [
+                formatAge(row.decided_at ?? row.created_at, now),
+                row.project_id ?? 'task',
+                actionOf(row.request_json),
+                row.status,
+                row.decided_by ?? 'policy',
+              ]),
+            ]),
+          )
+        }
+        return result(lines.join('\n'))
+      },
+    },
+
+    // ── /memory ────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'memory',
+        description: 'Show what a project remembers',
+        syntax: '/memory [project-id]',
+        detail:
+          'Shows the project’s durable memory, the notes it keeps across resets. With no ' +
+          'argument, uses this chat’s active project. A long memory is sent as a file.',
+        examples: ['/memory', '/memory site-firma'],
+        mutating: false,
+        requires: 'ops-memory',
+      },
+      run(input, context): CommandResult {
+        const memory = options.memory?.()
+        if (memory === undefined) return errorResult('Project memory (ops-memory) is not installed on this deployment.')
+        const projectId = projectOf(tokenize(input)[0], context)
+        if (projectId === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        }
+        const state = projectState(projectId)
+        if (!state.found) return errorResult(state.text)
+        const text = memory.readMemory(projectId).trim()
+        if (text.length === 0) return result(`${projectId} has no memory yet. It writes notes there as it works.`)
+        if (text.length > MEMORY_INLINE_CHARS) {
+          return result(`${projectId}'s memory is ${text.length} characters, attached as a file.`, {
+            files: [{ name: `${projectId}-MEMORY.md`, content: text }],
+          })
+        }
+        return result(`Memory of ${projectId}:\n\n${text}`)
+      },
+    },
+
+    // ── /files ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'files',
+        description: 'List the files in a project’s folder',
+        syntax: '/files [project-id] [folder]',
+        detail:
+          'Lists one folder of the project: subfolders first, then files, newest first. ' +
+          'The folder is relative to the project’s own; nothing outside it can be listed. ' +
+          'With no project, uses this chat’s active one. /get sends a file.',
+        examples: ['/files', '/files site-firma', '/files site-firma reports'],
+        mutating: false,
+      },
+      run(input, context): CommandResult {
+        const tokens = tokenize(input)
+        // The first token is a project only when it names one, so `/files reports`
+        // lists a folder of the active project.
+        const named = tokens[0] !== undefined && projectState(tokens[0]).found
+        const projectId = named ? tokens[0] : projectOf(undefined, context)
+        if (projectId === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        }
+        const folder = restAfter(input, named ? 1 : 0).trim()
+        const target = insideProject(projectId, folder)
+        if (!target.ok) return errorResult(target.text)
+
+        let entries
+        try {
+          entries = readdirSync(target.path, { withFileTypes: true })
+        } catch (err) {
+          return errorResult(`Cannot list ${target.shown}: ${(err as Error).message}`)
+        }
+        if (entries.length === 0) return result(`${target.shown} is empty.`)
+
+        const now = options.now()
+        const listed = entries.map((entry) => {
+          let stat
+          try {
+            stat = statSync(join(target.path, entry.name))
+          } catch {
+            stat = undefined
+          }
+          const isDir = stat?.isDirectory() ?? entry.isDirectory()
+          return { name: isDir ? `${entry.name}/` : entry.name, isDir, size: stat?.size ?? 0, mtime: stat?.mtimeMs ?? 0 }
+        })
+        listed.sort((a, b) =>
+          a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.isDir ? a.name.localeCompare(b.name) : b.mtime - a.mtime,
+        )
+        const shown = listed.slice(0, FILES_SHOWN)
+        const lines = [
+          target.shown,
+          '',
+          ...renderTable([
+            ['Name', 'Size', 'Modified'],
+            ...shown.map((entry) => [
+              truncate(entry.name, 40),
+              entry.isDir ? '' : sizeText(entry.size),
+              formatAge(entry.mtime, now),
+            ]),
+          ]),
+        ]
+        if (listed.length > shown.length) lines.push(`…and ${listed.length - shown.length} more.`)
+        const prefix = folder.length === 0 ? '' : `${target.relative}/`
+        lines.push('', `/get ${projectId} ${prefix}<name> sends a file.`)
+        return result(lines.join('\n'))
+      },
+    },
+
+    // ── /get ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'get',
+        description: 'Send a file from a project’s folder',
+        syntax: '/get <project-id> <path>',
+        detail:
+          'Sends one file from the project’s folder as an attachment. The path is relative ' +
+          'to the project’s folder; a path, or a link, that leads outside it is refused. A ' +
+          'file larger than the channel can send is named instead.',
+        examples: ['/get site-firma report.md', '/get site-firma out/summary.pdf'],
+        mutating: false,
+      },
+      run(input): CommandResult {
+        const projectId = tokenize(input)[0]
+        const path = restAfter(input, 1).trim()
+        if (projectId === undefined || path.length === 0) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'get needs a project id and a path.')
+        }
+        const target = insideProject(projectId, path)
+        if (!target.ok) return errorResult(target.text)
+        const stat = statSync(target.path)
+        if (!stat.isFile()) {
+          return errorResult(`${target.shown} is not a file. /files ${projectId} ${target.relative} lists it.`)
+        }
+        return result(`${target.shown} (${sizeText(stat.size)})`, {
+          files: [{ name: basename(target.path), path: target.path, sizeBytes: stat.size }],
+        })
       },
     },
 
@@ -998,6 +1259,33 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
   ]
+}
+
+/** How many rows `/runs` shows. */
+const RUNS_SHOWN = 10
+/** How many past decisions `/approvals` shows. */
+const APPROVALS_SHOWN = 5
+/** How many entries `/files` shows. */
+const FILES_SHOWN = 40
+/** A memory longer than this is sent as a file: a chat message is no place to read it. */
+const MEMORY_INLINE_CHARS = 3_000
+
+/** The action an approval row is about, from its recorded request. */
+function actionOf(requestJson: string): string {
+  try {
+    const request = JSON.parse(requestJson) as { action?: unknown; toolName?: unknown }
+    const action = typeof request.action === 'string' ? request.action : String(request.toolName ?? '?')
+    return truncate(action.replace(/\s+/g, ' '), 48)
+  } catch {
+    return '?'
+  }
+}
+
+/** A byte count as a short human size. */
+function sizeText(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 /** A run id for an ad-hoc task. */

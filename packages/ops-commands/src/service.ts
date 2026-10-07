@@ -41,6 +41,8 @@ export interface CommandsOptions {
   readonly scheduler?: SchedulerPort
   /** Delegate for `/health`, when `ops-health` is mounted. */
   readonly health?: HealthPort
+  /** Delegate for `/memory`, looked up live because `ops-memory` may mount later. */
+  readonly memory?: () => MemoryPort | undefined
   /** Whether free text has a destination without an active project; for `/start`. */
   readonly hasOrchestrator?: () => boolean
   /** Re-read the project directory after a change; returns what the load did. */
@@ -59,6 +61,12 @@ export interface CommandsOptions {
 /** What `/cron` needs from `ops-scheduler`. */
 export interface SchedulerPort {
   run(line: string, context: CommandContext): CommandResult
+}
+
+/** What `/memory` needs from `ops-memory`. */
+export interface MemoryPort {
+  memoryPath(projectId: string): string
+  readMemory(projectId: string): string
 }
 
 /** What `/health` needs from `ops-health`. */
