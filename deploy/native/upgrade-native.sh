@@ -120,7 +120,7 @@ else
     ok "backed up: $(basename "${BACKUP_DB}")"
   else
     err "the pre-upgrade backup did not produce a database artifact"
-    confirm "Continue WITHOUT a verified backup?" || die "aborted: fix the backup first (docs/user-docs.md#backup-and-restore)"
+    confirm "Continue WITHOUT a verified backup?" || die "aborted: fix the backup first (docs/user/backup-and-upgrade.md#backup-and-restore)"
   fi
 fi
 
@@ -238,7 +238,7 @@ if su -s /bin/bash "${SERVICE_USER}" -c "cd '${APP_DIR}' && pnpm install --froze
   ok "rebuilt"
   ( compose_profile ) || warn "could not recompose the profile for the previous revision"
 else
-  err "the rebuild failed. The service may not start — restore manually, see docs/user-docs.md#upgrading"
+  err "the rebuild failed. The service may not start — restore manually, see docs/user/backup-and-upgrade.md#upgrading"
 fi
 
 # Did migrations run? If the schema moved, an older build against the newer database
@@ -263,7 +263,7 @@ if [ "${MIGRATED}" = "1" ]; then
     ok "database restored from $(basename "${BACKUP_DB}")"
   else
     err "the schema changed but there is no database backup to restore"
-    err "The service may not start. See docs/user-docs.md#backup-and-restore"
+    err "The service may not start. See docs/user/backup-and-upgrade.md#backup-and-restore"
   fi
 else
   dim "  the schema did not change, so the database is kept as it is"
@@ -280,7 +280,7 @@ else
   err "Manual recovery:"
   [ -n "${BACKUP_DB}" ] && err "  the pre-upgrade database: ${BACKUP_DB}"
   err "  journalctl -u ${SERVICE_NAME} -n 100 --no-pager"
-  err "  docs/user-docs.md#troubleshooting"
+  err "  docs/user/troubleshooting.md"
   exit 1
 fi
 

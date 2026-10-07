@@ -178,10 +178,14 @@ the health check and sends your first Telegram message. Back up with
 `deploy/native/backup-native.sh`; upgrade from git with
 `deploy/native/upgrade-native.sh`.
 
-After either install, send `/help` to your bot. The full guide (installing,
-configuration, every Telegram command, backup, upgrades, troubleshooting) is
-[`docs/user-docs.md`](docs/user-docs.md); every configuration key is also documented in
-`deploy/templates/ops.yaml.example`.
+After either install, open the chat with your bot and send `/start`. The user
+documentation starts at [`docs/user/`](docs/user/README.md):
+
+- [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,
+  and how to work well with them
+- [Telegram commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
+  [Backup, restore and upgrades](docs/user/backup-and-upgrade.md),
+  [Security](docs/user/security.md), [Troubleshooting](docs/user/troubleshooting.md)
 
 ## Development
 

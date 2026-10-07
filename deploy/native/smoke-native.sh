@@ -61,7 +61,7 @@ finish() {
   for f in "${FAILURES[@]}"; do log "  - ${f}"; done
   log ""
   log "  journalctl -u ${SERVICE_NAME} -n 80 --no-pager"
-  log "  docs/user-docs.md#troubleshooting"
+  log "  docs/user/troubleshooting.md"
   if [ "${JSON_OUT}" = "1" ]; then
     printf '{"ok":false,"passed":%d,"failed":%d,"failures":[' "${CHECKS_PASSED}" "${CHECKS_FAILED}"
     first=1

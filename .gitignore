@@ -21,7 +21,8 @@ cache/
 # passes `pnpm test`.
 *.md
 !/README.md
-!/docs/user-docs.md
+!/docs/user/
+!/docs/user/*.md
 # NOT documentation: the orchestrator's system prompt is read by the code at runtime.
 # Ignoring it would break the orchestrator in every clone.
 !/packages/ops-orchestrator/src/prompts/system.md

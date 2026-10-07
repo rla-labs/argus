@@ -1,0 +1,666 @@
+# Telegram commands
+
+Every command is deterministic: no model turn, no LLM decision. Syntax errors
+always show the correct syntax.
+
+A **scope** is `global`, `adhoc`, or a project id. Where a command takes an
+optional project, it uses the chat's active project — set once with `/p <id>`.
+
+A **duration** is `90s`, `30m`, `2h`, `1d`, `1w`, or a bare number of minutes.
+An **amount** is `2`, `2.5`, `$2`, or `$2.50`.
+
+For which command fits which moment, read
+[Working with Argus every day](daily-use.md#commands-by-situation).
+
+| Group | Commands |
+|---|---|
+| Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
+| What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/approvals`](#approvals) · [`/health`](#health) |
+| A project's results | [`/memory`](#memory-project-id) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) |
+| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
+| Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
+| Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Admin only | [`/set`](#set-project-id-key-value--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+
+---
+
+## `/help [command]`
+
+Lists every command, or explains one. A trailing `*` marks a command that needs a
+plugin this deployment does not have.
+
+```
+/help
+/help budget
+```
+
+```
+Command      What it does
+/help        List the commands, or explain one
+/projects    List every project with its state and cost
+/budget      Show or change a budget * 
+...
+
+* needs a plugin that is not installed on this deployment.
+```
+
+`/help budget` shows the syntax line, the full explanation and the examples —
+so the help text and the parser cannot drift apart.
+
+---
+
+## `/start`
+
+Telegram sends it when you first open the chat with the bot. It says whether there
+are projects, which one this chat talks to, and the next step.
+
+```
+Argus is running.
+
+You have no projects yet.
+/new <id> creates one: a folder with its own agent, memory and budget.
+/task <text> runs a one-off task.
+Or just write what you need.
+
+/help lists every command.
+```
+
+"Or just write what you need" appears only when the orchestrator is on, because
+without it a free message with no active project has nowhere to go.
+
+---
+
+## `/projects`
+
+Every project: id, status, whether it is running, its model, and what it has
+spent today and this month. A final `total` row is the global scope.
+
+```
+/projects
+```
+
+```
+Project  Status  State  Model       Today     Month
+alpha    active  idle   fake-model  $0.001    $0.001
+beta     active  running fake-model $0.0005   $0.0005
+                        total       $0.0015   $0.0015
+```
+
+With no projects: `No projects yet. Create one with /new <id>.`
+
+---
+
+## `/p [project-id]`
+
+Shows or sets the active project **for this chat**, stored in `chat_context`. A
+different chat has its own.
+
+```
+/p
+/p site-firma
+/p none
+```
+
+```
+Active project: site-firma
+```
+
+`/p none` (or `/p clear`) unsets it. An unknown id reports it and points at
+`/projects`.
+
+---
+
+## `/status [project-id]`
+
+With no argument, the whole system. With an id, that project in detail.
+
+```
+/status
+```
+
+```
+Panic mode: off
+Slots: 1/3 global (1 reserved), 0/1 adhoc
+
+Running:
+Run           Owner  Model  Steps  Elapsed
+a1b2c3d4e5f6  alpha  fake   3      1m
+
+Pending:
+Request       Project  Prio  Waiting  Blocked by
+99887766abcd  beta     1     2m       global_slots_reserved
+
+Budget project:alpha: soft ($2.40 of $3.00, day)
+```
+
+**`Blocked by` is the field to read first.** It names the limit holding each
+request: `global_slots_full`, `global_slots_reserved`, `provider_slots_full:<n>`,
+`provider_rate_limit`, `adhoc_slots_full`, `global_interactive_only`,
+`project_paused`, or `admission_failed:<message>`.
+
+```
+/status site-firma
+```
+
+```
+Project site-firma
+  status    active
+  model     claude-sonnet-x
+  state     idle
+  today     $0.42  (17 requests)
+  month     $3.80
+  budget    info (46%)
+```
+
+---
+
+## `/stop [project-id]`
+
+Cancels the current turn. **Queued messages are kept**, so work that has not
+started still runs.
+
+```
+/stop
+/stop site-firma
+```
+
+```
+Stopping site-firma. Queued messages were kept.
+```
+
+When nothing is running: `site-firma is not running.`
+
+---
+
+## `/task <text>`
+
+Runs a one-off task in its own scratch folder. The text is forwarded
+**verbatim** — spacing, newlines and all. It runs at priority 0 and is delivered
+back to this chat.
+
+```
+/task list the CSV files in /data and summarise them
+```
+
+```
+Task queued (a1b2c3d4). I will report when it finishes.
+```
+
+The model is `tasks.model` from `ops.yaml`. An empty text shows the syntax.
+
+---
+
+## `/usage [scope] [day|month]`
+
+Cost and tokens for a scope, with a per-model breakdown. Defaults to the active
+project and the current day.
+
+```
+/usage
+/usage global month
+/usage site-firma day
+```
+
+```
+Usage for project:site-firma (2026-10-03)
+
+Scope              Cost      In     Cached  Out
+project:site-firma $0.42     120000 40000   15000
+
+By model:
+Model                       Cost    Requests
+anthropic/claude-sonnet-x   $0.38   15
+deepseek/deepseek-flash  $0.04   2
+
+Total: $0.42
+```
+
+A period with no usage reports `No usage in this period.` rather than an empty
+table.
+
+---
+
+## `/runs [project-id | all]`
+
+The last 10 runs: when each started, how it ended, its steps, how long it took and
+what it cost. Defaults to the active project; with none set, or with `all`, it lists
+every run, one-off tasks included.
+
+```
+/runs
+/runs site-firma
+/runs all
+```
+
+```
+Recent runs: site-firma
+
+Started   Status     Steps  Took   Cost
+12m ago   completed  6      1m 4s  $0.0312
+2h ago    error      2      9s     $0.004
+```
+
+The status is `running`, `completed`, `aborted` (`/stop` or `/panic`), `error`,
+`budget_stopped`, `limit_stopped` (a step or time limit) or `interrupted` (cut off by a
+restart; the startup report offers to retry it).
+
+---
+
+## `/approvals`
+
+The actions waiting for your approval, and the last five decisions. A waiting
+action is answered with the buttons on its question; no answer by the timeout means
+no.
+
+```
+Waiting for your answer (1):
+Asked   Project     Action
+2m ago  site-firma  rm -rf build
+Answer with the buttons on the question. No answer by the timeout means no.
+
+Last decisions:
+When     Project     Action      Outcome  By
+1h ago   site-firma  git push    granted  888878901
+3h ago   site-firma  git status  granted  policy
+```
+
+`policy` means the project's approval rules decided, without asking.
+
+---
+
+## `/memory [project-id]`
+
+What a project remembers: the notes it keeps across resets and compactions.
+Defaults to the active project. A memory longer than 3,000 characters is sent as a
+`.md` file.
+
+```
+/memory
+/memory site-firma
+```
+
+---
+
+## `/files [project-id] [folder]`
+
+One folder of a project: subfolders first, then files, newest first, at most 40.
+The folder is relative to the project's own; nothing outside it can be listed.
+
+```
+/files
+/files site-firma
+/files site-firma reports
+```
+
+```
+site-firma/reports
+
+Name          Size    Modified
+archive/              3d ago
+weekly.md     4.2 KB  10m ago
+summary.pdf   88.0 KB 1d ago
+
+/get site-firma reports/<name> sends a file.
+```
+
+---
+
+## `/get <project-id> <path>`
+
+Sends one file from a project's folder as an attachment. The path is relative to the
+project's folder and may contain spaces. A path, or a link, that leads outside the
+folder is refused. A file larger than Telegram can send (`telegram.max_file_bytes`,
+50 MB) is named instead, so you can fetch it from the server.
+
+```
+/get site-firma reports/weekly.md
+/get site-firma out/day 1.csv
+```
+
+---
+
+## `/budget <scope> [action]`
+
+With no action, shows the state. Three actions:
+
+| Action | Effect |
+|---|---|
+| `+<usd>` | Adds temporary headroom, re-dispatches, and **un-pauses** a project the hard action stopped. |
+| `unlock <duration> [<usd>]` | Headroom that expires. |
+| `set <day\|month> <usd>` | Changes the limit itself. |
+
+```
+/budget site-firma
+```
+
+```
+Budget for project:site-firma (day)
+  level     soft
+  limit     $3.00
+  spent     $2.40
+  used      80.0%
+  override  +$5 (expires in 1h 58m)
+  downgraded to the fallback model
+```
+
+```
+/budget site-firma +5
+Added $5 to project:site-firma. Queued work was re-dispatched; a paused project was resumed.
+```
+
+```
+/budget site-firma unlock 2h
+Unlocked project:site-firma for 2h.
+```
+
+```
+/budget global set day 20
+Set the day limit for global to $20.
+```
+
+A scope with no limit shows `limit unlimited`. An unknown action reports it and
+shows the syntax.
+
+---
+
+## `/model <project-id> <provider/model>`
+
+Records a runtime override.
+
+```
+/model site-firma deepseek/deepseek-flash
+```
+
+```
+site-firma now uses deepseek/deepseek-flash. A running agent keeps its old model until it is reset.
+```
+
+**A live agent keeps its current model** — dsh fixes the model at agent creation.
+The change applies to the next agent, or immediately after `/reset`. A
+configuration reload reverts the override, because the file is the durable intent.
+
+The model id may itself contain slashes (`openrouter/deepseek/…`); the provider is
+everything before the **first** one.
+
+---
+
+## `/allow-free <provider/model>`  *(asks first)*
+
+Allows a **remote** model priced at $0 to run. Such a model — an OpenRouter `:free`
+variant, or a 0 written in `ops.yaml` — is refused until you allow it: free remote
+models are often rate-limited and may log or train on what they are sent, and a 0 that
+is a typo would silently disable every budget. A local provider (`local_providers`,
+default `ollama`) needs nothing.
+
+```
+/allow-free openrouter/deepseek/deepseek-flash:free
+```
+
+```
+Allow openrouter/deepseek/deepseek-flash:free at $0? Free remote models are often
+rate-limited and may log or train on what they are sent. Its usage will be accounted at $0.
+[ Yes ]  [ No ]
+```
+
+The confirmation is recorded once per model, and audited. `/new` and `/model` say when
+a model needs it, and show every other model's price and where it came from:
+
+```
+Price: $0.3 in / $1.2 out per 1M tokens (catalog, verified 2026-09-13).
+```
+
+---
+
+## `/reload`
+
+Re-reads every project file, so an edited or fixed file takes effect without a
+restart. A file that does not validate marks **that** project invalid and
+ignored — every other project keeps running, and the invalid one is never
+archived for it.
+
+```
+/reload
+```
+
+```
+Reloaded: 2 project(s) loaded.
+Valid again: reports
+
+Invalid, ignored: beta — /data/config/projects/beta.yaml
+  cwd: /etc is not inside /data/projects
+```
+
+`/projects` lists an invalid project with the status `invalid`, and a request for
+it is refused with the file and the problem.
+
+---
+
+## `/new <id> [provider/model]`
+
+Creates the project folder, writes a project file from a template, and reloads
+the configuration — so the project is usable at once, without a restart.
+
+```
+/new reports
+/new reports deepseek/deepseek-flash
+```
+
+```
+Created project reports using deepseek/deepseek-flash.
+  folder  /var/lib/argus-agent/projects/reports
+  file    /var/lib/argus-agent/config/projects/reports.yaml
+Make it active with /p reports, then send it work.
+```
+
+The id must be lowercase letters, digits and dashes, 2 to 41 characters — the
+same rule the loader enforces, so a command can never write a file that fails the
+next reload. An existing project is refused rather than overwritten.
+
+---
+
+## `/reset <project-id>`  *(asks first)*
+
+Disposes the project's agent and clears its recorded session, so the next message
+starts a fresh conversation.
+
+```
+/reset site-firma
+```
+
+```
+Start site-firma's conversation over? Its history will not be deleted, but the project will no longer continue it.
+[ Yes ]  __confirm:9f8e7d6c:yes
+[ No ]   __confirm:9f8e7d6c:no
+```
+
+**The history is not deleted.** The session file stays on disk and its id is
+recorded in the audit log, so nothing is unrecoverable.
+
+---
+
+## `/set <project-id> <key> <value>`  *(admin)*
+
+Changes a project setting without opening the server. The setting is written into the
+project's file, comments kept, and the project is reloaded, so the change is durable and
+checked by the same rules as at startup. A value that does not validate is not written:
+the file stays as it was and the reply says why.
+
+```
+/set site-firma budget.day_usd 5
+/set site-firma limits.max_steps_per_run 100
+/set site-firma approvals.mode auto
+/set site-firma approvals.auto_allow [git status, npm test]
+/set site-firma description The company website and its blog
+/set site-firma model openrouter/deepseek/deepseek-v4-flash
+```
+
+| Key | What it changes |
+|---|---|
+| `description` | The sentence the front desk routes on |
+| `model` | `provider/model`; checked for a key and a price, like `/new` |
+| `fallback_model` | The cheaper model a `downgrade` budget switches to |
+| `budget.day_usd`, `budget.month_usd`, `budget.soft_action`, ... | The project's budget |
+| `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
+| `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
+| `memory.user_profile`, `progress`, `preset` | The rest |
+
+A misspelt key is refused with the list of the real ones. `id` and `cwd` cannot be
+changed: they are the project's identity and its folder. A number, `true`/`false`,
+`null` and a `[list]` are read as such; anything else is the text as typed.
+
+A change of `model`, `preset` or `fallback_model` reaches a running agent only after
+`/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+## `/archive <project-id>`  *(admin, asks first)*
+
+Stops a project taking work without deleting anything. Its file moves to
+`config/projects/archived/`; its folder, memory, history and costs stay. A running
+project must be stopped first.
+
+```
+/archive site-firma
+```
+
+```
+site-firma is archived; its file is now /data/config/projects/archived/site-firma.yaml.
+To bring it back, move that file to /data/config/projects/site-firma.yaml and send /reload.
+```
+
+---
+
+## `/allow [<user-id> | remove <user-id>]`  *(admin)*
+
+Lets someone else use the bot, without editing `ops.yaml`. Adding asks first; removing
+does not. The user is allowed on the channel you send the command from.
+
+```
+/allow
+/allow 123456789
+/allow remove 123456789
+```
+
+An added user can do everything you can except the admin commands: run commands, spend
+the budgets, talk to every project. The users added here are kept in the database
+(and in a backup); the ones in `access.allowed_users` are changed in `ops.yaml`.
+
+---
+
+## `/cron ...`
+
+Scheduled work, handled by `ops-scheduler`. The cron expression is quoted, because it
+contains spaces. With a project, the prompt goes to it; without one, it runs as a
+one-off task. The result is delivered to the chat the schedule was created from.
+
+```
+/cron list
+/cron add site-firma "0 9 * * *" check the build
+/cron add "0 18 * * 5" summarise the week
+/cron run <id>
+/cron remove <id>
+/cron enable <id>
+/cron disable <id>
+```
+
+`run` fires a schedule now, which is how to test one.
+
+Without that plugin: `The scheduler is not installed on this deployment.`
+
+---
+
+## `/health`
+
+Delegates to `ops-health`. Without it, reports what the governor can see:
+
+```
+ops-health is not installed; showing what the governor can see.
+  panic     off
+  running   1
+  pending   0
+  slots     1/3
+```
+
+---
+
+## `/panic`  *(asks first)*
+
+Cancels every running agent, rejects everything queued, and refuses new work.
+
+```
+/panic
+```
+
+```
+Stop every running agent and refuse all new work?
+[ Yes ]  __confirm:...:yes
+[ No ]   __confirm:...:no
+```
+
+On Yes: `Panic engaged. Nothing new will run until /resume-all.`
+
+**Panic survives a restart** until `/resume-all`. That is deliberate: a restart
+must not silently resume work that was deliberately stopped.
+
+---
+
+## `/resume-all`
+
+Clears panic mode and re-dispatches anything still queued.
+
+```
+/resume-all
+```
+
+```
+Resumed. Queued work will be admitted again.
+```
+
+When not panicking: `Panic mode is already off.`
+
+---
+
+## Confirmations
+
+A destructive command returns a **confirmation** instead of acting:
+
+| Property | Value |
+|---|---|
+| Answered by | Yes/No buttons, which the channel turns into `/confirm <token> <yes\|no>` |
+| Valid for | 60 seconds |
+| Used | Once |
+| Scoped to | The user who asked — a forwarded message cannot confirm someone else's action |
+| On no, or expiry | Nothing changes |
+
+`/panic`, `/reset`, `/allow-free`, `/archive` and adding a user with `/allow` ask. Nothing else does.
+
+## Errors
+
+Every failure carries the syntax:
+
+```
+"soon" is not a duration. Use 90s, 30m, 2h, 1d.
+
+Syntax: /budget <scope> [+<usd> | unlock <duration> | set <day|month> <usd>]
+```
+
+A command that fails **inside** a service reports it too, and never takes the
+harness down:
+
+```
+/status failed: store exploded
+```
+
+## Audit
+
+Every state-changing command writes an `audit_log` row:
+
+| Field | Value |
+|---|---|
+| `actor` | The user id |
+| `action` | `command.<name>` |
+| `target` | The argument, truncated to 200 characters |
+| `details` | The channel and chat id |
+
+A read-only command writes nothing, and neither does a command that only asked
+for confirmation — nothing changed, so nothing is audited.

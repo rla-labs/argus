@@ -323,8 +323,9 @@ describe('the deploy tree is complete', () => {
       'templates/ops.yaml.minimal',
       'templates/env.example',
       'templates/projects/example.yaml',
-      // The deployment guide is a section of the public docs/user-docs.md.
-      '../docs/user-docs.md',
+      // The deployment guides are pages of the public user documentation.
+      '../docs/user/install-docker.md',
+      '../docs/user/install-native.md',
     ]
     for (const file of required) {
       expect(existsSync(join(DEPLOY, file)), `${file} is missing`).toBe(true)
@@ -334,7 +335,7 @@ describe('the deploy tree is complete', () => {
   it('has no doc left as a placeholder', () => {
     // A placeholder that survives is worse than a missing file, because it looks like
     // documentation.
-    const text = readFileSync(join(DEPLOY, '..', 'docs', 'user-docs.md'), 'utf8')
+    const text = readFileSync(join(DEPLOY, '..', 'docs', 'user', 'install-docker.md'), 'utf8')
     expect(text).not.toContain('not written yet')
     expect(text).not.toContain('Status: scaffold')
   })

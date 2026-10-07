@@ -14,7 +14,7 @@
 #
 #  That is a reasonable trade when the host is dedicated to Argus Agent and the
 #  projects are your own. It is NOT reasonable for running untrusted work.
-#  See docs/user-docs.md#security.
+#  See docs/user/security.md.
 # ============================================================================
 #
 # This file is a TEMPLATE. `install-native.sh` substitutes the @PLACEHOLDER@
@@ -23,12 +23,12 @@
 # same substitutions — a unit with a literal `@APP_DIR@` in it will not start.
 #
 # Installation is automated:  ./deploy/native/install-native.sh
-# Manual installation is documented in:  docs/user-docs.md#install-natively-systemd
+# Manual installation is documented in:  docs/user/install-native.md
 
 [Unit]
 Description=Argus Agent — a self-hosted autonomous agent system
-Documentation=https://github.com/rla-labs/argus/blob/main/docs/user-docs.md#install-natively-systemd
-Documentation=https://github.com/rla-labs/argus/blob/main/docs/user-docs.md#troubleshooting
+Documentation=https://github.com/rla-labs/argus/blob/main/docs/user/install-native.md
+Documentation=https://github.com/rla-labs/argus/blob/main/docs/user/troubleshooting.md
 # `network-online` rather than `network`: the service must reach Telegram and the
 # provider, and one that starts before the route exists spends its first minutes
 # retrying connections it will never make.

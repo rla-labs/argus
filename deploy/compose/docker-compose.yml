@@ -11,7 +11,7 @@
 # The data lives in a BIND MOUNT by default rather than a named volume, because the
 # backup script archives the data directory directly and an operator should be able
 # to `ls` it. Swap to the named volume below if you prefer Docker to own it — but
-# then read docs/user-docs.md#backup-and-restore first: `docker volume` is not a path.
+# then read docs/user/backup-and-upgrade.md#backup-and-restore first: `docker volume` is not a path.
 
 services:
   ops:
@@ -42,7 +42,7 @@ services:
 
     # The health endpoint is loopback-only inside the container, which is where the
     # HEALTHCHECK calls it. Publishing it would expose an unauthenticated report of
-    # the system's shape — see docs/user-docs.md#security.
+    # the system's shape — see docs/user/security.md.
     #
     # ports:
     #   - "127.0.0.1:3090:3090"

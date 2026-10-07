@@ -20,13 +20,16 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 const DEPLOY = join(import.meta.dirname, '..', '..', 'deploy')
 const NATIVE = join(DEPLOY, 'native')
 // The user documentation is public; the native install is one of its sections.
-const USER_DOCS = join(DEPLOY, '..', 'docs', 'user-docs.md')
+const USER_DOCS = join(DEPLOY, '..', 'docs', 'user', 'install-native.md')
+/** Every page of the user documentation, as one text: a topic may live on any of them. */
+const ALL_USER_DOCS = (): string =>
+  readdirSync(dirname(USER_DOCS)).filter((name) => name.endsWith('.md')).map((name) => readFileSync(join(dirname(USER_DOCS), name), 'utf8')).join('\n')
 
 const dirs: string[] = []
 
@@ -114,7 +117,7 @@ describe('the native deploy tree', () => {
   })
 
   it('has the install document', () => {
-    expect(readFileSync(USER_DOCS, 'utf8')).toContain('## Install natively (systemd)')
+    expect(readFileSync(USER_DOCS, 'utf8')).toContain('# Install natively (systemd)')
   })
 
   it.each([
@@ -289,7 +292,7 @@ describe('the systemd unit template', () => {
 
   it('states plainly that it is secondary to Docker', () => {
     expect(unit.toUpperCase()).toContain('SECONDARY')
-    expect(unit).toContain('user-docs.md#security')
+    expect(unit).toContain('docs/user/security.md')
   })
 })
 
@@ -312,7 +315,7 @@ describe('the native and Docker layouts agree', () => {
   })
 
   it('use the same directory names as the docs describe', () => {
-    const doc = readFileSync(USER_DOCS, 'utf8')
+    const doc = ALL_USER_DOCS()
     for (const sub of ['config', 'projects', 'state', 'scratch', 'memory', 'backups', 'dsh-home']) {
       expect(doc, sub).toContain(sub)
     }
@@ -536,7 +539,7 @@ describe('install-native.sh prerequisites', () => {
 // ── the document ───────────────────────────────────────────────────────────────
 
 describe('the native install documentation', () => {
-  const doc = readFileSync(USER_DOCS, 'utf8')
+  const doc = ALL_USER_DOCS()
 
   it('is not a placeholder', () => {
     expect(doc).not.toContain('not written yet')
@@ -561,7 +564,7 @@ describe('the native install documentation', () => {
 
   it('warns that there is no container', () => {
     expect(doc).toMatch(/no container|without a container/i)
-    expect(doc).toContain('(#security)')
+    expect(doc).toContain('(security.md)')
   })
 
   it('documents the profile step that is easy to get wrong', () => {
@@ -614,20 +617,5 @@ describe('the native install documentation', () => {
     expect(doc).toContain('/etc/systemd/system/argus-agent.service')
   })
 
-  it('every section heading has a link target that exists', () => {
-    // The table of contents is hand-written, so a renamed section would leave a dead
-    // anchor. Check each anchor against the headings.
-    const anchors = [...doc.matchAll(/\]\(#([a-z0-9-]+)\)/g)].map((m) => m[1] as string)
-    const headings = [...doc.matchAll(/^#{2,4} (.+)$/gm)].map((m) =>
-      (m[1] as string)
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .trim()
-        .replace(/\s+/g, '-'),
-    )
-    expect(anchors.length).toBeGreaterThan(5)
-    for (const anchor of anchors) {
-      expect(headings, `dead anchor: #${anchor}`).toContain(anchor)
-    }
-  })
+  // Every link and anchor, on every page, is checked by test/deploy/user-docs.test.ts.
 })

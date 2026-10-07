@@ -80,7 +80,7 @@ Set:
 Everything else has a default; /app/templates/ops.yaml.example lists every key.
 
 Then set TELEGRAM_BOT_TOKEN in the environment or in a .env file, and restart.
-The full reference is docs/user-docs.md#configuration.
+The full reference is docs/user/configuration.md.
 EOF
   exit 1
 fi

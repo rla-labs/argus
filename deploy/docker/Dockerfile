@@ -122,7 +122,7 @@ VOLUME ["/data"]
 
 # 3090 is the ops health endpoint, on LOOPBACK inside the container. The port is
 # EXPOSEd so a compose file can attach a healthcheck; it is not meant to be published
-# to a host interface. See docs/user-docs.md#security.
+# to a host interface. See docs/user/security.md.
 EXPOSE 3090
 
 # The health check calls the same endpoint the operator does, so a failing check and

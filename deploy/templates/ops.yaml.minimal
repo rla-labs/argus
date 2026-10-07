@@ -4,7 +4,7 @@
 # Only what differs between installs is here: every other key has a default. The
 # full reference, every key with its default and the reason for it, is
 # templates/ops.yaml.example (in the image: /app/templates/ops.yaml.example) and
-# docs/user-docs.md#configuration. To change a default, copy its section here.
+# docs/user/configuration.md. To change a default, copy its section here.
 #
 # The Telegram token and the API keys are NOT here: they are read from the
 # environment (TELEGRAM_BOT_TOKEN, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, ...).
