@@ -35,3 +35,6 @@ cache/
 
 # Child scripts the crash tests write next to themselves; removed after each test.
 .child-*/
+
+# Local archive of superseded private docs
+/hist/
