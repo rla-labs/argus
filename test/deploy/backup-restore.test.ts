@@ -31,6 +31,16 @@ const RESTORE_SH = join(DEPLOY, 'scripts', 'restore.sh')
 
 const dirs: string[] = []
 
+// A reachable `docker` that knows no container. The scripts refuse to touch a data
+// directory other than the one a running argus-agent container serves; with the real
+// docker, a deployment running on the developer's machine would fail these tests.
+const NO_DOCKER = mkdtempSync(join(tmpdir(), 'argus-agent-nodocker-'))
+writeFileSync(
+  join(NO_DOCKER, 'docker'),
+  '#!/bin/sh\ncase "$1" in info|compose) exit 0 ;; *) echo "No such container" >&2; exit 1 ;; esac\n',
+  { mode: 0o755 },
+)
+
 afterEach(() => {
   for (const dir of dirs.splice(0)) {
     // The restore creates `<data>-pre-restore-*` beside the data directory.
@@ -57,6 +67,7 @@ function run(script: string, dataDir: string, args: string[] = [], env: Record<s
       {
         env: {
           ...process.env,
+          PATH: `${NO_DOCKER}:${process.env['PATH'] ?? ''}`,
           ARGUS_AGENT_DATA_PATH: dataDir,
           ASSUME_YES: '1',
           NO_COLOR: '1',

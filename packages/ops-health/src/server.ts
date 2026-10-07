@@ -6,7 +6,7 @@
  * the system — plugin names, queue depths, budget states — which is reconnaissance an
  * attacker should not get for free. A container healthcheck runs inside the
  * container, and an operator reaches it through an SSH tunnel; neither needs a
- * public bind, and `deploy/docs/SECURITY.md` says so.
+ * public bind, and `docs/user-docs.md#security` says so.
  *
  * @module @argus-agent/health/server
  */

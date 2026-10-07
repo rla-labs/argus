@@ -139,36 +139,22 @@ most helpful thing you can send.
 
 ## Try it
 
-You need a Linux machine. For the native install you also need **Node 22** and
-**pnpm 8.6.11**:
+You need a Linux machine. For Docker you need Docker with the Compose plugin; for the
+native install, **Node 22** and **pnpm 8.6.11**:
 
 ```sh
 corepack enable && corepack prepare pnpm@8.6.11 --activate
 ```
 
-For Docker you need Docker with the Compose plugin. Either way, you need a Telegram bot token from [@BotFather](https://t.me/BotFather), your
+Either way, you need a Telegram bot token from [@BotFather](https://t.me/BotFather), your
 numeric Telegram user id from [@userinfobot](https://t.me/userinfobot), and an API
 key for your model provider.
 
-### Native install (recommended for a VPS)
+### Docker (recommended)
 
 ```sh
 git clone https://github.com/rla-labs/argus.git
-cd argus-agent
-sudo ./deploy/native/install-native.sh
-```
-
-The installer creates a service account, builds the code and composes the dsh
-profile. It then installs a hardened systemd unit, waits for the health check and
-sends your first Telegram message. Back up with
-`deploy/native/backup-native.sh`; upgrade from git with
-`deploy/native/upgrade-native.sh`.
-
-### Docker
-
-```sh
-git clone https://github.com/rla-labs/argus.git
-cd argus-agent
+cd argus
 ./deploy/scripts/install.sh --build
 ```
 
@@ -177,8 +163,24 @@ yet. The container runs as a non-root user with a read-only filesystem and no
 capabilities. All state lives in one data directory, which is the only thing you
 need to back up.
 
-After either install, send `/help` to your bot. Every configuration key is
-documented in `deploy/templates/ops.yaml.example`.
+### Native install (a VPS without Docker)
+
+```sh
+git clone https://github.com/rla-labs/argus.git
+cd argus
+sudo ./deploy/native/install-native.sh
+```
+
+A fully supported alternative. The installer creates a service account, builds the
+code and composes the dsh profile. It then installs a hardened systemd unit, waits for
+the health check and sends your first Telegram message. Back up with
+`deploy/native/backup-native.sh`; upgrade from git with
+`deploy/native/upgrade-native.sh`.
+
+After either install, send `/help` to your bot. The full guide (installing,
+configuration, every Telegram command, backup, upgrades, troubleshooting) is
+[`docs/user-docs.md`](docs/user-docs.md); every configuration key is also documented in
+`deploy/templates/ops.yaml.example`.
 
 ## Development
 

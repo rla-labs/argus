@@ -83,7 +83,7 @@ finish() {
   log "Failures:"
   for f in "${FAILURES[@]}"; do log "  - ${f}"; done
   log ""
-  log "See deploy/docs/TROUBLESHOOTING.md, or: docker logs --tail 100 ${CONTAINER_NAME}"
+  log "See docs/user-docs.md#troubleshooting, or: docker logs --tail 100 ${CONTAINER_NAME}"
   if [ "${JSON_OUT}" = "1" ]; then
     printf '{"ok":false,"passed":%d,"failed":%d,"failures":[' "${CHECKS_PASSED}" "${CHECKS_FAILED}"
     first=1
@@ -125,7 +125,7 @@ case "${STATUS}" in
   ok)       check_pass "health status: ok" ;;
   degraded) check_pass "health status: degraded (running; something wants attention)" ;;
   down)
-    check_fail "health status: down" "the report names the problem — see deploy/docs/TROUBLESHOOTING.md"
+    check_fail "health status: down" "the report names the problem — see docs/user-docs.md#troubleshooting"
     finish
     ;;
   *) check_fail "health status is unreadable: '${STATUS}'" "the endpoint answered with something unexpected: ${HEALTH_BODY:0:200}" ;;

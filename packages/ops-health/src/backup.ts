@@ -4,7 +4,7 @@
  *
  * **This backs up the SQLite database only.** Session transcripts, project
  * workspaces and the memory state tree are files, and they are covered by a
- * volume-level backup — `deploy/docs/BACKUP-RESTORE.md` says so, and this module's
+ * volume-level backup — `docs/user-docs.md#backup-and-restore` says so, and this module's
  * documentation repeats it, because the most dangerous misunderstanding about a
  * backup is thinking it covers more than it does.
  *

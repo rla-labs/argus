@@ -117,7 +117,7 @@ if [ -r /etc/os-release ]; then
       warn "${OS_NAME} — the official Docker install path differs; this script assumes systemd"
       ;;
     *)
-      warn "${OS_NAME} is untested. Continuing, but see deploy/docs/INSTALL.md for the manual steps."
+      warn "${OS_NAME} is untested. Continuing, but see docs/user-docs.md#install-with-docker for the manual steps."
       ;;
   esac
 else
@@ -184,7 +184,7 @@ else
   log ""
   if confirm "Run the official convenience script now?"; then
     curl -fsSL https://get.docker.com -o /tmp/get-docker.sh || die "could not download the installer"
-    sudo sh /tmp/get-docker.sh || die "the Docker install failed. See deploy/docs/INSTALL.md."
+    sudo sh /tmp/get-docker.sh || die "the Docker install failed. See docs/user-docs.md#install-with-docker."
     rm -f /tmp/get-docker.sh
     sudo systemctl enable --now docker 2>/dev/null || true
     ok "docker $(docker --version | sed 's/Docker version //;s/,.*//')"
@@ -490,7 +490,7 @@ if ! wait_for_health 180; then
   err "  2. a missing or invalid config/ops.yaml — the log says which key"
   err "  3. an invalid Telegram token — the log names it (never its value)"
   err ""
-  err "See deploy/docs/TROUBLESHOOTING.md"
+  err "See docs/user-docs.md#troubleshooting"
   exit 1
 fi
 
@@ -547,7 +547,7 @@ if bash "${LIB_DIR}/smoke.sh" --quiet; then
   ok "the smoke test passed"
 else
   warn "the smoke test reported problems (see above)"
-  warn "The system is running, but not everything works. See deploy/docs/TROUBLESHOOTING.md"
+  warn "The system is running, but not everything works. See docs/user-docs.md#troubleshooting"
 fi
 
 # ── 9. next steps ──────────────────────────────────────────────────────────────
@@ -586,7 +586,7 @@ cat >&2 <<EOF
     1. Edit ${FINAL_DATA_PATH}/config/projects/example.yaml, or copy it to make
        a real project. The 'description' field is what the orchestrator routes on.
     2. Send /help to your bot, then /status.
-    3. Read deploy/docs/CONFIGURE.md for the full reference.
+    3. Read docs/user-docs.md#configuration for the full reference.
 
   Keep the bot token secret. Anyone with it can drive this system as the bot.
 

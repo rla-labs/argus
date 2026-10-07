@@ -79,7 +79,7 @@ At minimum, set:
   access.allowed_users   at least one { channel, userId }, or every message is refused
 
 Then set TELEGRAM_BOT_TOKEN in the environment or in a .env file, and restart.
-The full reference is deploy/docs/CONFIGURE.md.
+The full reference is docs/user-docs.md#configuration.
 EOF
   exit 1
 fi

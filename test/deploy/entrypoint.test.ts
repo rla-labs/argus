@@ -286,59 +286,6 @@ describe('the entrypoint and lib.sh agree on the layout', () => {
   })
 })
 
-describe('the systemd unit', () => {
-  const unit = readFileSync(join(DEPLOY, 'systemd', 'argus-agent.service'), 'utf8')
-
-  it('has the required sections', () => {
-    for (const section of ['[Unit]', '[Service]', '[Install]']) {
-      expect(unit).toContain(section)
-    }
-  })
-
-  it('declares the directives that make it survivable', () => {
-    expect(unit).toContain('Restart=always')
-    expect(unit).toContain('User=ops')
-    expect(unit).toContain('EnvironmentFile=')
-    expect(unit).toContain('ExecStart=')
-    expect(unit).toContain('WantedBy=multi-user.target')
-  })
-
-  it('confines the agent, since there is no container to do it', () => {
-    // These ARE the barrier for a non-Docker install, so their presence is a security
-    // property rather than a preference.
-    for (const directive of [
-      'ProtectSystem=strict',
-      'ReadWritePaths=',
-      'NoNewPrivileges=true',
-      'PrivateTmp=true',
-      'ProtectHome=true',
-      'CapabilityBoundingSet=',
-    ]) {
-      expect(unit, directive).toMatch(new RegExp(`^${directive}`, 'm'))
-    }
-  })
-
-  it('documents the secrets file as mode 600', () => {
-    expect(unit).toContain('600')
-    expect(unit).toContain('secrets.env')
-  })
-
-  it('points data_dir at the host path, not /data', () => {
-    // There is no container, so the container's path would be wrong. The unit's header
-    // must say so, because it is the difference from the Docker install.
-    expect(unit).toContain('data_dir` points at the HOST path')
-  })
-
-  it('caps logging, which an agent can otherwise fill a disk with', () => {
-    expect(unit).toContain('SyslogIdentifier=')
-    expect(unit).toContain('StandardOutput=journal')
-  })
-
-  it('says it is secondary', () => {
-    expect(unit.toUpperCase()).toContain('SECONDARY')
-  })
-})
-
 describe('the Dockerfile', () => {
   const dockerfile = readFileSync(join(DEPLOY, 'docker', 'Dockerfile'), 'utf8')
 

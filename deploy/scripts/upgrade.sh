@@ -142,7 +142,7 @@ else
   if [ -z "${BACKUP_DB}" ] || [ ! -f "${BACKUP_DB}" ]; then
     err "the pre-upgrade backup did not produce a database artifact"
     if ! confirm "Continue WITHOUT a verified backup?"; then
-      die "aborted: fix the backup first (deploy/docs/BACKUP-RESTORE.md)"
+      die "aborted: fix the backup first (docs/user-docs.md#backup-and-restore)"
     fi
   else
     ok "backed up: $(basename "${BACKUP_DB}")"
@@ -313,7 +313,7 @@ if [ "${MIGRATED}" = "1" ]; then
     ok "database restored from $(basename "${BACKUP_DB}")"
   else
     err "the schema changed but there is no database backup to restore"
-    err "The deployment may not start. Restore manually — see deploy/docs/BACKUP-RESTORE.md"
+    err "The deployment may not start. Restore manually — see docs/user-docs.md#backup-and-restore"
   fi
 else
   dim "  the schema did not change, so the database is kept as it is"
@@ -335,7 +335,7 @@ else
   [ -n "${BACKUP_DB}" ] && err "  the pre-upgrade database: ${BACKUP_DB}"
   [ -n "${BACKUP_DATA}" ] && err "  the pre-upgrade archive:  ${BACKUP_DATA}"
   err "  restore.sh --db ${BACKUP_DB} --data ${BACKUP_DATA}"
-  err "See deploy/docs/TROUBLESHOOTING.md"
+  err "See docs/user-docs.md#troubleshooting"
   exit 1
 fi
 
@@ -356,6 +356,6 @@ if [ -n "${BACKUP_DB}" ]; then
   dim "  ${BACKUP_DB}"
 fi
 log ""
-log "Before retrying: read the failure above and deploy/docs/UPGRADE.md."
+log "Before retrying: read the failure above and docs/user-docs.md#upgrading."
 
 exit 1

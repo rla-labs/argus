@@ -25,9 +25,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const DEPLOY = join(import.meta.dirname, '..', '..', 'deploy')
 const NATIVE = join(DEPLOY, 'native')
-const DOCS = join(DEPLOY, 'docs')
-// The Markdown documentation is kept locally and is not in the public repository.
-const HAS_DOCS = existsSync(join(DEPLOY, '..', 'docs', 'developer-docs.md'))
+// The user documentation is public; the native install is one of its sections.
+const USER_DOCS = join(DEPLOY, '..', 'docs', 'user-docs.md')
 
 const dirs: string[] = []
 
@@ -114,8 +113,8 @@ describe('the native deploy tree', () => {
     }
   })
 
-  it.skipIf(!HAS_DOCS)('has the install document', () => {
-    expect(existsSync(join(DOCS, 'INSTALL-NATIVE.md'))).toBe(true)
+  it('has the install document', () => {
+    expect(readFileSync(USER_DOCS, 'utf8')).toContain('## Install natively (systemd)')
   })
 
   it.each([
@@ -290,7 +289,7 @@ describe('the systemd unit template', () => {
 
   it('states plainly that it is secondary to Docker', () => {
     expect(unit.toUpperCase()).toContain('SECONDARY')
-    expect(unit).toContain('SECURITY.md')
+    expect(unit).toContain('user-docs.md#security')
   })
 })
 
@@ -312,8 +311,8 @@ describe('the native and Docker layouts agree', () => {
     }
   })
 
-  it.skipIf(!HAS_DOCS)('use the same directory names as the docs describe', () => {
-    const doc = readFileSync(join(DOCS, 'INSTALL-NATIVE.md'), 'utf8')
+  it('use the same directory names as the docs describe', () => {
+    const doc = readFileSync(USER_DOCS, 'utf8')
     for (const sub of ['config', 'projects', 'state', 'scratch', 'memory', 'backups', 'dsh-home']) {
       expect(doc, sub).toContain(sub)
     }
@@ -536,8 +535,8 @@ describe('install-native.sh prerequisites', () => {
 
 // ── the document ───────────────────────────────────────────────────────────────
 
-describe.skipIf(!HAS_DOCS)('INSTALL-NATIVE.md', () => {
-  const doc = HAS_DOCS ? readFileSync(join(DOCS, 'INSTALL-NATIVE.md'), 'utf8') : ''
+describe('the native install documentation', () => {
+  const doc = readFileSync(USER_DOCS, 'utf8')
 
   it('is not a placeholder', () => {
     expect(doc).not.toContain('not written yet')
@@ -562,7 +561,7 @@ describe.skipIf(!HAS_DOCS)('INSTALL-NATIVE.md', () => {
 
   it('warns that there is no container', () => {
     expect(doc).toMatch(/no container|without a container/i)
-    expect(doc).toContain('SECURITY.md')
+    expect(doc).toContain('(#security)')
   })
 
   it('documents the profile step that is easy to get wrong', () => {
@@ -619,7 +618,7 @@ describe.skipIf(!HAS_DOCS)('INSTALL-NATIVE.md', () => {
     // The table of contents is hand-written, so a renamed section would leave a dead
     // anchor. Check each anchor against the headings.
     const anchors = [...doc.matchAll(/\]\(#([a-z0-9-]+)\)/g)].map((m) => m[1] as string)
-    const headings = [...doc.matchAll(/^#{2,3} (.+)$/gm)].map((m) =>
+    const headings = [...doc.matchAll(/^#{2,4} (.+)$/gm)].map((m) =>
       (m[1] as string)
         .toLowerCase()
         .replace(/[^a-z0-9\s-]/g, '')

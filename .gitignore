@@ -15,11 +15,13 @@ coverage/
 .vitest/
 cache/
 
-# Documentation is kept on the maintainer's machine only: every Markdown file is
-# private except the root README. The tests and check-docs skip the documentation
-# checks when it is absent, so a public clone still passes `pnpm test`.
+# Developer documentation is kept on the maintainer's machine only: every Markdown file
+# is private except the root README and the user documentation. The tests and check-docs
+# skip the developer-documentation checks when it is absent, so a public clone still
+# passes `pnpm test`.
 *.md
 !/README.md
+!/docs/user-docs.md
 # NOT documentation: the orchestrator's system prompt is read by the code at runtime.
 # Ignoring it would break the orchestrator in every clone.
 !/packages/ops-orchestrator/src/prompts/system.md

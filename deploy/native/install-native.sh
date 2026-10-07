@@ -8,7 +8,7 @@
 #   * There is no container to confine a project's tools. The systemd unit's own
 #     hardening (ProtectSystem, CapabilityBoundingSet, ReadWritePaths) IS the barrier, and
 #     a tool a project runs has the service account's access. Read
-#     `deploy/docs/SECURITY.md` before putting anything sensitive on the host.
+#     `docs/user-docs.md#security` before putting anything sensitive on the host.
 #   * There is no image, so there is no atomic rollback to a previous version. An upgrade
 #     rebuilds in place; `upgrade-native.sh` restores the git revision and the database.
 #   * The health endpoint is read from the HOST rather than through `docker exec`, which
@@ -252,7 +252,7 @@ log "  provider key     $(
   else printf 'NOT SET — no agent can run until it is'; fi)"
 log ""
 log "  Note: without Docker there is no container confining a project's tools."
-log "        The systemd unit's hardening is the barrier — see deploy/docs/SECURITY.md."
+log "        The systemd unit's hardening is the barrier — see docs/user-docs.md#security."
 log ""
 
 if [ "${DRY_RUN}" = "1" ]; then
@@ -482,7 +482,7 @@ if ! wait_for_health 180; then
   err "  3. an invalid Telegram token (the log names it, never its value)"
   err ""
   err "  journalctl -u ${SERVICE_NAME} -n 80 --no-pager"
-  err "  deploy/docs/TROUBLESHOOTING.md"
+  err "  docs/user-docs.md#troubleshooting"
   exit 1
 fi
 
@@ -575,14 +575,14 @@ fi
 
 cat >&2 <<EOF
   ${C_YELLOW}Without Docker there is no container around a project's tools.${C_RESET}
-  The unit's hardening is the barrier. Read deploy/docs/SECURITY.md section
-  "The systemd unit is secondary" before running anything you would not run by hand.
+  The unit's hardening is the barrier. Read docs/user-docs.md#container-or-systemd
+  before running anything you would not run by hand.
 
   Next:
     1. Edit ${DATA_DIR}/config/projects/example.yaml, or copy it to make a
        real project. The 'description' field is what the orchestrator routes on.
     2. Send /help to your bot, then /status.
-    3. Read deploy/docs/CONFIGURE.md for the full reference.
+    3. Read docs/user-docs.md#configuration for the full reference.
 
   Back up regularly:
     ${NATIVE_DIR}/backup-native.sh

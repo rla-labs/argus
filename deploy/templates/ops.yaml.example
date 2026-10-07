@@ -2,7 +2,7 @@
 # Argus Agent configuration.
 #
 # Copy to /data/config/ops.yaml and edit. Every key is listed, with the default and
-# what it does; the reference is deploy/docs/CONFIGURE.md.
+# what it does; the reference is docs/user-docs.md#configuration.
 #
 # Two rules shape the defaults below:
 #

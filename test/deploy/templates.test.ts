@@ -27,8 +27,6 @@ import { memoryOf } from '@argus-agent/memory'
 import { healthOf } from '@argus-agent/health'
 
 const DEPLOY = join(import.meta.dirname, '..', '..', 'deploy')
-// The Markdown documentation is kept locally and is not in the public repository.
-const HAS_DOCS = existsSync(join(DEPLOY, '..', 'docs', 'developer-docs.md'))
 const TEMPLATES = join(DEPLOY, 'templates')
 
 /** The raw template, with the `${VAR}` interpolations left as literal strings. */
@@ -321,38 +319,23 @@ describe('the deploy tree is complete', () => {
       'scripts/uninstall.sh',
       'scripts/smoke.sh',
       'scripts/lib.sh',
-      'systemd/argus-agent.service',
       'templates/ops.yaml.example',
       'templates/env.example',
       'templates/projects/example.yaml',
-      // The Markdown documentation is local-only (.gitignore); a public clone has none.
-      ...(HAS_DOCS
-        ? [
-            'README.md',
-            'docs/INSTALL.md',
-            'docs/CONFIGURE.md',
-            'docs/UPGRADE.md',
-            'docs/BACKUP-RESTORE.md',
-            'docs/SECURITY.md',
-            'docs/TROUBLESHOOTING.md',
-          ]
-        : []),
+      // The deployment guide is a section of the public docs/user-docs.md.
+      '../docs/user-docs.md',
     ]
     for (const file of required) {
       expect(existsSync(join(DEPLOY, file)), `${file} is missing`).toBe(true)
     }
   })
 
-  it.skipIf(!HAS_DOCS)('has no doc left as a placeholder', () => {
-    // The scaffold put "Status: not written yet" in each doc so check-docs could pass
-    // early. A placeholder that survives is worse than a missing file, because it looks
-    // like documentation.
-    for (const file of readdirSync(join(DEPLOY, 'docs'))) {
-      if (!file.endsWith('.md')) continue
-      const text = readFileSync(join(DEPLOY, 'docs', file), 'utf8')
-      expect(text, `${file} is still a placeholder`).not.toContain('not written yet')
-      expect(text, `${file} still says it is a scaffold`).not.toContain('Status: scaffold')
-    }
+  it('has no doc left as a placeholder', () => {
+    // A placeholder that survives is worse than a missing file, because it looks like
+    // documentation.
+    const text = readFileSync(join(DEPLOY, '..', 'docs', 'user-docs.md'), 'utf8')
+    expect(text).not.toContain('not written yet')
+    expect(text).not.toContain('Status: scaffold')
   })
 
   it('has no TODO in any deploy file', () => {
