@@ -64,6 +64,65 @@ export function interpolateEnv(
   return result
 }
 
+/** What {@link resolveEnv} produced. */
+export interface ResolvedEnv {
+  /** The text with every set variable substituted. */
+  readonly text: string
+  /** Variables referenced but not set, sorted. */
+  readonly missing: readonly string[]
+}
+
+/**
+ * Interpolate `${NAME}` references, tolerating unset variables.
+ *
+ * A system that keeps running must not let one unset variable take down every
+ * plugin: a missing `TELEGRAM_BOT_TOKEN` should leave Telegram off, not the store,
+ * the governor and the scheduler with it. So an unset variable that is the WHOLE
+ * value (`bot_token: ${TELEGRAM_BOT_TOKEN}`, quoted or not, or a list item) becomes
+ * `null` — "not set" — and the plugin that owns the key reports it, where the
+ * cause is. One embedded in a longer string (`url: https://${HOST}/x`) is left
+ * literal rather than turned into a plausible wrong value. Every unset variable is
+ * returned, so the caller can name them.
+ *
+ * @param text the raw file contents.
+ * @param env environment to read; defaults to `process.env`.
+ * @returns the text and the unset variables.
+ */
+export function resolveEnv(text: string, env: Record<string, string | undefined> = process.env): ResolvedEnv {
+  const missing = new Set<string>()
+  const wholeValue = /^(\s*(?:-\s+)?(?:[^#\n'"]*?:\s+)?)(["']?)\$\{([A-Za-z_][A-Za-z0-9_]*)\}\2(\s*(?:#.*)?)$/
+  const lines = text.split('\n').map((line) => {
+    const whole = wholeValue.exec(line)
+    if (whole !== null && env[whole[3]!] === undefined) {
+      missing.add(whole[3]!)
+      return `${whole[1]}null${whole[4]}`
+    }
+    return line.replace(ENV_REFERENCE, (match, name: string) => {
+      const value = env[name]
+      if (value === undefined) {
+        missing.add(name)
+        return match
+      }
+      return value
+    })
+  })
+  return { text: lines.join('\n'), missing: [...missing].sort() }
+}
+
+/**
+ * The warning for unset variables, naming each one and how to set it.
+ * @param missing the unset variables.
+ * @param source the file that references them.
+ * @returns the message.
+ */
+export function missingEnvMessage(missing: readonly string[], source: string): string {
+  return (
+    `${source} refers to environment variable(s) that are not set: ${missing.join(', ')}. ` +
+    'Each is treated as absent, so the setting that uses it is off. Set it in secrets.env ' +
+    '(native) or the compose .env (Docker), then restart.'
+  )
+}
+
 /**
  * Resolve a configuration path that may be relative to the data directory.
  * @param value the configured value.
@@ -110,6 +169,7 @@ export function resolveConfigPath(env: Record<string, string | undefined> = proc
 export function parseRawConfig(
   path?: string,
   env: Record<string, string | undefined> = process.env,
+  onMissing?: (missing: readonly string[], source: string) => void,
 ): Record<string, unknown> {
   const configPath = path !== undefined ? resolve(path) : resolveConfigPath(env)
   let text: string
@@ -121,7 +181,8 @@ export function parseRawConfig(
         `Create it, or point ${CONFIG_PATH_ENV} at an existing file.`,
     )
   }
-  const interpolated = interpolateEnv(text, env, configPath)
+  const { text: interpolated, missing } = resolveEnv(text, env)
+  if (missing.length > 0) onMissing?.(missing, configPath)
   let parsed: unknown
   try {
     parsed = parseYaml(interpolated)
@@ -203,7 +264,9 @@ export function loadOpsConfig(
         `Create it, or point ${CONFIG_PATH_ENV} at an existing file.`,
     )
   }
-  const interpolated = interpolateEnv(text, env, configPath)
+  // Tolerant, like `parseRawConfig`: an unset variable is reported by the loader
+  // row once, at boot, and leaves only the setting that uses it off.
+  const { text: interpolated } = resolveEnv(text, env)
   let parsed: unknown
   try {
     parsed = parseYaml(interpolated)

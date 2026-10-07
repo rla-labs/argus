@@ -1,0 +1,50 @@
+# == ARGUS AGENT PROJECT ==
+# Every push and pull request: build, typecheck, lint (including shellcheck) and the
+# whole test suite. A change is done when this is green.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The runner ships shellcheck; scripts/lint-shell.sh uses it instead of npx.
+      SHELLCHECK_BIN: shellcheck
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The pnpm that wrote the lockfile, through corepack (package.json packageManager).
+      - name: pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@8.6.11 --activate
+          echo "store=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+        id: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm.outputs.store }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test

@@ -11,15 +11,21 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import z from '@deepseek-ai/schemastery'
-import type { Scope } from '@argus-agent/types'
-import { scopeOfOwner } from '@argus-agent/types'
+import type { ModelRef, Scope } from '@argus-agent/types'
+import { parseModelRef, scopeOfOwner } from '@argus-agent/types'
 import { OpsMeter, type MeterOptions } from './service.js'
-import { PriceTable, pricingSectionSchema, pricingTableSchema, type PricingConfig } from './pricing.js'
+import { PriceTable, localProvidersSchema, pricingSectionSchema, pricingTableSchema, type PricingConfig } from './pricing.js'
+import { SNAPSHOT } from './catalog-snapshot.js'
+import { providerCatalogPrice } from './provider-catalog.js'
+import { PriceRefresher } from './refresh.js'
 import { RateLimiter } from './rate-window.js'
 import { TimezoneCalendar } from './time.js'
 import './events.js'
 
 export * from './pricing.js'
+export * from './catalog.js'
+export * from './refresh.js'
+export { SNAPSHOT as PRICE_CATALOG } from './catalog-snapshot.js'
 export * from './time.js'
 export * from './counters.js'
 export * from './rate-window.js'
@@ -54,6 +60,12 @@ const rateLimitsSchema = z
   .default({})
 
 /** Extract the per-provider ceilings from a validated section. */
+/** A section's `model: provider/model`, or `undefined`. */
+function sectionModel(section: unknown): ModelRef | undefined {
+  const text = (section as { model?: unknown } | undefined)?.model
+  return typeof text === 'string' ? parseModelRef(text) : undefined
+}
+
 function rateLimitsOf(raw: unknown): Record<string, number> {
   const parsed = (rateLimitsSchema as unknown as (v: unknown) => Record<string, { tokens_per_minute: number }>)(raw ?? {})
   const limits: Record<string, number> = {}
@@ -96,30 +108,87 @@ export function apply(ctx: Context): void {
     z.union([z.const('block'), z.const('warn')]).default('block'),
   )
   const rateSection = ctx.opsConfigRegistry.extend('rate_limits', rateLimitsSchema)
+  const localSection = ctx.opsConfigRegistry.extend('local_providers', localProvidersSchema)
+  const refreshSection = ctx.opsConfigRegistry.extend('price_refresh', z.boolean().default(true))
+  ctx.effect(() => refreshSection)
   ctx.effect(() => pricingSection)
   ctx.effect(() => policySection)
   ctx.effect(() => rateSection)
+  ctx.effect(() => localSection)
 
   // Read from the RAW document: this row activates before later plugins register
   // their sections, and reading `ctx.opsConfig` would trigger the cross-section
   // unknown-key check too early.
   const raw = ctx.opsRawConfig
-  const pricing = pricingSectionSchema(raw) as unknown as PricingConfig
+  const pricing = {
+    ...(pricingSectionSchema(raw) as unknown as PricingConfig),
+    local_providers: localProvidersSchema(raw['local_providers']) as unknown as string[],
+  }
   const rateLimits = rateLimitsOf(raw['rate_limits'])
 
+  const meterPrices = new PriceTable(pricing, SNAPSHOT, providerCatalogPrice)
   const calendar = new TimezoneCalendar(typeof raw['timezone'] === 'string' ? raw['timezone'] : 'UTC')
+  // Prices saved by earlier refreshes apply at once; the refresh itself runs on a
+  // timer, so the network never delays a boot or a request.
+  const refresher = new PriceRefresher({
+    store: ctx.opsStore,
+    prices: meterPrices,
+    now: () => Date.now(),
+    fetch: globalThis.fetch,
+    log: { info: (m) => ctx.logger('ops-meter').info('%s', m), warn: (m) => ctx.logger('ops-meter').warn('%s', m) },
+    watched: () => [
+      ...ctx.opsProjects
+        .configuredIds()
+        .map((id) => ctx.opsProjects.configOf(id))
+        .filter((config) => config !== undefined)
+        .map((config) => ({ provider: config.provider, model: config.model })),
+      // The ad-hoc and orchestrator models run too, before any project exists.
+      ...[sectionModel(raw['tasks']), sectionModel(raw['orchestrator'])].filter((ref) => ref !== undefined),
+    ],
+    onChanges: (changes) => ctx.emit('ops/prices-changed', { changes }),
+    // A project refused for want of a price comes back once one arrives.
+    onApplied: () => ctx.opsProjects.recheckModels(),
+  })
   const meter = new OpsMeter(ctx, {
     store: ctx.opsStore,
     projects: ctx.opsProjects,
     calendar,
-    prices: new PriceTable(pricing),
+    prices: meterPrices,
     rateLimiter: new RateLimiter(rateLimits),
     flushThreshold: 50,
     flushIntervalMs: 5_000,
     now: () => Date.now(),
+    ...(raw['price_refresh'] === false
+      ? {}
+      : { ensurePriced: (model: ModelRef) => refresher.refreshCeilings(false, model) }),
   } satisfies MeterOptions)
 
   ctx.provide('opsMeter', meter)
+
+  refresher.load()
+  if (raw['price_refresh'] !== false) {
+    const stop = refresher.start()
+    ctx.effect(() => stop)
+  } else {
+    ctx.logger('ops-meter').info('price refresh is off (price_refresh: false); using the catalog from %s', meterPrices.catalogInfo?.retrievedAt ?? 'the release')
+  }
+
+  // A model with no price cannot run under `block`, so it is refused at configuration
+  // time — the project is invalid, `/new` refuses it — not at its first request.
+  if (meterPrices.unknownPolicy === 'block') {
+    ctx.effect(() =>
+      ctx.opsProjects.addModelCheck((model) =>
+        meterPrices.isPriced(model)
+          ? undefined
+          : {
+              code: 'UNPRICED_MODEL',
+              message: `${model.provider}/${model.model} has no price; add it to pricing in ops.yaml (USD per million tokens)`,
+            },
+      ),
+    )
+  }
+
+  warnAboutProjectModels(ctx, meter)
   ctx.effect(() => () => {
     void meter.stop()
   })
@@ -178,3 +247,38 @@ export function apply(ctx: Context): void {
   // The price table and the rate limits are captured at load, so a change to
   // either needs this row to be reloaded. Nothing to do on a config event.
 }
+
+/**
+ * Tell the operator, at boot, about a project whose model cannot run as expected:
+ * unpriced (refused under `block`), retired by its provider, or free and not yet
+ * confirmed. The governor refuses the first and the last with the same reason;
+ * this says it before anyone sends a message.
+ *
+ * @param ctx the plugin's context.
+ * @param meter the meter.
+ */
+function warnAboutProjectModels(ctx: Context, meter: OpsMeter): void {
+  const logger = ctx.logger('ops-meter')
+  const info = meter.catalogInfo
+  logger.info(
+    'price catalog: %s (%s), retrieved %s',
+    info?.title ?? SNAPSHOT.meta.title,
+    info?.license ?? SNAPSHOT.meta.license,
+    info?.retrievedAt ?? SNAPSHOT.meta.retrievedAt,
+  )
+  for (const id of ctx.opsProjects.configuredIds()) {
+    const config = ctx.opsProjects.configOf(id)
+    if (config === undefined) continue
+    const model = { provider: config.provider, model: config.model }
+    const price = meter.priceOf(model)
+    const name = `${config.provider}/${config.model}`
+    if (price === undefined) {
+      logger.warn('project %s uses %s, which has no price: add it to `pricing` in ops.yaml', id, name)
+    } else if (price.status === 'retired') {
+      logger.warn('project %s uses %s, which its provider has retired; requests to it will likely fail', id, name)
+    } else if (meter.needsFreeConfirmation(model)) {
+      logger.warn('project %s uses %s, which is free and not yet confirmed: send /allow-free %s', id, name, name)
+    }
+  }
+}
+

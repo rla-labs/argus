@@ -25,6 +25,8 @@ export interface OpsErrorCodeMap {
   'PROJECT_NOT_FOUND': true
   /** A project's file exists but does not validate; it is ignored until fixed. */
   'PROJECT_INVALID': true
+  /** Another Argus Agent process already uses this data directory. */
+  'INSTANCE_LOCKED': true
   /** A project exists but its status forbids the operation (`paused`, `archived`). */
   'PROJECT_NOT_ACTIVE': true
   /** A project's configuration file is missing or invalid. */
@@ -33,6 +35,14 @@ export interface OpsErrorCodeMap {
   'BUDGET_EXCEEDED': true
   /** The target model has no price and `unknown_model_policy` is `block`. */
   'UNPRICED_MODEL': true
+  /** A model names a provider no route serves: not in the catalog, not declared in `providers:`. */
+  'PROVIDER_UNKNOWN': true
+  /** A model's provider has no API key: `<PROVIDER>_API_KEY` is not set. */
+  'PROVIDER_KEY_MISSING': true
+  /** A provider authenticates by sign-in (Bedrock, Vertex, Azure, …), which Argus does not support. */
+  'PROVIDER_UNSUPPORTED': true
+  /** A provider is known but does not offer this model. */
+  'MODEL_UNKNOWN': true
   /** No concurrency slot is free. */
   'NO_SLOT': true
   /** The system is in panic mode and accepts nothing. */
@@ -182,10 +192,15 @@ const KNOWN_CODES: Record<string, true> = {
   CONFIG_INVALID: true,
   PROJECT_NOT_FOUND: true,
   PROJECT_INVALID: true,
+  INSTANCE_LOCKED: true,
   PROJECT_NOT_ACTIVE: true,
   PROJECT_CONFIG_INVALID: true,
   BUDGET_EXCEEDED: true,
   UNPRICED_MODEL: true,
+  PROVIDER_UNKNOWN: true,
+  PROVIDER_KEY_MISSING: true,
+  PROVIDER_UNSUPPORTED: true,
+  MODEL_UNKNOWN: true,
   NO_SLOT: true,
   PANIC_MODE: true,
   RUN_LIMIT_EXCEEDED: true,

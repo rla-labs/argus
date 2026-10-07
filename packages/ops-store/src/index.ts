@@ -8,6 +8,8 @@
  *
  * @module @argus-agent/store
  */
+import { mkdirSync } from 'node:fs'
+import { InstanceLock, INSTANCE_LOCK_FILE } from './instance-lock.js'
 import { join, isAbsolute, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only import: brings in `ctx.opsConfig` / `ctx.opsConfigRegistry`.
@@ -21,6 +23,7 @@ export * from './migrations.js'
 export * from './service.js'
 export * from './types.js'
 export * from './config.js'
+export * from './instance-lock.js'
 export {
   ApprovalsRepository,
   AuditRepository,
@@ -113,7 +116,13 @@ export function apply(ctx: Context): void {
   // section yields `undefined` for every omitted key.
   const raw = ctx.opsRawConfig
   const config = storeConfigSchema(raw[STORE_CONFIG_SECTION] ?? {}) as StoreConfig
-  const databasePath = resolveDatabasePath(config, resolveDataDir(raw))
+  const dataDir = resolveDataDir(raw)
+  const databasePath = resolveDatabasePath(config, dataDir)
+
+  // One process per data directory, before anything is opened or migrated.
+  mkdirSync(dataDir, { recursive: true })
+  const lock = InstanceLock.acquire(join(dataDir, INSTANCE_LOCK_FILE))
+  ctx.effect(() => () => lock.release())
 
   const store = new OpsStore({
     path: databasePath,

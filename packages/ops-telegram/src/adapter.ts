@@ -36,6 +36,7 @@ import {
   splitForTelegram,
   tooLargeText,
   tooLargeToDownload,
+  toMenuCommand,
   type TelegramCallbackLike,
   type TelegramMessageLike,
 } from './convert.js'
@@ -375,12 +376,11 @@ export class TelegramChannelAdapter implements ChannelAdapter {
     const commands = (globalThis as { __argusAgentCommands?: Array<{ name: string; description: string }> })
       .__argusAgentCommands
     if (commands === undefined || commands.length === 0) return
-    await this.api.setMyCommands(
-      commands.slice(0, 100).map((command) => ({
-        command: command.name,
-        description: command.description.slice(0, 256),
-      })),
-    )
+    const menu = commands.flatMap((command) => {
+      const name = toMenuCommand(command.name)
+      return name === undefined ? [] : [{ command: name, description: command.description.slice(0, 256) }]
+    })
+    await this.api.setMyCommands(menu.slice(0, 100))
   }
 
   /** Send a message, through the per-chat queue. */

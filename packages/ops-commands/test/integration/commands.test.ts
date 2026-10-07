@@ -646,10 +646,10 @@ describe('/budget', () => {
 describe('/model', () => {
   it('changes a project’s model', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
-    const out = await booted.commands.runCommand('/model alpha deepseek/deepseek-v4-flash', contextFor())
+    const out = await booted.commands.runCommand('/model alpha deepseek/deepseek-flash', contextFor())
     expect(out.error).toBeUndefined()
-    expect(out.text).toContain('deepseek/deepseek-v4-flash')
-    expect(booted.store.projects.get('alpha')?.model).toBe('deepseek/deepseek-v4-flash')
+    expect(out.text).toContain('deepseek/deepseek-flash')
+    expect(booted.store.projects.get('alpha')?.model).toBe('deepseek/deepseek-flash')
   }, 30_000)
 
   it('rejects a malformed model reference', async () => {
@@ -702,6 +702,46 @@ describe('/reload', () => {
   }, 30_000)
 })
 
+// ── prices and free models ─────────────────────────────────────────────────
+
+describe('prices and /allow-free', () => {
+  it('shows the price when a model is chosen', async () => {
+    const booted = await bootCommands()
+    const out = await run(booted, '/new reports fake/fake-model')
+    expect(out).toContain('Price: $1 in / $1 out per 1M tokens (ops.yaml)')
+  }, 30_000)
+
+  it('refuses a free remote model until the operator confirms it, then lets it run', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-cmd-'))
+    dirs.push(dataDir)
+    const booted = await bootCommands({
+      dataDir,
+      opsYaml:
+        `timezone: UTC\ndata_dir: PLACEHOLDER\n` +
+        `tasks:\n  model: fake/fake-model\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n  fake/gratis: { input: 0, cached: 0, output: 0 }\n`,
+    })
+    const model = { provider: 'fake', model: 'gratis' }
+    expect(booted.meter.needsFreeConfirmation(model)).toBe(true)
+    expect(await run(booted, '/new free-one fake/gratis')).toContain('refused until you send /allow-free fake/gratis')
+
+    // Asks first, and says why.
+    const asked = await run(booted, '/allow-free fake/gratis')
+    expect(asked).toContain('Allow fake/gratis at $0?')
+    expect(asked).toContain('rate-limited')
+    expect(booted.meter.needsFreeConfirmation(model)).toBe(true)
+
+    // Confirmed: recorded durably, and audited.
+    expect(await run(booted, '/allow-free-confirm fake/gratis')).toContain('may now run')
+    expect(booted.meter.needsFreeConfirmation(model)).toBe(false)
+    expect(booted.store.runtimeState.get<string[]>('pricing.free_confirmed')).toEqual(['fake/gratis'])
+    expect(booted.store.audit.byTarget('fake/gratis').some((row) => row.action === 'pricing.free-confirmed')).toBe(true)
+
+    // A paid model needs nothing.
+    expect(await run(booted, '/allow-free fake/fake-model')).toContain('needs no confirmation')
+  }, 30_000)
+})
+
 // ── /new ───────────────────────────────────────────────────────────────────
 
 describe('/new', () => {
@@ -722,8 +762,20 @@ describe('/new', () => {
     await booted.commands.runCommand('/new reports', contextFor())
     const text = readFileSync(join(booted.dataDir, 'config', 'projects', 'reports.yaml'), 'utf8')
     expect(text).toContain('id: reports')
-    expect(text).toContain('provider: deepseek')
-    expect(text).toContain('model: deepseek-v4-flash')
+    // Without a model, /new uses tasks.model.
+    expect(text).toContain('provider: fake')
+    expect(text).toContain('model: fake-model')
+  }, 30_000)
+
+  it('refuses a model a check refuses, and writes nothing', async () => {
+    const booted = await bootCommands()
+    booted.projects.addModelCheck((model) =>
+      model.provider === 'zai' ? { code: 'PROVIDER_KEY_MISSING', message: 'set ZAI_API_KEY' } : undefined,
+    )
+    const out = await booted.commands.runCommand('/new reports zai/glm-5.3-flash', contextFor())
+    expect(out.error).toBe(true)
+    expect(out.text).toBe('Cannot create "reports": set ZAI_API_KEY')
+    expect(existsSync(join(booted.dataDir, 'config', 'projects', 'reports.yaml'))).toBe(false)
   }, 30_000)
 
   it('accepts a model argument', async () => {

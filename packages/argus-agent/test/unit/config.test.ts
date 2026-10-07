@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import z from '@deepseek-ai/schemastery'
 import { ConfigRegistry, OpsConfigError, rootSchema } from '../../src/config.js'
-import { interpolateEnv, loadOpsConfig, resolveConfigPath, resolveUnderDataDir } from '../../src/loader.js'
+import { interpolateEnv, loadOpsConfig, parseRawConfig, resolveConfigPath, resolveEnv, resolveUnderDataDir } from '../../src/loader.js'
 
 const temps: string[] = []
 
@@ -76,6 +76,42 @@ describe('ConfigRegistry', () => {
     const registry = new ConfigRegistry()
     expect(() => registry.validate(['timezone'])).toThrow(/mapping/)
     expect(() => registry.validate(null)).toThrow(/mapping/)
+  })
+})
+
+describe('resolveEnv: one unset variable must not stop the system', () => {
+  it('turns an unset variable that is the whole value into null, quoted or not, and in a list', () => {
+    const { text, missing } = resolveEnv(
+      'telegram:\n  bot_token: ${TOKEN}   # from secrets.env\n  other: "${TOKEN}"\nlist:\n  - ${ITEM}\n',
+      {},
+    )
+    expect(text).toBe('telegram:\n  bot_token: null   # from secrets.env\n  other: null\nlist:\n  - null\n')
+    expect(missing).toEqual(['ITEM', 'TOKEN'])
+  })
+
+  it('leaves an unset variable inside a longer string literal, rather than inventing a value', () => {
+    expect(resolveEnv('url: https://${HOST}/x', {})).toEqual({ text: 'url: https://${HOST}/x', missing: ['HOST'] })
+  })
+
+  it('substitutes set variables exactly as before', () => {
+    expect(resolveEnv('token: ${T}\nurl: https://${H}/x', { T: 'abc', H: 'h.example' })).toEqual({
+      text: 'token: abc\nurl: https://h.example/x',
+      missing: [],
+    })
+  })
+
+  it('lets the configuration load, and reports what was missing', () => {
+    const dir = tempDir()
+    const path = join(dir, 'ops.yaml')
+    writeFileSync(path, 'timezone: Europe/Bucharest\ndata_dir: ${UNSET_DATA_DIR}\n')
+    const reported: string[] = []
+    const raw = parseRawConfig(path, {}, (missing) => reported.push(...missing))
+    expect(raw['data_dir']).toBeNull()
+    expect(reported).toEqual(['UNSET_DATA_DIR'])
+    // The validated configuration falls back to the key's default.
+    const config = loadOpsConfig(new ConfigRegistry(), { path, env: {} })
+    expect(config.timezone).toBe('Europe/Bucharest')
+    expect(config.dataDirAbs).toBe('/data')
   })
 })
 

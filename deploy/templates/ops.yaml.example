@@ -136,15 +136,50 @@ paused_policy: keep
 
 # ── pricing ─────────────────────────────────────────────────────────────────────
 #
-# What a model costs per million tokens. Required: an unpriced model is REFUSED under
-# the default policy, because a system that cannot say what something costs should not
-# buy it.
+# What a model costs, in USD per million tokens. You usually need to write NOTHING here:
+# Argus ships a price catalog (the AI API Pricing dataset, aicostbudget.com, CC BY 4.0)
+# for DeepSeek, Anthropic and OpenAI, and for their models reached through OpenRouter
+# (`openrouter/<vendor>/<model>`). /new and /model show the price they will use.
+#
+# A price is taken from the first of: this table (exact key, then `provider/*`), a local
+# provider (free), OpenRouter's `:free` variants (free, need /allow-free), the catalog.
+# Write an entry to correct a price, record a negotiated discount, or price a model the
+# catalog does not know. `cache_write` defaults to `input` when omitted.
 
-pricing:
-  # deepseek/*: { input: 0.14, cached: 0.014, output: 0.28 }
-  # openai/gpt-4o-mini: { input: 0.15, cached: 0.075, output: 0.6 }
+pricing: {}
+  # deepseek/deepseek-flash: { input: 0.3, cached: 0.006, output: 1.2 }
+  # openrouter/*:            { input: 1, cached: 0.1, output: 4, cache_write: 1.25 }
 
-# `block` refuses an unpriced model; `warn` allows it and logs.
+# Providers running on your own hardware: free per token, and expected to be.
+local_providers: [ollama]
+
+# ── providers ──────────────────────────────────────────────────────────────────
+# Every provider in dsh's catalog (anthropic, openai, google, deepseek, zai, groq,
+# mistral, xai, openrouter, together, fireworks, …) works with no entry here: set
+# <PROVIDER>_API_KEY in .env and name the model `provider/model`. Declare a
+# provider the catalog does not ship (an OpenAI-compatible endpoint), or add models
+# to a catalog one. A declared provider's models need a price under pricing: above.
+# Changes here take effect on restart.
+providers: {}
+#   deepinfra:                                  # key: DEEPINFRA_API_KEY
+#     base_url: https://api.deepinfra.com/v1/openai
+#     models: [deepseek-ai/DeepSeek-V4-Flash]
+#   ollama:                                     # with the Ollama overlay
+#     base_url: http://ollama:11434/v1
+#     models: [llama3.2]
+#     key: none
+#   openrouter:                                 # a model newer than the catalog
+#     models: [vendor/brand-new-model]
+
+# Keep prices current: the dataset is re-fetched weekly and OpenRouter's own prices
+# daily, saved, and applied without a restart; you are told when a model you use
+# changes price. A failed fetch keeps the last good prices. `false` for a server
+# with no internet access — the catalog shipped with the release is used.
+price_refresh: true
+
+# A model with no price at all: `block` refuses it (the default — a system that cannot
+# say what something costs should not buy it); `warn` runs it, accounted at $0.
+# A REMOTE model priced at $0 runs only after /allow-free <provider/model>.
 unknown_model_policy: block
 
 # ── tasks ───────────────────────────────────────────────────────────────────────
@@ -152,7 +187,7 @@ unknown_model_policy: block
 # The model `/task` and an ad-hoc schedule use when none is named.
 
 tasks:
-  model: deepseek/deepseek-v4-flash
+  model: deepseek/deepseek-flash
 
 # ── orchestrator ────────────────────────────────────────────────────────────────
 #
@@ -161,7 +196,7 @@ tasks:
 
 orchestrator:
   enabled: true
-  model: deepseek/deepseek-v4-flash
+  model: deepseek/deepseek-flash
   # The agent preset mounted into the orchestrator's own scope. The default gives it
   # its six fixed tools; a custom preset would change what the front desk can do.
   preset: default

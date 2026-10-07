@@ -31,7 +31,7 @@ export interface OrchestratorSection {
 export const orchestratorSchema: Schema = z
   .object({
     enabled: z.boolean().default(true),
-    model: z.string().default('deepseek/deepseek-v4-flash'),
+    model: z.string().default('deepseek/deepseek-flash'),
     preset: z.string().default('ops-orchestrator'),
     switch_active_on_send: z.boolean().default(true),
     allowed_task_models: z.array(z.string()).default([]),

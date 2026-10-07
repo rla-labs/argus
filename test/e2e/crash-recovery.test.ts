@@ -46,7 +46,7 @@ function prepare(dataDir: string): void {
     join(dataDir, 'config', 'ops.yaml'),
     `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
       `tasks:\n  model: fake/fake-model\n` +
-      `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+      `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\nprice_refresh: false\n` +
       `budgets:\n  default_day_usd: 100\n` +
       `access:\n  allowed_users:\n    - { channel: console, userId: dev }\n` +
       `channel:\n  default_address: console:dev\n` +

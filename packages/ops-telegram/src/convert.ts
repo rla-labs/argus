@@ -165,7 +165,7 @@ export function convertIncoming(
     return { kind: 'ignored', reason: 'from a group and telegram.allow_groups is false' }
   }
 
-  const text = stripBotMention(raw.text ?? raw.caption ?? '', options.botUsername)
+  const text = fromMenuCommand(stripBotMention(raw.text ?? raw.caption ?? '', options.botUsername))
   const attachments = attachmentsOf(raw)
 
   if (text.trim().length === 0 && attachments.length === 0) {
@@ -209,6 +209,31 @@ export function stripBotMention(text: string, botUsername?: string): string {
   const head = space === -1 ? text : text.slice(0, space)
   const tail = space === -1 ? '' : text.slice(space)
   return head.endsWith(mention) ? `${head.slice(0, -mention.length)}${tail}` : text
+}
+
+/**
+ * A command name as Telegram's menu can carry it: `[a-z0-9_]`, at most 32 characters.
+ * Argus names use `-` (`resume-all`), which `setMyCommands` refuses, so the menu
+ * lists `resume_all` and {@link fromMenuCommand} maps it back.
+ *
+ * @param name the command name, without the slash.
+ * @returns the menu form, or `undefined` when the name cannot be a menu entry.
+ */
+export function toMenuCommand(name: string): string | undefined {
+  const menu = name.replaceAll('-', '_')
+  return /^[a-z0-9_]{1,32}$/.test(menu) ? menu : undefined
+}
+
+/**
+ * Map a command typed or tapped from the menu (`/resume_all`) back to its name
+ * (`/resume-all`). Only the command word changes; the arguments are the user's.
+ *
+ * @param text the message text.
+ * @returns the text with the command word in its Argus form.
+ */
+export function fromMenuCommand(text: string): string {
+  const match = /^\/[a-z0-9_]+/.exec(text)
+  return match === null ? text : `${match[0].replaceAll('_', '-')}${text.slice(match[0].length)}`
 }
 
 /** The display name of a sender, for logs. Never trusted for authorization. */

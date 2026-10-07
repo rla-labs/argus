@@ -188,6 +188,13 @@ describe('renderEntries', () => {
     expect(yaml).toContain('nothing: null')
   })
 
+  it('renders a one-entry nested map as a block, not as `a: b: c`', async () => {
+    const { parse } = await import('yaml')
+    const config = { providers: { openrouter: { apiKeyEnv: 'KEY' } } }
+    const parsed = parse(renderEntries([{ id: 'x', name: 'x', config }])) as Array<{ config: unknown }>
+    expect(parsed[0]?.config).toEqual(config)
+  })
+
   it('renders a disabled row', () => {
     expect(renderEntries([{ id: 'hmr', name: 'x', disabled: true }])).toContain('disabled: true')
   })

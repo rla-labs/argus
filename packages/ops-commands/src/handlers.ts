@@ -67,6 +67,49 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     return context.activeProject ?? deps.service.activeProjectOf(context.address)
   }
 
+  /**
+   * One line saying what a model costs and where the price came from — or why it
+   * will be refused. Shown when a model is chosen, so the operator never has to
+   * look a price up.
+   */
+  function priceLine(model: { provider: string; model: string }): string {
+    const name = `${model.provider}/${model.model}`
+    const price = meter.priceOf(model)
+    if (price === undefined) {
+      return meter.unknownPolicy === 'warn'
+        ? `Price: unknown — accounted at $0 (unknown_model_policy: warn). Add it to pricing in ops.yaml.`
+        : `Price: unknown — requests will be refused until it is added to pricing in ops.yaml.`
+    }
+    if (price.source === 'local') return 'Price: $0 — a local provider.'
+    if (meter.needsFreeConfirmation(model)) {
+      return `Price: $0 — free remote model, refused until you send /allow-free ${name}`
+    }
+    const where =
+      price.source === 'config'
+        ? 'ops.yaml'
+        : price.source === 'openrouter-free'
+          ? 'OpenRouter free tier, confirmed'
+          : price.source === 'openrouter'
+            ? price.matchedBy.includes('highest')
+              ? 'OpenRouter, highest-priced provider'
+              : 'OpenRouter list price'
+            : price.source === 'provider-catalog'
+              ? 'provider price list'
+              : `catalog, verified ${price.verifiedAt ?? 'n/a'}`
+    const retired = price.status === 'retired' ? ' ⚠️ its provider has retired this model.' : ''
+    return `Price: $${price.input} in / $${price.output} out per 1M tokens (${where}).${retired}`
+  }
+
+  /**
+   * Why a model cannot be configured, or `undefined`: the checks every project model
+   * must pass (a provider route, its API key, a price). An OpenRouter model's
+   * provider ceiling is fetched first, so the price shown is the one charged.
+   */
+  async function modelRefusal(model: { provider: string; model: string }): Promise<string | undefined> {
+    await meter.ensurePriced(model)
+    return projects.checkModel(model)?.message
+  }
+
   /** `project:<id>` as a scope string. */
   function scopeOf(projectId: string): Scope {
     return `project:${projectId}` as Scope
@@ -549,10 +592,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'Records a runtime override. A live agent keeps its current model — dsh fixes the ' +
           'model at agent creation — so the change applies to the next agent, or immediately ' +
           'after /reset. A configuration reload reverts it, because the file is the durable intent.',
-        examples: ['/model site-firma deepseek/deepseek-v4-flash'],
+        examples: ['/model site-firma deepseek/deepseek-flash'],
         mutating: true,
       },
-      run(input, context): CommandResult {
+      async run(input, context): Promise<CommandResult> {
         const tokens = tokenize(input)
         const projectId = tokens[0]
         const modelText = tokens[1]
@@ -561,12 +604,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         const parsed = parseModelRef(modelText)
         if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
+        const refusal = await modelRefusal(parsed.value)
+        if (refusal !== undefined) return errorResult(refusal)
         if (!projects.setModel(projectId, parsed.value.text, context.userId)) {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, `No project "${projectId}".`)
         }
         return result(
           `${projectId} now uses ${parsed.value.text}. ` +
-            'A running agent keeps its old model until it is reset.',
+            'A running agent keeps its old model until it is reset.\n' +
+            priceLine(parsed.value),
         )
       },
     },
@@ -580,11 +626,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         detail:
           'Creates the project folder, writes a project file from a template, and reloads the ' +
           'configuration so the project is usable at once. The id must be lowercase letters, ' +
-          'digits and dashes.',
-        examples: ['/new site-firma', '/new reports deepseek/deepseek-v4-flash'],
+          'digits and dashes. Without a model it uses tasks.model. A model whose provider has ' +
+          'no API key (<PROVIDER>_API_KEY) or no price is refused.',
+        examples: ['/new site-firma', '/new reports zai/glm-5.3-flash', '/new notes openrouter/deepseek/deepseek-v4-flash'],
         mutating: true,
       },
-      run(input, context): CommandResult {
+      async run(input, context): Promise<CommandResult> {
         const tokens = tokenize(input)
         const id = tokens[0]
         if (id === undefined) {
@@ -600,9 +647,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, `Project "${id}" already exists.`)
         }
 
-        const defaultModel = tokens[1] === undefined ? 'deepseek/deepseek-v4-flash' : tokens[1]
+        const defaultModel = tokens[1] ?? `${options.adhocModel.provider}/${options.adhocModel.model}`
         const parsed = parseModelRef(defaultModel)
         if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
+        // Refused before any file is written: no route, no API key, no price.
+        const refusal = await modelRefusal(parsed.value)
+        if (refusal !== undefined) return errorResult(`Cannot create "${id}": ${refusal}`)
 
         const cwd = join(options.projectsRoot, id)
         const file = join(options.projectsConfigDir, `${id}.yaml`)
@@ -638,8 +688,63 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         return result(
           `Created project ${id} using ${parsed.value.text}.\n` +
             `  folder  ${cwd}\n  file    ${file}\n` +
+            `${priceLine(parsed.value)}\n` +
             `Make it active with /p ${id}, then send it work.`,
         )
+      },
+    },
+
+    // ── /allow-free ────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'allow-free',
+        description: 'Allow a free remote model to run',
+        syntax: '/allow-free <provider/model>',
+        detail:
+          'A remote model priced at $0 — an OpenRouter :free variant, or a 0 in ops.yaml — is ' +
+          'refused until you allow it, because free remote models are often rate-limited and may ' +
+          'log or train on what they are sent, and a 0 that is a typo would disable every budget. ' +
+          'Local providers (local_providers, default ollama) need nothing. Requires confirmation.',
+        examples: ['/allow-free openrouter/deepseek/deepseek-flash:free'],
+        mutating: true,
+        destructive: true,
+      },
+      run(input, context): CommandResult {
+        const parsed = parseModelRef(tokenize(input)[0] ?? '')
+        if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
+        if (!meter.needsFreeConfirmation(parsed.value)) {
+          const price = meter.priceOf(parsed.value)
+          return result(
+            price === undefined
+              ? `${parsed.value.text} has no price at all; free confirmation does not apply. Add it to pricing in ops.yaml.`
+              : `${parsed.value.text} needs no confirmation. ${priceLine(parsed.value)}`,
+          )
+        }
+        return deps.service.requestConfirmationFor(
+          `/allow-free-confirm ${parsed.value.text}`,
+          context,
+          `Allow ${parsed.value.text} at $0? Free remote models are often rate-limited and may log or ` +
+            'train on what they are sent. Its usage will be accounted at $0.',
+        )
+      },
+    },
+
+    // ── /allow-free-confirm ────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'allow-free-confirm',
+        description: 'Internal: the confirmed form of /allow-free',
+        syntax: '/allow-free-confirm <provider/model>',
+        detail: 'Records the confirmation /allow-free asked for. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+      },
+      run(input, context): CommandResult {
+        const parsed = parseModelRef(tokenize(input)[0] ?? '')
+        if (!parsed.ok) return errorResult(parsed.message)
+        meter.confirmFree(parsed.value, context.userId)
+        governor.requestDispatch()
+        return result(`${parsed.value.text} may now run. Its usage is accounted at $0.`)
       },
     },
 

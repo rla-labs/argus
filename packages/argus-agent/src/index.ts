@@ -27,3 +27,4 @@ export * from './events.js'
 
 export * as configRegistryRow from './registry-row.js'
 export * as configLoaderRow from './loader-row.js'
+export { OpsProviders, buildRoutes, providersSchema, SIGN_IN_PROVIDERS, type DeclaredProvider, type ProviderRoute } from './providers-row.js'

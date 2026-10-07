@@ -22,6 +22,17 @@ import { projectScope, usd } from '@argus-agent/types'
 const dirs: string[] = []
 const closers: Array<() => void> = []
 
+/**
+ * A directory for a child script, INSIDE the repository: the script imports
+ * workspace packages by name, and Node resolves those only from a directory with
+ * the repository's node_modules above it — never from the system temp directory.
+ */
+function scriptDir(): string {
+  const dir = mkdtempSync(join(import.meta.dirname, '.child-'))
+  dirs.push(dir)
+  return dir
+}
+
 function tempDir(): string {
   const dir = mkdtempSync(join(tmpdir(), 'ops-crash-'))
   dirs.push(dir)
@@ -72,7 +83,7 @@ describe('crash safety', () => {
   it('survives SIGKILL during batch inserts with no partial batch and no corruption', async () => {
     const dir = tempDir()
     const path = join(dir, 'ops.sqlite')
-    const scriptPath = join(dir, 'child.mts')
+    const scriptPath = join(scriptDir(), 'child.mts')
     writeFileSync(scriptPath, CHILD_SCRIPT)
 
     const child = spawn(process.execPath, ['--import', 'tsx', scriptPath, path], {
@@ -248,7 +259,7 @@ describe('crash safety', () => {
     // must not undo the commit.
     const dir = tempDir()
     const path = join(dir, 'ops.sqlite')
-    const scriptPath = join(dir, 'commit-then-hang.mts')
+    const scriptPath = join(scriptDir(), 'commit-then-hang.mts')
     writeFileSync(
       scriptPath,
       `

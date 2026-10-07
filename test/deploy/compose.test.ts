@@ -263,6 +263,16 @@ describe('every script is well formed', () => {
     }
   })
 
+  it('install.sh --data-path is honoured (lib.sh makes DATA_PATH readonly)', async () => {
+    const { promisify } = await import('node:util')
+    const { stdout, stderr } = await promisify(execFile)(
+      'bash',
+      [join(DEPLOY, 'scripts', 'install.sh'), '--non-interactive', '--dry-run', '--data-path', '/nonexistent/argus-x'],
+      { env: { ...process.env, TELEGRAM_BOT_TOKEN: 'x', ARGUS_AGENT_ADMIN_ID: '1', NO_COLOR: '1' } },
+    ).catch((error: { stdout: string; stderr: string }) => error)
+    expect(`${stdout}${stderr}`).toMatch(/data directory\s+\/nonexistent\/argus-x/)
+  })
+
   it('the Dockerfile entrypoint does not use set -x either', () => {
     const text = readFileSync(join(DEPLOY, 'docker', 'entrypoint.sh'), 'utf8')
     expect(text).not.toContain('set -x')

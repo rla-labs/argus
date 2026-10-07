@@ -278,7 +278,7 @@ describe('templates/env.example', () => {
     // leaked token. Non-secret settings (an image tag, a path) legitimately carry a
     // value, so the check names the secret-bearing keys rather than treating every
     // assignment alike.
-    const secretKeys = ['TELEGRAM_BOT_TOKEN', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']
+    const secretKeys = ['TELEGRAM_BOT_TOKEN', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY']
     for (const line of text.split('\n')) {
       const trimmed = line.trim()
       if (trimmed.startsWith('#') || !trimmed.includes('=')) continue

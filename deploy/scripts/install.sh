@@ -17,6 +17,12 @@
 # Usage:
 #   install.sh [--non-interactive] [--build] [--data-path DIR] [--yes] [--dry-run]
 
+# --data-path is taken before lib.sh, which resolves DATA_PATH and makes it readonly.
+_prev=""
+for _arg in "$@"; do
+  [ "${_prev}" = "--data-path" ] && export ARGUS_AGENT_DATA_PATH="${_arg}"
+  _prev="${_arg}"
+done
 # shellcheck source=lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
@@ -31,6 +37,7 @@ V_TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 V_ADMIN_ID="${ARGUS_AGENT_ADMIN_ID:-}"
 V_TIMEZONE="${ARGUS_AGENT_TIMEZONE:-}"
 V_DEEPSEEK_KEY="${DEEPSEEK_API_KEY:-}"
+V_OPENROUTER_KEY="${OPENROUTER_API_KEY:-}"
 V_DAY_BUDGET="${ARGUS_AGENT_DAY_BUDGET_USD:-3}"
 V_MONTH_BUDGET="${ARGUS_AGENT_MONTH_BUDGET_USD:-40}"
 V_IMAGE="${ARGUS_AGENT_IMAGE:-ghcr.io/rla-labs/argus-agent:0.1.0}"
@@ -52,6 +59,8 @@ Environment (all optional; used instead of prompting):
   ARGUS_AGENT_ADMIN_ID        your numeric Telegram user id
   ARGUS_AGENT_TIMEZONE        an IANA timezone, e.g. Europe/Bucharest
   DEEPSEEK_API_KEY        the provider key
+  OPENROUTER_API_KEY      or/and an OpenRouter key; with only this one, the
+                          default models run through OpenRouter
   ARGUS_AGENT_DAY_BUDGET_USD      default 3
   ARGUS_AGENT_MONTH_BUDGET_USD    default 40
   ARGUS_AGENT_IMAGE           the image reference
@@ -77,7 +86,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --non-interactive) NON_INTERACTIVE=1; shift ;;
     --build)           BUILD_FROM_SOURCE=1; shift ;;
-    --data-path)       DATA_PATH="${2:?--data-path needs a directory}"; shift 2 ;;
+    --data-path)       : "${2:?--data-path needs a directory}"; shift 2 ;;  # read before lib.sh
     --image)           V_IMAGE="${2:?--image needs a reference}"; shift 2 ;;
     --yes|-y)          ASSUME_YES=1; export ASSUME_YES; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
@@ -248,6 +257,10 @@ else
     printf 'DeepSeek API key (optional): ' >&2
     read -r V_DEEPSEEK_KEY
   fi
+  if [ -z "${V_DEEPSEEK_KEY}" ] && [ -z "${V_OPENROUTER_KEY}" ]; then
+    printf 'OpenRouter API key instead (optional): ' >&2
+    read -r V_OPENROUTER_KEY
+  fi
 
   log ""
   V_TIMEZONE="$(ask "Timezone" "${V_TIMEZONE}")"
@@ -268,6 +281,15 @@ fi
 
 V_ADMIN_ID="$(printf '%s' "${V_ADMIN_ID}" | tr -d '[:space:]')"
 
+# Which provider the default models use: DeepSeek directly when its key is set,
+# else the same DeepSeek models through OpenRouter.
+provider_summary() {
+  if [ -n "${V_DEEPSEEK_KEY}" ]; then printf 'DeepSeek%s' "$([ -n "${V_OPENROUTER_KEY}" ] && printf ' + OpenRouter')"
+  elif [ -n "${V_OPENROUTER_KEY}" ]; then printf 'OpenRouter (default models: openrouter/deepseek/...)'
+  else printf 'NOT SET — no agent can run until it is'
+  fi
+}
+
 # ── what will happen ───────────────────────────────────────────────────────────
 
 log ""
@@ -278,7 +300,7 @@ log "  timezone         ${V_TIMEZONE}"
 log "  admin user id    ${V_ADMIN_ID}"
 log "  budgets          \$${V_DAY_BUDGET}/day, \$${V_MONTH_BUDGET}/month per project"
 log "  approvals        ask (every risky action becomes a Telegram question)"
-log "  provider key     $([ -n "${V_DEEPSEEK_KEY}" ] && printf 'set' || printf 'NOT SET — no agent can run until it is')"
+log "  provider key     $(provider_summary)"
 log ""
 
 if [ "${DRY_RUN}" = "1" ]; then
@@ -373,6 +395,10 @@ else
   # The budgets.
   sed -i "s|^  default_day_usd: .*|  default_day_usd: ${V_DAY_BUDGET}|" "${TMP_YAML}"
   sed -i "s|^  default_month_usd: .*|  default_month_usd: ${V_MONTH_BUDGET}|" "${TMP_YAML}"
+  # Only an OpenRouter key: the default models run through OpenRouter.
+  if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
+    sed -i "s|^  model: deepseek/deepseek-flash|  model: openrouter/deepseek/deepseek-v4-flash|" "${TMP_YAML}"
+  fi
 
   # The container reads it as uid 10001, so it must be readable by it.
   mv "${TMP_YAML}" "${OPS_YAML}" 2>/dev/null || { cat "${TMP_YAML}" > "${OPS_YAML}"; rm -f "${TMP_YAML}"; }
@@ -382,6 +408,11 @@ else
 
   if [ -f "${DEPLOY_DIR}/templates/projects/example.yaml" ]; then
     cp "${DEPLOY_DIR}/templates/projects/example.yaml" "${FINAL_DATA_PATH}/config/projects/example.yaml"
+    if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
+      sed -i -e "s|^provider: deepseek|provider: openrouter|" -e "s|^model: deepseek-v4-pro|model: deepseek/deepseek-v4-pro|" \
+        -e "s|^fallback_model: deepseek/deepseek-flash|fallback_model: openrouter/deepseek/deepseek-v4-flash|" \
+        "${FINAL_DATA_PATH}/config/projects/example.yaml"
+    fi
     chown 10001:10001 "${FINAL_DATA_PATH}/config/projects/example.yaml" 2>/dev/null || true
     dim "  an example project was placed at config/projects/example.yaml — edit or delete it"
   fi
@@ -400,6 +431,9 @@ else
 
 TELEGRAM_BOT_TOKEN=${V_TELEGRAM_TOKEN}
 DEEPSEEK_API_KEY=${V_DEEPSEEK_KEY}
+OPENROUTER_API_KEY=${V_OPENROUTER_KEY}
+# Any other provider: <PROVIDER>_API_KEY, taken from the installer's environment.
+$(env | grep -E '^[A-Z0-9_]+_API_KEY=' | grep -vE '^(DEEPSEEK|OPENROUTER)_API_KEY=' | sort)
 
 ARGUS_AGENT_IMAGE=${V_IMAGE}
 ARGUS_AGENT_DATA_PATH=${FINAL_DATA_PATH}
@@ -537,11 +571,11 @@ cat >&2 <<EOF
 EOF
 fi
 
-if [ -z "${V_DEEPSEEK_KEY}" ]; then
+if [ -z "${V_DEEPSEEK_KEY}" ] && [ -z "${V_OPENROUTER_KEY}" ]; then
 cat >&2 <<EOF
   ${C_YELLOW}No provider key was set.${C_RESET} The system runs, but no agent can think.
   Add it and restart:
-    \$EDITOR ${ENV_FILE}      # DEEPSEEK_API_KEY=...
+    \$EDITOR ${ENV_FILE}      # DEEPSEEK_API_KEY=... or OPENROUTER_API_KEY=...
     docker compose -f ${COMPOSE_FILE} up -d --force-recreate
 
 EOF

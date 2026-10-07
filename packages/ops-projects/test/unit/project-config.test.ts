@@ -164,7 +164,7 @@ describe('parseProjectConfig', () => {
 
   it('honours every explicit value', () => {
     const config = parse({
-      fallback_model: 'deepseek/deepseek-v4-flash',
+      fallback_model: 'deepseek/deepseek-flash',
       preset: 'standard',
       description: 'The company website.',
       progress: true,
@@ -173,7 +173,7 @@ describe('parseProjectConfig', () => {
       approvals: { mode: 'auto', auto_allow: ['git status'], timeout_minutes: 5 },
       memory: { user_profile: false },
     })
-    expect(config.fallback_model).toBe('deepseek/deepseek-v4-flash')
+    expect(config.fallback_model).toBe('deepseek/deepseek-flash')
     expect(config.preset).toBe('standard')
     expect(config.progress).toBe(true)
     expect(config.limits.max_subagent_depth).toBe(2)

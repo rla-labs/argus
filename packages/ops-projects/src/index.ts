@@ -10,7 +10,7 @@
  */
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { Owner } from '@argus-agent/types'
+import { parseModelRef, type ModelRef, type Owner } from '@argus-agent/types'
 // Type-only: brings in the `ops/config-loaded` event declaration.
 import type {} from '@argus-agent/argus-agent'
 import { OpsProjects } from './service.js'
@@ -69,8 +69,13 @@ export function apply(ctx: Context): void {
   // Load and sync synchronously. Tolerant: an invalid file marks THAT project
   // invalid and ignored; every other project, and the whole system, keeps running.
   loadAndSync(ctx, service)
+  service.setReloader(() => void loadAndSync(ctx, service))
 
   ctx.provide('opsProjects', service)
+  // The providers row's check (a route, an API key, a known model), when it is up.
+  ctx.inject(['opsProviders'], (child) => {
+    child.effect(() => service.addModelCheck((ref) => child.opsProviders.check(ref)))
+  })
   ctx.effect(() => () => {
     void service.disposeAll()
   })
@@ -150,8 +155,21 @@ export interface ReloadReport extends SyncReport {
 function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
   const paths = pathsOf(ctx.opsRawConfig)
   const projectsRoot = join(paths.dataDirAbs, 'projects')
-  const loaded = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false })
-  const invalid = invalidProjectsOf(loaded.errors)
+  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false })
+  // A file that validates can still name a model that cannot run: no key, no price.
+  const failing = files.configs.flatMap((config) => {
+    const models: Array<[string, ModelRef | undefined]> = [
+      ['model', { provider: config.provider, model: config.model }],
+      ['fallback_model', config.fallback_model === null ? undefined : parseModelRef(config.fallback_model)],
+    ]
+    const problems = models.flatMap(([key, ref]) => {
+      const problem = ref === undefined ? undefined : service.checkModel(ref)
+      return problem === undefined ? [] : [`${key}: ${problem.message}`]
+    })
+    return problems.length === 0 ? [] : [{ id: config.id, path: config.sourcePath, reason: problems.join('\n') }]
+  })
+  const loaded = { configs: files.configs.filter((config) => !failing.some((f) => f.id === config.id)) }
+  const invalid = [...invalidProjectsOf(files.errors), ...failing].sort((a, b) => a.id.localeCompare(b.id))
   const before = service.invalidProjects()
 
   service.setConfigs(loaded.configs)

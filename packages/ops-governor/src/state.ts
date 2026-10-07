@@ -12,6 +12,7 @@
 import {
   MICROS_PER_USD,
   type MicroUsd,
+  type ModelProblem,
   type ModelRef,
   type Owner,
   type Priority,
@@ -106,6 +107,16 @@ export interface GovernorSnapshot {
   readonly budgets: ReadonlyMap<Scope, BudgetState>
   /** Whether a model has a price, by `provider/model`. */
   readonly priced: (model: ModelRef) => boolean
+  /**
+   * Whether a model is free, remote and not yet confirmed by the operator.
+   * Optional so a snapshot built without a meter treats every model as confirmed.
+   */
+  readonly freeUnconfirmed?: (model: ModelRef) => boolean
+  /**
+   * Why a model cannot run (no provider, no API key, no price), from the checks
+   * registered on `ops-projects`. Optional so a snapshot without them runs every model.
+   */
+  readonly modelProblem?: (model: ModelRef) => ModelProblem | undefined
 }
 
 /** A request's own target identity, as a scope. */

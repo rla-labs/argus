@@ -356,7 +356,7 @@ export class OpsOrchestrator {
 
   /** The orchestrator's model. */
   private modelRef(): ModelRef {
-    return splitModelRef(this.options.config.model) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+    return splitModelRef(this.options.config.model) ?? { provider: 'deepseek', model: 'deepseek-flash' }
   }
 
   /**

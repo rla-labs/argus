@@ -68,10 +68,12 @@ await new Promise((resolve) => setTimeout(resolve, 600000))
 `
 
 let tempDir: string | undefined
+let childDir: string | undefined
 
 afterEach(() => {
-  if (tempDir) rmSync(tempDir, { recursive: true, force: true })
+  for (const dir of [tempDir, childDir]) if (dir) rmSync(dir, { recursive: true, force: true })
   tempDir = undefined
+  childDir = undefined
 })
 
 describe('spike 4: crash and resume', () => {
@@ -79,7 +81,10 @@ describe('spike 4: crash and resume', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-spike4-'))
     tempDir = dir
     mkdirSync(join(dir, 'sessions'), { recursive: true })
-    const scriptPath = join(dir, 'child.mts')
+    // The child script imports dsh packages by name, which Node resolves only from
+    // inside the repository — so it lives here, and only its data lives in tmpdir.
+    childDir = mkdtempSync(join(import.meta.dirname, '.child-'))
+    const scriptPath = join(childDir, 'child.mts')
     writeFileSync(scriptPath, CHILD_SCRIPT)
 
     const child = spawn(process.execPath, ['--import', 'tsx', scriptPath, dir], {

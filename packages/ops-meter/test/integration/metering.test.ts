@@ -387,21 +387,16 @@ describe('restart', () => {
 })
 
 describe('unpriced models', () => {
-  it('refuses and warns under the block policy', async () => {
+  it('refuses an unpriced model at configuration time under the block policy', async () => {
     const booted = await bootMeter({
       projects: { site: { model: 'unlisted-model' } },
       pricing: 'pricing:\n  fake/fake-model: { input: 1, cached: 0, output: 1 }\nunknown_model_policy: block\n',
     })
 
-    const unpriced: string[] = []
-    booted.ctx.on('ops/unpriced-model', ({ model }) => unpriced.push(model))
-
-    await deliver(booted, 'site')
-
-    // FACT: the request happened (dsh already called the provider) but nothing
-    // was recorded, because the model has no price and the policy blocks.
-    expect(unpriced).toEqual(['fake/unlisted-model'])
-    expect(booted.meter.spending('project:site').dayMicros).toBe(0)
+    // The project never runs: it is invalid, with the reason, and nothing is spent.
+    expect(booted.projects.invalidOf('site')?.reason).toBe(
+      'model: fake/unlisted-model has no price; add it to pricing in ops.yaml (USD per million tokens)',
+    )
     expect(booted.store.usage.eventsBetween(0, Number.MAX_SAFE_INTEGER)).toHaveLength(0)
   }, 30_000)
 

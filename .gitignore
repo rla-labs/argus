@@ -27,3 +27,9 @@ cache/
 # Early local leftovers, not part of the project: the first sketch and a spike script.
 /scheme.txt
 /packages/ops-projects/.p6.mts
+
+# The pricing dataset as downloaded; the copy Argus uses is in packages/ops-meter/catalog/.
+/ai-api-pricing.csv
+
+# Child scripts the crash tests write next to themselves; removed after each test.
+.child-*/

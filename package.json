@@ -14,6 +14,7 @@
     "test:unit": "vitest run --project packages",
     "test:spikes": "vitest run --project spikes",
     "test:e2e": "vitest run --project e2e",
+    "test:live": "ARGUS_LIVE=1 vitest run --project live",
     "lint": "oxlint packages test scripts profiles && bash scripts/lint-shell.sh",
     "check-docs": "tsx scripts/check-docs.ts",
     "spikes": "vitest run --project spikes --reporter=verbose",
@@ -43,7 +44,8 @@
     "@argus-agent/approvals-bridge": "workspace:*",
     "@argus-agent/orchestrator": "workspace:*",
     "yaml": "2.6.1",
-    "@argus-agent/telegram": "workspace:*"
+    "@argus-agent/telegram": "workspace:*",
+    "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.0.4",

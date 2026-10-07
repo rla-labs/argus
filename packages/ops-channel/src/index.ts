@@ -163,6 +163,11 @@ export function apply(ctx: Context): void {
     void service.deliverRejected(addressForRun(ctx, requestId), code, message)
   })
 
+  // ── prices that moved under a model in use ───────────────────────────────
+  ctx.on('ops/prices-changed', ({ changes }) => {
+    void service.deliverPricesChanged(changes)
+  })
+
   // ── project files that do not validate ───────────────────────────────────
   ctx.on('ops/projects-invalid', ({ invalid, fixed }) => {
     void service.deliverInvalidProjects(invalid, fixed)

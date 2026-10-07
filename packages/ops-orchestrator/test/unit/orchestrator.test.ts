@@ -572,9 +572,9 @@ describe('config', () => {
 
 describe('splitModelRef', () => {
   it('splits at the first slash', () => {
-    expect(splitModelRef('deepseek/deepseek-v4-flash')).toEqual({
+    expect(splitModelRef('deepseek/deepseek-flash')).toEqual({
       provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      model: 'deepseek-flash',
     })
   })
 

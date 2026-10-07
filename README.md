@@ -46,6 +46,10 @@ And it should tell you, in plain words, what happened and what it needs from you
   agent that routes it.
 - **Hard cost control.** Every execution passes through one governor, which
   enforces concurrency and budgets before anything starts and again at every step.
+  Prices for DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter)
+  ship with Argus and refresh themselves: weekly from a public pricing dataset,
+  daily from OpenRouter. You are told when a model you use changes price, and a
+  free remote model runs only after you allow it.
   Budgets have warning thresholds, can downgrade the model, and pause a project at
   the limit. `/panic` stops everything in under five seconds.
 - **Approvals.** A risky action becomes a question in Telegram: *Approve*,
@@ -55,6 +59,9 @@ And it should tell you, in plain words, what happened and what it needs from you
   can't touch it.
 - **Recovery.** Nothing is lost in a crash. Runs that were interrupted are
   reported, and you can retry them with one button.
+- **One instance per data directory.** A second process on the same data refuses
+  to start, so schedules can never fire twice. The lock is released by the
+  operating system even after a hard crash, so there is nothing to clean up.
 - **Fault tolerance.** A broken project file sidelines that one project. The rest
   of the system keeps running, you are told exactly what is wrong, and `/reload`
   brings the project back once the file is fixed.
@@ -93,12 +100,20 @@ What has been verified:
 - **The native install, end to end, on a fresh Ubuntu 24.04 with systemd:**
   install, crash recovery, upgrade and rollback from git, uninstall.
   `pnpm test:native-vps` repeats it on demand.
+- **A live run with a real Telegram bot and real billed models.** `/help`, `/new`,
+  a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
+  GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
+  `pnpm test:live` repeats it.
+- **Cost accounting against a provider's own bill.** Every request to DeepInfra
+  matched DeepInfra's reported token counts (cached tokens included) and its
+  billed cost to within 1 µUSD.
 
 What is not verified yet:
 
-- **A real conversation with a real model and a real Telegram bot.** It is
-  covered by tests against a scripted model, but not yet by a live run.
 - **Agents running shell tools under the native systemd hardening.**
+- **The published Docker image.** No release has been tagged yet, so
+  `ghcr.io/rla-labs/argus-agent` does not exist; install with `--build` until it does.
+- **Long-running use.** No deployment has run for weeks against real budgets.
 
 ## Where it is going
 
@@ -192,3 +207,9 @@ one fails loudly.
 Argus stands on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 and Cordis. Their extension points made it possible to build an agent OS as a set
 of plugins, without forking either.
+
+Model prices come from the [AI API Pricing dataset](https://aicostbudget.com/en/datasets/ai-api-pricing)
+by aicostbudget.com, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Argus keeps the token-priced models and, for each, the highest standard price that
+can apply (see `packages/ops-meter/src/catalog-snapshot.ts`). Provider invoices remain
+the final word on what you pay.

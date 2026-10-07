@@ -26,6 +26,8 @@ import {
   retryAfterMs,
   splitForTelegram,
   stripBotMention,
+  toMenuCommand,
+  fromMenuCommand,
   tooLargeText,
   tooLargeToDownload,
   type TelegramMessageLike,
@@ -801,5 +803,16 @@ describe('token validation', () => {
 
   it('says nothing about a good token', () => {
     expect(tokenWarning('123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw')).toBeUndefined()
+  })
+})
+
+describe('menu command names', () => {
+  it('lists hyphenated commands in the form Telegram accepts, and maps them back', () => {
+    expect(toMenuCommand('resume-all')).toBe('resume_all')
+    expect(toMenuCommand('help')).toBe('help')
+    expect(toMenuCommand('Bad Name')).toBeUndefined()
+    expect(fromMenuCommand('/resume_all')).toBe('/resume-all')
+    expect(fromMenuCommand('/allow_free openrouter/x/y_z')).toBe('/allow-free openrouter/x/y_z')
+    expect(fromMenuCommand('snake_case is not a command')).toBe('snake_case is not a command')
   })
 })

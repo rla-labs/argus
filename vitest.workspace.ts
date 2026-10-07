@@ -44,4 +44,15 @@ export default defineWorkspace([
       pool: 'forks',
     },
   },
+  {
+    test: {
+      // Real Telegram and real billed models. Skipped unless ARGUS_LIVE=1 (test/live).
+      name: 'live',
+      root: '.',
+      include: ['test/live/**/*.test.ts'],
+      testTimeout: 300_000,
+      hookTimeout: 120_000,
+      pool: 'forks',
+    },
+  },
 ])

@@ -13,7 +13,7 @@
  *
  * @module @argus-agent/governor/decide
  */
-import type { MicroUsd, ModelRef, Scope } from '@argus-agent/types'
+import type { MicroUsd, ModelProblem, ModelRef, Scope } from '@argus-agent/types'
 import {
   applicableScopes,
   effectiveLimit,
@@ -35,6 +35,8 @@ export type RejectCode =
   | 'UNPRICED_MODEL'
   | 'PROJECT_NOT_FOUND'
   | 'PROJECT_INVALID'
+  | 'FREE_MODEL_UNCONFIRMED'
+  | ModelProblem['code']
 
 /** A rejection, with everything the caller needs to explain it. */
 export interface Rejection {
@@ -150,6 +152,15 @@ export function decideAdmission(
     return { kind: 'wait', blockedBy: 'global_interactive_only' }
   }
 
+  // 6a. A model that cannot run: no route for its provider, no API key, no price.
+  //     The same checks make a project invalid at load; this catches the models
+  //     that are not a project's (an ad-hoc task, the orchestrator) and a key
+  //     removed since.
+  const problem = snapshot.modelProblem?.(request.model)
+  if (problem !== undefined) {
+    return { kind: 'reject', rejection: { code: problem.code, message: problem.message } }
+  }
+
   // 6. An unpriced model under the block policy.
   if (!snapshot.priced(request.model)) {
     return {
@@ -159,6 +170,23 @@ export function decideAdmission(
         message:
           `no price for ${request.model.provider}/${request.model.model}; ` +
           'add it to the pricing table in ops.yaml',
+      },
+    }
+  }
+
+  // 6b. A free remote model the operator has not confirmed. Free remote models
+  //     are usually rate-limited and may log what they are sent, and a zero
+  //     price that is a typo would disable every budget — so it runs only once
+  //     the operator has said yes.
+  if (snapshot.freeUnconfirmed?.(request.model) === true) {
+    const name = `${request.model.provider}/${request.model.model}`
+    return {
+      kind: 'reject',
+      rejection: {
+        code: 'FREE_MODEL_UNCONFIRMED',
+        message:
+          `${name} is priced at $0. Free remote models are often rate-limited and may log or ` +
+          `train on what they are sent. To allow it, send /allow-free ${name}`,
       },
     }
   }

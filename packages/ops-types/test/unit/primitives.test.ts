@@ -24,6 +24,7 @@ import {
   ownerKey,
   ownerLabel,
   parseModelRef,
+  apiKeyEnvOf,
   parseOwnerKey,
   parseScope,
   parseUsd,
@@ -231,5 +232,14 @@ describe('priority', () => {
     expect(asPriority(3)).toBeUndefined()
     expect(asPriority(-1)).toBeUndefined()
     expect(asPriority(1.5)).toBeUndefined()
+  })
+})
+
+describe('apiKeyEnvOf', () => {
+  it('derives <PROVIDER>_API_KEY mechanically', () => {
+    expect(apiKeyEnvOf('zai')).toBe('ZAI_API_KEY')
+    expect(apiKeyEnvOf('openrouter')).toBe('OPENROUTER_API_KEY')
+    expect(apiKeyEnvOf('moonshotai-cn')).toBe('MOONSHOTAI_CN_API_KEY')
+    expect(apiKeyEnvOf('my.gateway')).toBe('MY_GATEWAY_API_KEY')
   })
 })

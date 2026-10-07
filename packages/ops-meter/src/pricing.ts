@@ -2,16 +2,30 @@
 /**
  * The price table: `provider/model` → USD per million tokens.
  *
- * Prices live in `ops.yaml`, never in code, because they change without notice
- * and a deployment must be able to correct one without a release. The table
- * supports a `provider/*` glob, and the **most specific** match wins, so a
- * deployment can price a whole provider cheaply and then correct one model.
+ * A price is resolved from the first source that has one:
+ *
+ * 1. `ops.yaml` — an exact `provider/model`, then a `provider/*` glob. The
+ *    operator always wins: a negotiated discount, a correction, a new model.
+ * 2. A **local** provider (`local_providers`, default `ollama`) — free, and
+ *    expected to be.
+ * 3. For `openrouter`: the highest price among the model's providers (fetched for
+ *    the models in use), else its listed price (refreshed daily), else `:free` as free.
+ * 4. The catalog (`catalog.ts`): the snapshot shipped with Argus, replaced by a
+ *    weekly refresh of the dataset; for OpenRouter ids, the vendor's price.
+ * 5. Every other provider: pi-ai's model catalog (`provider-catalog.ts`), the one
+ *    dsh routes with. A direct provider bills its published price, so tokens times
+ *    this price is the bill.
+ *
+ * Any remote model that resolves to $0 needs the operator's confirmation.
+ *
+ * A model none of them prices stays unpriced, and `unknown_model_policy` decides.
  *
  * @module @argus-agent/meter/pricing
  */
 import z from '@deepseek-ai/schemastery'
 import type { MicroUsd, ModelRef } from '@argus-agent/types'
 import type { Schema } from './schema-type.js'
+import { CATALOG_PROVIDERS, OPENROUTER_VENDORS, modelKey, type Catalog, type CatalogEntry } from './catalog.js'
 
 /** USD per million tokens for one model. */
 export interface Price {
@@ -21,14 +35,29 @@ export interface Price {
   readonly cached: number
   /** Generated tokens. */
   readonly output: number
+  /** Tokens written to the prompt cache. Defaults to `input` when not configured. */
+  readonly cacheWrite?: number
 }
 
-/** One resolved price entry, with the pattern that matched. */
+/** Where a resolved price came from. */
+export type PriceSource = 'config' | 'local' | 'openrouter' | 'openrouter-free' | 'catalog' | 'provider-catalog'
+
+/** One resolved price entry, with where it came from. */
 export interface ResolvedPrice extends Price {
-  /** The table key that matched: an exact `provider/model` or a `provider/*`. */
+  /** What matched: a `provider/model` or `provider/*` key, or the catalog's `provider/model`. */
   readonly matchedBy: string
   /** Whether the match was an exact key rather than a glob. */
   readonly exact: boolean
+  readonly source: PriceSource
+  /** For a catalog price: the model's status (`latest`, `legacy`, `retired`, …). */
+  readonly status?: string
+  /** For a catalog price: when the dataset last verified it. */
+  readonly verifiedAt?: string | null
+}
+
+/** Whether every component of a price is zero. */
+export function isFree(price: Price): boolean {
+  return price.input === 0 && price.cached === 0 && price.output === 0 && (price.cacheWrite ?? 0) === 0
 }
 
 /** The `pricing` section schema. */
@@ -36,6 +65,7 @@ export const priceEntrySchema: Schema = z.object({
   input: z.number().default(0),
   cached: z.number().default(0),
   output: z.number().default(0),
+  cache_write: z.number(),
 })
 
 /** How to treat a model with no price entry. */
@@ -43,9 +73,17 @@ export type UnknownModelPolicy = 'block' | 'warn'
 
 /** The pricing-related configuration. */
 export interface PricingConfig {
-  readonly pricing: Readonly<Record<string, Price>>
+  readonly pricing: Readonly<Record<string, Price & { readonly cache_write?: number }>>
   readonly unknown_model_policy: UnknownModelPolicy
+  /** Providers that run on the operator's own hardware and cost nothing per token. */
+  readonly local_providers?: readonly string[]
 }
+
+/** The providers treated as local when `local_providers` is not set. */
+export const DEFAULT_LOCAL_PROVIDERS: readonly string[] = ['ollama']
+
+/** The `local_providers` key. */
+export const localProvidersSchema: Schema = z.array(z.string()).default([...DEFAULT_LOCAL_PROVIDERS])
 
 /**
  * The `pricing` section schema.
@@ -77,11 +115,26 @@ export class PriceTable {
   private readonly exact = new Map<string, Price>()
   private readonly globs = new Map<string, Price>()
   private readonly policy: UnknownModelPolicy
+  private readonly local: ReadonlySet<string>
+  /** Catalog entries by `datasetProvider/modelKey`. */
+  private readonly catalog = new Map<string, CatalogEntry>()
+  private catalogMeta: Catalog['meta'] | undefined
+  /** OpenRouter's live prices by model id, and when they were fetched (YYYY-MM-DD). */
+  private openRouter = new Map<string, Price>()
+  private openRouterDate: string | null = null
+  /** The highest price among each model's OpenRouter providers, which is what is charged. */
+  private openRouterCeilings = new Map<string, Price>()
 
   /**
    * @param config the pricing configuration.
+   * @param catalog the dataset catalog.
+   * @param providerCatalog prices for the providers the dataset does not cover.
    */
-  constructor(config: PricingConfig) {
+  constructor(
+    config: PricingConfig,
+    catalog?: Catalog,
+    private readonly providerCatalog?: (ref: ModelRef) => Price | undefined,
+  ) {
     for (const [key, price] of Object.entries(config.pricing)) {
       if (key.endsWith('/*')) {
         this.globs.set(key.slice(0, -2), normalise(price))
@@ -90,6 +143,53 @@ export class PriceTable {
       }
     }
     this.policy = config.unknown_model_policy
+    this.local = new Set(config.local_providers ?? DEFAULT_LOCAL_PROVIDERS)
+    if (catalog !== undefined) this.setCatalog(catalog)
+  }
+
+  /**
+   * Replace the catalog — the shipped snapshot, or a refresh of the dataset.
+   * @param catalog the catalog.
+   */
+  setCatalog(catalog: Catalog): void {
+    this.catalog.clear()
+    for (const entry of catalog.entries) {
+      this.catalog.set(`${entry.provider}/${modelKey(entry.model)}`, entry)
+    }
+    this.catalogMeta = catalog.meta
+  }
+
+  /** Where the catalog came from and when it was retrieved. */
+  get catalogInfo(): Catalog['meta'] | undefined {
+    return this.catalogMeta
+  }
+
+  /**
+   * Replace OpenRouter's live price list.
+   * @param prices prices by OpenRouter model id (`vendor/model`, `vendor/model:free`).
+   * @param fetchedAt when it was fetched, `YYYY-MM-DD`.
+   */
+  setOpenRouter(prices: ReadonlyMap<string, Price>, fetchedAt: string): void {
+    this.openRouter = new Map(prices)
+    this.openRouterDate = fetchedAt
+  }
+
+  /**
+   * Replace the provider ceilings of the OpenRouter models in use.
+   * @param ceilings the highest provider price, by OpenRouter model id.
+   */
+  setOpenRouterCeilings(ceilings: ReadonlyMap<string, Price>): void {
+    this.openRouterCeilings = new Map(ceilings)
+  }
+
+  /** Whether an OpenRouter model has a provider ceiling. */
+  hasOpenRouterCeiling(model: string): boolean {
+    return this.openRouterCeilings.has(model)
+  }
+
+  /** When OpenRouter's prices were last loaded, or `null`. */
+  get openRouterFetchedAt(): string | null {
+    return this.openRouterDate
   }
 
   /**
@@ -105,12 +205,58 @@ export class PriceTable {
   resolve(ref: ModelRef): ResolvedPrice | undefined {
     const key = `${ref.provider}/${ref.model}`
     const exact = this.exact.get(key)
-    if (exact !== undefined) return { ...exact, matchedBy: key, exact: true }
+    if (exact !== undefined) return { ...exact, matchedBy: key, exact: true, source: 'config' }
 
     const glob = this.globs.get(ref.provider)
-    if (glob !== undefined) return { ...glob, matchedBy: `${ref.provider}/*`, exact: false }
+    if (glob !== undefined) return { ...glob, matchedBy: `${ref.provider}/*`, exact: false, source: 'config' }
 
-    return undefined
+    if (this.local.has(ref.provider)) {
+      return { input: 0, cached: 0, output: 0, cacheWrite: 0, matchedBy: `${ref.provider} (local)`, exact: false, source: 'local' }
+    }
+
+    // OpenRouter ids are `vendor/model`, and `vendor/model:free` is a free variant.
+    let datasetProvider = CATALOG_PROVIDERS[ref.provider]
+    let model = ref.model
+    if (ref.provider === 'openrouter') {
+      // The ceiling over OpenRouter's providers, when known: the listed price is
+      // only one provider's, and a request may be billed by a dearer one.
+      const ceiling = this.openRouterCeilings.get(model)
+      if (ceiling !== undefined) {
+        return { ...ceiling, matchedBy: `${key} (highest provider)`, exact: true, source: 'openrouter', verifiedAt: this.openRouterDate }
+      }
+      const live = this.openRouter.get(model)
+      if (live !== undefined) {
+        return { ...live, matchedBy: key, exact: true, source: 'openrouter', verifiedAt: this.openRouterDate }
+      }
+      if (model.endsWith(':free')) {
+        return { input: 0, cached: 0, output: 0, cacheWrite: 0, matchedBy: key, exact: true, source: 'openrouter-free' }
+      }
+      const slash = model.indexOf('/')
+      if (slash > 0) {
+        datasetProvider = OPENROUTER_VENDORS[model.slice(0, slash)]
+        model = model.slice(slash + 1)
+      }
+    }
+    const entry =
+      datasetProvider === undefined
+        ? undefined
+        : this.catalog.get(`${datasetProvider}/${modelKey(model.replace(/:[\w-]+$/, ''))}`)
+    if (entry === undefined) {
+      // A router's price depends on where it routes; only its own rules above apply.
+      const listed = ref.provider === 'openrouter' ? undefined : this.providerCatalog?.(ref)
+      return listed === undefined ? undefined : { ...listed, matchedBy: key, exact: true, source: 'provider-catalog' }
+    }
+    return {
+      input: entry.input,
+      cached: entry.cached,
+      output: entry.output,
+      cacheWrite: entry.cacheWrite,
+      matchedBy: `${entry.provider}/${entry.model}`,
+      exact: true,
+      source: 'catalog',
+      status: entry.status,
+      verifiedAt: entry.verifiedAt,
+    }
   }
 
   /**
@@ -133,9 +279,15 @@ export class PriceTable {
   }
 }
 
-/** Round a price's fields to integer micro-USD-friendly numbers. */
-function normalise(price: Price): Price {
-  return { input: price.input, cached: price.cached, output: price.output }
+/** A configured price, with `cache_write` (the YAML spelling) carried as `cacheWrite`. */
+function normalise(price: Price & { readonly cache_write?: number }): Price {
+  const cacheWrite = price.cache_write ?? price.cacheWrite
+  return {
+    input: price.input,
+    cached: price.cached,
+    output: price.output,
+    ...(cacheWrite === undefined ? {} : { cacheWrite }),
+  }
 }
 
 /**
@@ -149,6 +301,8 @@ export interface TokenCounts {
   readonly inputTokens: number
   readonly cachedTokens: number
   readonly outputTokens: number
+  /** Tokens written to the prompt cache; disjoint from `inputTokens`, like `cachedTokens`. */
+  readonly cacheWriteTokens?: number
 }
 
 /**
@@ -169,7 +323,9 @@ export function priceRequest(price: Price, counts: TokenCounts): MicroUsd {
   const inputMicros = counts.inputTokens * price.input
   const cachedMicros = counts.cachedTokens * price.cached
   const outputMicros = counts.outputTokens * price.output
-  return Math.round(inputMicros + cachedMicros + outputMicros) as MicroUsd
+  // A provider with no separate cache-write price bills the written tokens as input.
+  const writeMicros = (counts.cacheWriteTokens ?? 0) * (price.cacheWrite ?? price.input)
+  return Math.round(inputMicros + cachedMicros + outputMicros + writeMicros) as MicroUsd
 }
 
 /**

@@ -18,15 +18,24 @@ config_dir: config
 dsh_home: dsh-home
 
 # ── ops-meter ──────────────────────────────────────────────────────────────
-# USD per 1M tokens. Update manually; prices change without notice.
-pricing:
-  deepseek/deepseek-v4-flash: { input: 0.0, cached: 0.0, output: 0.0 }
-  deepseek/deepseek-v4-pro:   { input: 0.0, cached: 0.0, output: 0.0 }
-  anthropic/claude-sonnet-x:  { input: 3.0, cached: 0.3, output: 15.0 }
-  ollama/*:                   { input: 0,   cached: 0,   output: 0 }
+# USD per 1M tokens. Optional: the shipped catalog prices DeepSeek, Anthropic and
+# OpenAI models (also through OpenRouter). Entries here override it.
+pricing: {}
+  # deepseek/deepseek-flash: { input: 0.3, cached: 0.006, output: 1.2 }
+
+# Free per token, and expected to be.
+local_providers: [ollama]
+
+# Model providers beyond dsh's catalog (or models added to a catalog one); a key is
+# always <PROVIDER>_API_KEY. See deploy/templates/ops.yaml.example for examples.
+providers: {}
+
+# Weekly dataset and daily OpenRouter price refresh. false on an offline server.
+price_refresh: true
 
 # A model with no price must not run "for free" in the accounting.
 # block (default) refuses admission; warn prices it at zero and warns once a day.
+# A remote model priced at $0 runs only after /allow-free <provider/model>.
 unknown_model_policy: block
 
 # ── ops-governor ───────────────────────────────────────────────────────────
@@ -79,12 +88,12 @@ access:
 
 # ── ops-orchestrator ───────────────────────────────────────────────────────
 orchestrator:
-  model: deepseek/deepseek-v4-flash
+  model: deepseek/deepseek-flash
   # Reset the orchestrator session daily so its context stays small.
   reset_daily: true
   # A tool may only create tasks on these models.
   allowed_task_models:
-    - deepseek/deepseek-v4-flash
+    - deepseek/deepseek-flash
 
 # ── ops-scheduler ──────────────────────────────────────────────────────────
 scheduler:

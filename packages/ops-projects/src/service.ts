@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ServiceHealth } from '@argus-agent/types'
+import type { ModelCheck, ModelProblem, ModelRef, ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -88,6 +88,9 @@ export class OpsProjects {
   private readonly pending = new Map<string, Promise<AgentHandle>>()
   private readonly configs = new Map<string, ProjectConfig>()
   private readonly invalid = new Map<string, InvalidProject>()
+  private readonly modelChecks = new Set<ModelCheck>()
+  /** Re-run the load, so a project is re-checked when a check comes or goes. */
+  private reloader: (() => void) | undefined
   private readonly store: OpsStore
   private readonly ctx: Context
   private readonly scratchDir: string
@@ -150,6 +153,58 @@ export class OpsProjects {
    */
   invalidOf(projectId: string): InvalidProject | undefined {
     return this.invalid.get(projectId)
+  }
+
+  // ── model checks ─────────────────────────────────────────────────────────
+
+  /**
+   * Add a configuration-time check every project model must pass: an API key
+   * (the providers row), a price (`ops-meter`). A project whose model fails is
+   * invalid, with the check's message; the governor refuses any request whose
+   * model fails. The projects are re-checked at once and when the check goes.
+   *
+   * @param check the check.
+   * @returns a disposer, for `ctx.effect`.
+   */
+  addModelCheck(check: ModelCheck): () => void {
+    this.modelChecks.add(check)
+    this.reload()
+    return () => {
+      this.modelChecks.delete(check)
+      this.reload()
+    }
+  }
+
+  /**
+   * Why a model cannot run, from every registered check, or `undefined`.
+   * @param model the model.
+   * @returns the first problem.
+   */
+  checkModel(model: ModelRef): ModelProblem | undefined {
+    for (const check of this.modelChecks) {
+      const problem = check(model)
+      if (problem !== undefined) return problem
+    }
+    return undefined
+  }
+
+  /** Re-check every project's model: something a check reads changed (a price arrived). */
+  recheckModels(): void {
+    this.reload()
+  }
+
+  /** @internal Set by the plugin: how to reload the project files. */
+  setReloader(reloader: () => void): void {
+    this.reloader = reloader
+  }
+
+  private reload(): void {
+    if (this.disposed) return
+    try {
+      this.reloader?.()
+    } catch {
+      // A reload failure is reported by the load itself; a check change must not throw.
+    }
   }
 
   /** Every configured project id, sorted. */

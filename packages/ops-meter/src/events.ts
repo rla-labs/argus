@@ -86,6 +86,22 @@ declare module '@deepseek-ai/cordis' {
       readonly previousMonth?: string
       readonly month?: string
     }): void
+
+    /**
+     * A price refresh moved the price of a model in use. The channel tells the
+     * operator, so a price rise is never discovered on the invoice.
+     *
+     * @param payload.changes per model: the price before and after, USD per 1M
+     *   tokens; `null` when the model had or has no price.
+     * @mode emit
+     */
+    'ops/prices-changed'(payload: {
+      readonly changes: ReadonlyArray<{
+        readonly model: string
+        readonly before: { readonly input: number; readonly output: number } | null
+        readonly after: { readonly input: number; readonly output: number } | null
+      }>
+    }): void
   }
 }
 

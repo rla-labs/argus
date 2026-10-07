@@ -32,6 +32,12 @@
     - id: ops-config
       name: '@argus-agent/argus-agent/loader-row'
 
+    # Model providers: a route for each, keyed by <PROVIDER>_API_KEY from the
+    # environment. Publishes ctx.opsProviders, whose check ops-projects and the
+    # governor apply (no route, no key or no such model → refused at configuration).
+    - id: ops-providers
+      name: '@argus-agent/argus-agent/providers-row'
+
     # ── foundation ───────────────────────────────────────────────────────────
     # Filled in as each plugin lands, in this order.
     #
@@ -98,6 +104,14 @@
     # takes its first report.
     - id: ops-health
       name: '@argus-agent/health'
+
+# ── providers ────────────────────────────────────────────────────────────────
+# The base mounts a dormant pi-ai adapter (no routes until a settings document
+# supplies them). Argus mounts its own instance from the ops-providers row, with a
+# route for every catalog provider and every one declared in ops.yaml → providers:,
+# so the base's is switched off: two instances would advertise the same providers.
+- id: llm-pi-ai
+  disabled: true
 
 # ── the app ──────────────────────────────────────────────────────────────────
 # The headless bundle's app answers ONE task and exits — without a task it exits

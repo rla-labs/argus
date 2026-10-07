@@ -263,6 +263,27 @@ export function panicText(cancelled: number, tookMs: number): string {
   )
 }
 
+/**
+ * The operator's notice when a price refresh moved the price of a model in use.
+ * @param changes per model, USD per 1M tokens before and after.
+ * @returns the text.
+ */
+export function pricesChangedText(
+  changes: ReadonlyArray<{
+    readonly model: string
+    readonly before: { readonly input: number; readonly output: number } | null
+    readonly after: { readonly input: number; readonly output: number } | null
+  }>,
+): string {
+  const price = (p: { input: number; output: number } | null) => (p === null ? 'no price' : `$${p.input} in / $${p.output} out`)
+  const lines = ['💲 Prices changed for model(s) in use (per 1M tokens):']
+  for (const change of changes) lines.push(`  ${change.model}: ${price(change.before)} → ${price(change.after)}`)
+  if (changes.some((change) => change.after === null)) {
+    lines.push('', 'A model with no price is refused until you add it to pricing in ops.yaml.')
+  }
+  return lines.join('\n')
+}
+
 /** A request the governor refused, told to the chat that sent it. */
 export function rejectedText(code: string, message: string): string {
   return `Not run (${code}): ${message}`

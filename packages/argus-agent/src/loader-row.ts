@@ -20,7 +20,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { LoadedOpsConfig } from '@argus-agent/types'
 import { configRegistry } from './config.js'
-import { loadOpsConfig, parseRawConfig, resolveConfigPath } from './loader.js'
+import { loadOpsConfig, missingEnvMessage, parseRawConfig, resolveConfigPath } from './loader.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-config'
@@ -138,7 +138,9 @@ export function apply(ctx: Context, config: Config = {}): void {
   // The raw document is published first and eagerly, because reading it never
   // depends on another plugin's section being registered.
   const path = config.path ?? resolveConfigPath()
-  const raw = parseRawConfig(path)
+  const raw = parseRawConfig(path, process.env, (missing, source) => {
+    ctx.logger('ops-config').warn('%s', missingEnvMessage(missing, source))
+  })
   rawByContext.set(ctx, raw)
   ctx.provide(RAW_CONFIG_SERVICE, raw)
 

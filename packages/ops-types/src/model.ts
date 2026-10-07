@@ -128,3 +128,24 @@ export function parseUsd(value: string): MicroUsd | undefined {
   if (!Number.isFinite(parsed) || parsed < 0) return undefined
   return usd(parsed)
 }
+
+/**
+ * The environment variable holding a provider's API key: the provider name in
+ * upper case, every other character `_`, then `_API_KEY` — `zai` → `ZAI_API_KEY`,
+ * `openrouter` → `OPENROUTER_API_KEY`, `my-gateway` → `MY_GATEWAY_API_KEY`.
+ *
+ * @param provider the provider route name.
+ * @returns the variable name.
+ */
+export function apiKeyEnvOf(provider: string): string {
+  return `${provider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_API_KEY`
+}
+
+/** Why a model cannot run, from a configuration-time check. */
+export interface ModelProblem {
+  readonly code: 'PROVIDER_UNKNOWN' | 'PROVIDER_KEY_MISSING' | 'PROVIDER_UNSUPPORTED' | 'MODEL_UNKNOWN' | 'UNPRICED_MODEL'
+  readonly message: string
+}
+
+/** A configuration-time check of one model: a problem, or `undefined` when it can run. */
+export type ModelCheck = (model: ModelRef) => ModelProblem | undefined

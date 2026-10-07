@@ -40,6 +40,7 @@ import {
   panicText,
   rejectedText,
   invalidProjectsText,
+  pricesChangedText,
   prefixFor,
   budgetText,
   scheduleSkippedText,
@@ -719,6 +720,11 @@ export class OpsChannel {
   /** Tell the chat that sent a request why it was refused. */
   async deliverRejected(replyTo: ChannelAddress | undefined, code: string, message: string): Promise<void> {
     await this.reply(replyTo ?? this.defaultAddress(), rejectedText(code, message))
+  }
+
+  /** Tell the operator a price refresh moved the price of models in use. */
+  async deliverPricesChanged(changes: Parameters<typeof pricesChangedText>[0]): Promise<void> {
+    await this.reply(this.defaultAddress(), pricesChangedText(changes))
   }
 
   /** Tell the operator which project files are invalid, or valid again. */

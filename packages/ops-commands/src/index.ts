@@ -168,7 +168,7 @@ function toDshResult(outcome: CommandResult): DshCommandResult {
 /** The `tasks` section: the model `/task` runs on, as `provider/model`. */
 export const tasksSchema = z
   .object({
-    model: z.string().pattern(/^[^/]+\/.+$/).default('deepseek/deepseek-v4-flash'),
+    model: z.string().pattern(/^[^/]+\/.+$/).default('deepseek/deepseek-flash'),
   })
   .default({})
 
@@ -188,7 +188,7 @@ function adhocModelOf(raw: Record<string, unknown>): { provider: string; model: 
       return { provider: configured.slice(0, slash), model: configured.slice(slash + 1) }
     }
   }
-  return { provider: 'deepseek', model: 'deepseek-v4-flash' }
+  return { provider: 'deepseek', model: 'deepseek-flash' }
 }
 
 /**

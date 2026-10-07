@@ -630,6 +630,27 @@ describe('config validation at boot', () => {
     expect(events.at(-1)).toEqual({ invalid: [], fixed: ['site'] })
   }, 30_000)
 
+  it('marks a project invalid when a model check fails, and brings it back when the check goes', async () => {
+    const { projects } = await bootProjects({
+      projects: { good: {}, keyless: { model: 'needs-key', fallback_model: 'fake/also-keyless' } },
+    })
+    expect(projects.configuredIds()).toEqual(['good', 'keyless'])
+
+    const dispose = projects.addModelCheck((model) =>
+      model.model.includes('keyless') || model.model === 'needs-key'
+        ? { code: 'PROVIDER_KEY_MISSING', message: 'set FAKE_API_KEY' }
+        : undefined,
+    )
+    // Re-checked at once, without a reload of the files.
+    expect(projects.configuredIds()).toEqual(['good'])
+    expect(projects.invalidOf('keyless')?.reason).toBe('model: set FAKE_API_KEY\nfallback_model: set FAKE_API_KEY')
+    expect(projects.checkModel({ provider: 'fake', model: 'needs-key' })?.code).toBe('PROVIDER_KEY_MISSING')
+
+    dispose()
+    expect(projects.configuredIds()).toEqual(['good', 'keyless'])
+    expect(projects.checkModel({ provider: 'fake', model: 'needs-key' })).toBeUndefined()
+  }, 30_000)
+
   it('boots with no projects directory at all', async () => {
     const { projects, store } = await bootProjects()
     expect(projects.configuredIds()).toEqual([])

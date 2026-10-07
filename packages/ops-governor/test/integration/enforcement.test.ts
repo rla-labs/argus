@@ -948,7 +948,9 @@ describe('edge cases', () => {
 
     submit(booted, 'alpha')
     await waitFor(() => rejected.length > 0, { timeoutMs: 20_000, label: 'rejected' })
-    expect(rejected[0]).toBe('UNPRICED_MODEL')
+    // The price check makes the project invalid at configuration time, so the
+    // request is refused as such, with the reason ("has no price").
+    expect(rejected[0]).toBe('PROJECT_INVALID')
     // FACT: the provider was never called, so nothing was spent discovering the
     // gap — which is the whole point of `block`.
     expect(booted.boot.fake?.callCount ?? 0).toBe(0)

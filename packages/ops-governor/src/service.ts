@@ -589,7 +589,11 @@ export class OpsGovernor {
       pausedProjects: this.pausedProjects(),
       downgradedOwners: this.downgraded as ReadonlySet<string>,
       budgets,
-      priced: (model) => this.options.meter.isPriced(model),
+      // Under `unknown_model_policy: warn` an unpriced model runs and is accounted
+      // at zero, so only `block` refuses it here.
+      priced: (model) => this.options.meter.isPriced(model) || this.options.meter.unknownPolicy === 'warn',
+      freeUnconfirmed: (model) => this.options.meter.needsFreeConfirmation(model),
+      modelProblem: (model) => this.options.projects.checkModel(model),
     }
   }
 

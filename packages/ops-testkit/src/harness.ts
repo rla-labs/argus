@@ -329,7 +329,10 @@ function renderValue(value: unknown, depth: number): string[] {
   if (entries.length === 0) return ['{}']
   return entries.flatMap(([key, item]) => {
     const rendered = renderValue(item, depth + 1)
-    if (rendered.length === 1 && !rendered[0]?.startsWith('-')) return [`${key}: ${rendered[0]}`]
+    // Only a scalar (or an empty collection) fits on the key's line; a one-entry
+    // map rendered there would read as `a: b: c`, which is not YAML.
+    const inline = item === null || typeof item !== 'object' || Object.keys(item).length === 0
+    if (inline) return [`${key}: ${rendered[0]}`]
     return [`${key}:`, ...rendered.map((line) => `${pad}${line}`)]
   })
 }

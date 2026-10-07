@@ -31,7 +31,7 @@
 #   install-native.sh [options]
 #
 # Environment (used instead of prompting, and required with --non-interactive):
-#   TELEGRAM_BOT_TOKEN, ARGUS_AGENT_ADMIN_ID, ARGUS_AGENT_TIMEZONE, DEEPSEEK_API_KEY,
+#   TELEGRAM_BOT_TOKEN, ARGUS_AGENT_ADMIN_ID, ARGUS_AGENT_TIMEZONE, DEEPSEEK_API_KEY, OPENROUTER_API_KEY,
 #   ARGUS_AGENT_DAY_BUDGET_USD, ARGUS_AGENT_MONTH_BUDGET_USD, ARGUS_AGENT_REPO_URL
 
 # shellcheck source=lib-native.sh
@@ -45,6 +45,7 @@ V_TELEGRAM_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 V_ADMIN_ID="${ARGUS_AGENT_ADMIN_ID:-}"
 V_TIMEZONE="${ARGUS_AGENT_TIMEZONE:-}"
 V_DEEPSEEK_KEY="${DEEPSEEK_API_KEY:-}"
+V_OPENROUTER_KEY="${OPENROUTER_API_KEY:-}"
 V_DAY_BUDGET="${ARGUS_AGENT_DAY_BUDGET_USD:-3}"
 V_MONTH_BUDGET="${ARGUS_AGENT_MONTH_BUDGET_USD:-40}"
 
@@ -68,6 +69,8 @@ Values (also available as flags through the environment):
   ARGUS_AGENT_ADMIN_ID            required — your NUMERIC Telegram user id
   ARGUS_AGENT_TIMEZONE            default UTC
   DEEPSEEK_API_KEY            optional, but no agent can run without a provider key
+  OPENROUTER_API_KEY          or/and an OpenRouter key; with only this one, the
+                              default models run through OpenRouter
   ARGUS_AGENT_DAY_BUDGET_USD      default 3
   ARGUS_AGENT_MONTH_BUDGET_USD    default 40
 
@@ -209,6 +212,10 @@ else
     printf 'DeepSeek API key (optional): ' >&2
     read -r V_DEEPSEEK_KEY
   fi
+  if [ -z "${V_DEEPSEEK_KEY}" ] && [ -z "${V_OPENROUTER_KEY}" ]; then
+    printf 'OpenRouter API key instead (optional): ' >&2
+    read -r V_OPENROUTER_KEY
+  fi
 
   log ""
   V_TIMEZONE="$(ask "Timezone" "${V_TIMEZONE}")"
@@ -239,7 +246,10 @@ log "  timezone         ${V_TIMEZONE}"
 log "  admin user id    ${V_ADMIN_ID}"
 log "  budgets          \$${V_DAY_BUDGET}/day, \$${V_MONTH_BUDGET}/month per project"
 log "  approvals        ask (every risky action becomes a Telegram question)"
-log "  provider key     $([ -n "${V_DEEPSEEK_KEY}" ] && printf 'set' || printf 'NOT SET — no agent can run until it is')"
+log "  provider key     $(
+  if [ -n "${V_DEEPSEEK_KEY}" ]; then printf 'DeepSeek%s' "$([ -n "${V_OPENROUTER_KEY}" ] && printf ' + OpenRouter')"
+  elif [ -n "${V_OPENROUTER_KEY}" ]; then printf 'OpenRouter (default models: openrouter/deepseek/...)'
+  else printf 'NOT SET — no agent can run until it is'; fi)"
 log ""
 log "  Note: without Docker there is no container confining a project's tools."
 log "        The systemd unit's hardening is the barrier — see deploy/docs/SECURITY.md."
@@ -381,6 +391,10 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
   sed -i "s|^  default_address: null|  default_address: \"telegram:${V_ADMIN_ID}\"|" "${TMP_YAML}"
   sed -i "s|^  default_day_usd: .*|  default_day_usd: ${V_DAY_BUDGET}|" "${TMP_YAML}"
   sed -i "s|^  default_month_usd: .*|  default_month_usd: ${V_MONTH_BUDGET}|" "${TMP_YAML}"
+  # Only an OpenRouter key: the default models run through OpenRouter.
+  if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
+    sed -i "s|^  model: deepseek/deepseek-flash|  model: openrouter/deepseek/deepseek-v4-flash|" "${TMP_YAML}"
+  fi
 
   mv "${TMP_YAML}" "${CONFIG_FILE}"
   ok "ops.yaml written (allowlist: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
@@ -391,6 +405,11 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
     # which stops ops-projects, and every plugin after it, from starting.
     sed "s|/data/|${DATA_DIR}/|g" "${DEPLOY_DIR}/templates/projects/example.yaml" \
       > "${DATA_DIR}/config/projects/example.yaml"
+    if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
+      sed -i -e "s|^provider: deepseek|provider: openrouter|" -e "s|^model: deepseek-v4-pro|model: deepseek/deepseek-v4-pro|" \
+        -e "s|^fallback_model: deepseek/deepseek-flash|fallback_model: openrouter/deepseek/deepseek-v4-flash|" \
+        "${DATA_DIR}/config/projects/example.yaml"
+    fi
     dim "  an example project was placed at config/projects/example.yaml — edit or delete it"
   fi
 fi
@@ -409,6 +428,9 @@ cat > "${SECRETS_FILE}" <<EOF
 
 TELEGRAM_BOT_TOKEN=${V_TELEGRAM_TOKEN}
 DEEPSEEK_API_KEY=${V_DEEPSEEK_KEY}
+OPENROUTER_API_KEY=${V_OPENROUTER_KEY}
+# Any other provider: <PROVIDER>_API_KEY, taken from the installer's environment.
+$(env | grep -E '^[A-Z0-9_]+_API_KEY=' | grep -vE '^(DEEPSEEK|OPENROUTER)_API_KEY=' | sort)
 EOF
 umask "${OLD_UMASK}"
 chown "${SERVICE_USER}:${SERVICE_USER}" "${SECRETS_FILE}"
@@ -541,11 +563,11 @@ cat >&2 <<EOF
 EOF
 fi
 
-if [ -z "${V_DEEPSEEK_KEY}" ]; then
+if [ -z "${V_DEEPSEEK_KEY}" ] && [ -z "${V_OPENROUTER_KEY}" ]; then
 cat >&2 <<EOF
   ${C_YELLOW}No provider key was set.${C_RESET} The service runs, but no agent can think.
   Add it and restart:
-    \$EDITOR ${SECRETS_FILE}      # DEEPSEEK_API_KEY=...
+    \$EDITOR ${SECRETS_FILE}      # DEEPSEEK_API_KEY=... or OPENROUTER_API_KEY=...
     systemctl restart ${SERVICE_NAME}
 
 EOF

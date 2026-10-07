@@ -20,11 +20,11 @@ cwd: /data/projects/example
 description: An example project — replace this with what the project is FOR.
 
 provider: deepseek
-model: deepseek/deepseek-v4
+model: deepseek-v4-pro
 
 # Used at the soft budget threshold when `soft_action: downgrade`. A cheaper model
 # doing a degraded job beats a stopped project.
-fallback_model: deepseek/deepseek-v4-flash
+fallback_model: deepseek/deepseek-flash
 
 # The dsh agent preset mounted into this project's scope. Leave null for the default;
 # a restricted preset is how a project gets a smaller tool surface.

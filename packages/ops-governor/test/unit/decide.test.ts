@@ -335,6 +335,34 @@ describe('decideAdmission', () => {
     ).toEqual({ kind: 'admit' })
   })
 
+  it('rejects a free remote model the operator has not confirmed, and says how to allow it', () => {
+    const verdict = decideAdmission(
+      { ...snapshot(), freeUnconfirmed: (model) => model.model.endsWith(':free') },
+      projectRequest({ model: { provider: 'openrouter', model: 'deepseek/deepseek-flash:free' } }),
+      options,
+    )
+    const rejection = expectReject(verdict, 'FREE_MODEL_UNCONFIRMED')
+    expect(rejection.message).toContain('/allow-free openrouter/deepseek/deepseek-flash:free')
+    // A confirmed or paid model is unaffected.
+    expect(
+      decideAdmission({ ...snapshot(), freeUnconfirmed: () => false }, projectRequest(), options).kind,
+    ).toBe('admit')
+  })
+
+  it('rejects a model a check refuses (no API key), with the check\'s code and message', () => {
+    const verdict = decideAdmission(
+      {
+        ...snapshot(),
+        modelProblem: (model) =>
+          model.provider === 'zai' ? { code: 'PROVIDER_KEY_MISSING', message: 'set ZAI_API_KEY' } : undefined,
+      },
+      projectRequest({ model: { provider: 'zai', model: 'glm-5.3-flash' } }),
+      options,
+    )
+    expect(expectReject(verdict, 'PROVIDER_KEY_MISSING').message).toBe('set ZAI_API_KEY')
+    expect(decideAdmission({ ...snapshot(), modelProblem: () => undefined }, projectRequest(), options).kind).toBe('admit')
+  })
+
   it('rejects an unpriced model', () => {
     const verdict = decideAdmission(
       snapshot({ pricesNothing: true }),

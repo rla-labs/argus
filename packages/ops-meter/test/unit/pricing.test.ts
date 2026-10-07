@@ -18,7 +18,7 @@ describe('PriceTable.resolve', () => {
   it('matches an exact provider/model key', () => {
     const prices = table({ 'anthropic/claude-sonnet-x': { input: 3, cached: 0.3, output: 15 } })
     const resolved = prices.resolve({ provider: 'anthropic', model: 'claude-sonnet-x' })
-    expect(resolved).toEqual({ input: 3, cached: 0.3, output: 15, matchedBy: 'anthropic/claude-sonnet-x', exact: true })
+    expect(resolved).toEqual({ input: 3, cached: 0.3, output: 15, matchedBy: 'anthropic/claude-sonnet-x', exact: true, source: 'config' })
   })
 
   it('matches a provider glob', () => {
@@ -30,10 +30,10 @@ describe('PriceTable.resolve', () => {
   it('prefers an exact key over a glob for the same provider', () => {
     const prices = table({
       'deepseek/*': { input: 0.1, cached: 0.01, output: 0.2 },
-      'deepseek/deepseek-v4-flash': { input: 0, cached: 0, output: 0 },
+      'deepseek/deepseek-flash': { input: 0, cached: 0, output: 0 },
     })
     // The deployment priced the whole provider, then corrected one model.
-    expect(prices.resolve({ provider: 'deepseek', model: 'deepseek-v4-flash' })?.input).toBe(0)
+    expect(prices.resolve({ provider: 'deepseek', model: 'deepseek-flash' })?.input).toBe(0)
     expect(prices.resolve({ provider: 'deepseek', model: 'other' })?.input).toBe(0.1)
   })
 
@@ -162,5 +162,29 @@ describe('priceRequest', () => {
 describe('zeroCost', () => {
   it('is zero micro-USD', () => {
     expect(zeroCost()).toBe(micros(0))
+  })
+})
+
+describe('the provider catalog (pi-ai)', () => {
+  it('prices a direct provider the dataset does not cover, at its published price', async () => {
+    const { providerCatalogPrice } = await import('../../src/provider-catalog.js')
+    const table = new PriceTable({ pricing: {}, unknown_model_policy: 'block' }, undefined, providerCatalogPrice)
+    expect(table.resolve({ provider: 'zai', model: 'glm-5.3-flash' })).toMatchObject({
+      input: 0.15,
+      output: 0.5,
+      cached: 0.03,
+      source: 'provider-catalog',
+    })
+    // $0 in and out is a price the catalog does not know, not a free model.
+    expect(table.resolve({ provider: 'zai', model: 'glm-5.3-highspeed' })).toBeUndefined()
+    // A router keeps its own rules.
+    expect(table.resolve({ provider: 'openrouter', model: 'z-ai/glm-5.3-flash' })).toBeUndefined()
+    // ops.yaml wins.
+    const configured = new PriceTable(
+      { pricing: { 'zai/glm-5.3-flash': { input: 1, cached: 1, output: 1 } }, unknown_model_policy: 'block' },
+      undefined,
+      providerCatalogPrice,
+    )
+    expect(configured.resolve({ provider: 'zai', model: 'glm-5.3-flash' })?.source).toBe('config')
   })
 })

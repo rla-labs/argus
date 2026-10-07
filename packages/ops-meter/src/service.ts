@@ -28,11 +28,14 @@ import { Counters, type Period } from './counters.js'
 // `priceRequest` is the only runtime helper needed here; the classes are used
 // purely as types, so they are imported type-only and the plugin entry owns the
 // concrete construction.
-import { priceRequest, type Price, type PriceTable } from './pricing.js'
+import { isFree, priceRequest, type Price, type PriceTable, type ResolvedPrice } from './pricing.js'
 import type { RateLimiter, TokenRateWindow } from './rate-window.js'
 import type { TimezoneCalendar } from './time.js'
 
 /** What the meter needs to attribute and persist one request. */
+/** Where the confirmed free remote models are recorded. */
+const FREE_CONFIRMED_KEY = 'pricing.free_confirmed'
+
 export interface RecordInput {
   readonly sessionId: string
   readonly rootSessionId: string
@@ -67,6 +70,8 @@ export interface MeterOptions {
   readonly flushIntervalMs: number
   /** Reads the current time; injected so tests control it. */
   readonly now: () => number
+  /** Fetch whatever a model's price still needs (an OpenRouter provider ceiling). */
+  readonly ensurePriced?: (model: ModelRef) => Promise<void>
 }
 
 /** What a flush did. */
@@ -267,7 +272,10 @@ export class OpsMeter {
       cachedTokens: input.usage.cacheReadTokens ?? 0,
       outputTokens: input.usage.outputTokens,
     }
-    const costMicros = price === undefined ? (0 as MicroUsd) : priceRequest(price, counts)
+    const costMicros =
+      price === undefined
+        ? (0 as MicroUsd)
+        : priceRequest(price, { ...counts, cacheWriteTokens: input.usage.cacheWriteTokens ?? 0 })
 
     // Counters first: they are what a budget check reads, and a budget must not
     // be able to spend past its limit because a durable write is buffered.
@@ -492,6 +500,17 @@ export class OpsMeter {
   }
 
   /**
+   * Fetch what a model's price still needs before its first request: for an
+   * OpenRouter model, the highest price among its providers. `/new` and `/model`
+   * await it, so a new model is never charged at the lower listed price. Never throws.
+   *
+   * @param model the model.
+   */
+  ensurePriced(model: ModelRef): Promise<void> {
+    return this.options.ensurePriced?.(model) ?? Promise.resolve()
+  }
+
+  /**
    * Whether a model has a price in the configured table.
    *
    * The governor asks this before admitting a request, so an unpriced model is
@@ -503,6 +522,63 @@ export class OpsMeter {
    */
   isPriced(model: ModelRef): boolean {
     return this.options.prices.isPriced(model)
+  }
+
+  /** Where the price catalog came from and when it was retrieved. */
+  get catalogInfo(): { title: string; license: string; retrievedAt: string } | undefined {
+    return this.options.prices.catalogInfo
+  }
+
+  /** How an unpriced model is treated: `block` refuses it, `warn` runs it at zero. */
+  get unknownPolicy(): 'block' | 'warn' {
+    return this.options.prices.unknownPolicy
+  }
+
+  /**
+   * A model's price and where it came from, for `/new`, `/model` and diagnostics.
+   * @param model the model.
+   * @returns the resolved price, or `undefined` when nothing prices it.
+   */
+  priceOf(model: ModelRef): ResolvedPrice | undefined {
+    return this.options.prices.resolve(model)
+  }
+
+  // ── free models ──────────────────────────────────────────────────────────
+  //
+  // A remote model priced at zero — an OpenRouter `:free` variant, or a 0 typed
+  // into ops.yaml — runs only once the operator has said so. Free remote models
+  // are usually rate-limited and may log or train on what they are sent, and a 0
+  // that is a typo would silently disable every budget. A LOCAL provider's zero
+  // is expected and needs nothing.
+
+  /**
+   * Whether a model is free, remote, and not yet confirmed by the operator.
+   * @param model the model.
+   * @returns whether the governor must refuse it until confirmed.
+   */
+  needsFreeConfirmation(model: ModelRef): boolean {
+    const price = this.options.prices.resolve(model)
+    if (price === undefined || price.source === 'local' || !isFree(price)) return false
+    return !this.confirmedFree().includes(formatModelRef(model))
+  }
+
+  /**
+   * Record the operator's confirmation that a free remote model may run.
+   * @param model the model.
+   * @param actor who confirmed, for the audit log.
+   */
+  confirmFree(model: ModelRef, actor: string): void {
+    const key = formatModelRef(model)
+    const confirmed = this.confirmedFree()
+    if (confirmed.includes(key)) return
+    const now = this.options.now()
+    this.options.store.runtimeState.set(FREE_CONFIRMED_KEY, [...confirmed, key].sort(), now)
+    this.options.store.audit.record({ actor, action: 'pricing.free-confirmed', target: key }, now)
+  }
+
+  /** Every free remote model the operator has confirmed, as `provider/model`. */
+  confirmedFree(): string[] {
+    return this.options.store.runtimeState.get<string[]>(FREE_CONFIRMED_KEY) ?? []
   }
 
   /**

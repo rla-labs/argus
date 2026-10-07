@@ -17,11 +17,11 @@ description: The company website — marketing pages, blog, contact form.
 
 # Provider and model. The model name must match what the provider expects.
 provider: anthropic
-model: claude-sonnet-x
+model: claude-sonnet-5-5
 
 # Used when the project crosses its soft budget threshold with
 # `soft_action: downgrade`.
-fallback_model: deepseek/deepseek-v4-flash
+fallback_model: deepseek/deepseek-flash
 
 # The dsh agent preset mounted into this project's agent scope. It decides the
 # tool set; a project with no shell uses a preset without shell tools.
