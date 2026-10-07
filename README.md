@@ -196,8 +196,8 @@ pnpm test:native-vps    # the native install on a throwaway Ubuntu + systemd con
 ```
 packages/          one Cordis plugin per folder (ops-*), plus the argus-agent bundle
 profiles/ops/      the dsh profile that stacks the bundles
-deploy/            Docker, compose, native systemd install, backup/upgrade scripts
-config/examples/   a minimal ops.yaml and an example project
+deploy/            Docker, compose, native systemd install, backup/upgrade scripts,
+                   and the config templates (ops.yaml.minimal, ops.yaml.example, a project)
 test/              spikes, end-to-end crash recovery, deploy tests
 ```
 
