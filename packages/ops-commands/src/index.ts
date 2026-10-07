@@ -147,6 +147,9 @@ function contextOf(
   return {
     address: { channel: 'dsh', chatId: sessionId },
     userId: 'dsh-user',
+    // The Web UI is reachable only from the server (a loopback port, an SSH
+    // tunnel), so whoever uses it already holds more than the admin commands grant.
+    isAdmin: true,
     ...(active === undefined ? {} : { activeProject: active }),
     now: Date.now(),
   }

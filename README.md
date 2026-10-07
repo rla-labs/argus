@@ -44,6 +44,9 @@ And it should tell you, in plain words, what happened and what it needs from you
   `/panic` are deterministic code, so they work without a model in the loop. Any
   other message goes to the active project, verbatim, or to a cheap "front desk"
   agent that routes it.
+- **Administration from the chat.** Read a project's runs, memory and files
+  (`/runs`, `/memory`, `/files`, `/get`), change its settings (`/set`), archive it,
+  and let someone else in (`/allow`), without opening SSH.
 - **Hard cost control.** Every execution passes through one governor, which
   enforces concurrency and budgets before anything starts and again at every step.
   Prices for DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter)
@@ -123,15 +126,13 @@ An Agent OS is more than a reliable core. Next on the road:
 1. **First-run experience.** One command (`argus init`) that asks five questions
    and leaves you with a working bot, plus `argus doctor` for when something
    doesn't.
-2. **Running everything from chat.** Edit a project's settings, read its memory
-   and fetch the files it produced, without ever opening SSH.
-3. **A web dashboard.** Costs, the queue, live runs, approvals and schedules on
+2. **A web dashboard.** Costs, the queue, live runs, approvals and schedules on
    one page.
-4. **Integrations through MCP**, so agents can reach GitHub, mail, calendars and
+3. **Integrations through MCP**, so agents can reach GitHub, mail, calendars and
    databases, with the same approvals and budgets.
-5. **More channels and more people.** Slack, Discord or a web chat, plus roles,
+4. **More channels and more people.** Slack, Discord or a web chat, plus roles,
    so a team can share one Argus.
-6. **Project templates.** Start "a website maintainer" or "a daily researcher"
+5. **Project templates.** Start "a website maintainer" or "a daily researcher"
    without writing a prompt.
 
 If any of this is something you need, an issue describing your use case is the

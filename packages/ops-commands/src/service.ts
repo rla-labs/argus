@@ -18,8 +18,10 @@ import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
 import { buildHandlers } from './handlers.js'
 import {
+  ADDED_USERS_KEY,
   errorResult,
   result,
+  type AddedUser,
   type CommandContext,
   type CommandHandler,
   type CommandResult,
@@ -163,6 +165,11 @@ export class OpsCommands {
     if (handler === undefined) {
       return errorResult(`Unknown command /${parsed.name}. Send /help for the list.`)
     }
+    // Checked here, not in the handler, so the confirmed form of a command is
+    // refused by the same rule as the form that asked.
+    if (handler.spec.adminOnly === true && context.isAdmin !== true) {
+      return errorResult(`Only the admin (access.admin in ops.yaml) can run /${parsed.name}.`)
+    }
 
     try {
       const out = await handler.run(parsed.input, context)
@@ -273,6 +280,11 @@ export class OpsCommands {
   activeProjectOf(address: ChannelAddress): string | undefined {
     const row = this.options.store.chatContext.get(address.channel, address.chatId)
     return row?.active_project_id ?? undefined
+  }
+
+  /** The users `/allow` added, on top of `access.allowed_users`. Read by `ops-channel`. */
+  addedUsers(): AddedUser[] {
+    return this.options.store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
   }
 
 }

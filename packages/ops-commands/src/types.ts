@@ -90,6 +90,8 @@ export interface CommandContext {
   readonly userId: string
   /** The chat's active project, when one is set. */
   readonly activeProject?: string
+  /** Whether the caller is the admin (`access.admin`), for the admin-only commands. */
+  readonly isAdmin?: boolean
   /** The current time, injected so tests control it. */
   readonly now: number
 }
@@ -110,6 +112,8 @@ export interface CommandSpec {
   readonly mutating: boolean
   /** Whether it is destructive, and so requires confirmation. */
   readonly destructive?: boolean
+  /** Whether only the admin may run it. */
+  readonly adminOnly?: boolean
   /** Whether it needs another plugin's service. */
   readonly requires?: string
 }
@@ -119,6 +123,15 @@ export interface CommandHandler {
   readonly spec: CommandSpec
   run(input: string, context: CommandContext): CommandResult | Promise<CommandResult>
 }
+
+/** A user `/allow` added. */
+export interface AddedUser {
+  readonly channel: string
+  readonly userId: string
+}
+
+/** The `runtime_state` key that holds the users `/allow` added. */
+export const ADDED_USERS_KEY = 'access.added_users'
 
 /** Build a successful result. */
 export function result(text: string, extra: Partial<CommandResult> = {}): CommandResult {

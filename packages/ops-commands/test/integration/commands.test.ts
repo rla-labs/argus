@@ -6,7 +6,7 @@
  * depends on another plugin — with that plugin absent. Confirmations and audit
  * rows are asserted directly, because both are easy to get subtly wrong.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'files', 'get', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'files', 'get', 'set', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -670,6 +670,104 @@ describe('/files and /get', () => {
     expect(await run(booted, '/get alpha reports')).toContain('is not a file')
     expect(await run(booted, '/get beta x')).toContain('No project "beta"')
     expect(await run(booted, '/get alpha')).toContain('Syntax: /get <project-id> <path>')
+  }, 30_000)
+})
+
+// ── admin commands: /set, /archive, /allow ─────────────────────────────────
+
+describe('admin-only commands', () => {
+  const admin = (overrides: Partial<CommandContext> = {}): CommandContext => contextFor({ isAdmin: true, ...overrides })
+
+  it('refuse anyone but the admin, the confirmed forms included', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    for (const line of ['/set alpha budget.day_usd 5', '/archive alpha', '/archive-confirm alpha', '/allow', '/allow-confirm x']) {
+      const out = await booted.commands.runCommand(line, contextFor())
+      expect(out.error, line).toBe(true)
+      expect(out.text, line).toContain('Only the admin')
+    }
+    expect(booted.projects.configOf('alpha')).toBeDefined()
+  }, 30_000)
+
+  it('/set writes the project file, keeps its comments, and reloads', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const file = join(booted.dataDir, 'config', 'projects', 'alpha.yaml')
+    writeFileSync(file, `# kept\n${readFileSync(file, 'utf8')}`)
+    await run(booted, '/reload')
+
+    expect(await run(booted, '/set alpha budget.day_usd 5', admin())).toContain('alpha: budget.day_usd = 5.')
+    expect(booted.projects.configOf('alpha')?.budget.day_usd).toBe(5)
+    await run(booted, '/set alpha approvals.auto_allow [git status, npm test]', admin())
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['git status', 'npm test'])
+    await run(booted, '/set alpha description The site: blog, fix #3', admin())
+    expect(booted.projects.configOf('alpha')?.description).toBe('The site: blog, fix #3')
+    expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
+  }, 30_000)
+
+  it('/set leaves the file as it was when the result does not validate', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const file = join(booted.dataDir, 'config', 'projects', 'alpha.yaml')
+    const before = readFileSync(file, 'utf8')
+
+    const wrongType = await booted.commands.runCommand('/set alpha approvals.mode sometimes', admin())
+    expect(wrongType.error).toBe(true)
+    expect(wrongType.text).toContain('does not validate')
+    const typo = await booted.commands.runCommand('/set alpha budget.dayusd 5', admin())
+    expect(typo.error).toBe(true)
+    expect(typo.text).toContain('"budget.dayusd" is not a project setting')
+    expect(typo.text).toContain('budget.day_usd')
+    for (const line of ['/set alpha cwd /tmp', '/set alpha id beta']) {
+      expect((await booted.commands.runCommand(line, admin())).text).toContain('cannot be changed')
+    }
+
+    expect(readFileSync(file, 'utf8')).toBe(before)
+    expect(booted.projects.configOf('alpha')).toBeDefined()
+    expect(booted.projects.invalidOf('alpha')).toBeUndefined()
+  }, 30_000)
+
+  it('/set model sets the provider and the model, after the usual checks', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect(await run(booted, '/set alpha model fake/other-model', admin())).toContain('until /reset')
+    expect(booted.projects.configOf('alpha')).toMatchObject({ provider: 'fake', model: 'other-model' })
+    const refused = await booted.commands.runCommand('/set alpha model nowhere/model', admin())
+    expect(refused.error).toBe(true)
+    expect(booted.projects.configOf('alpha')?.model).toBe('other-model')
+  }, 30_000)
+
+  it('/archive asks, moves the file aside, and /reload brings it back', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const asked = await booted.commands.runCommand('/archive alpha', admin())
+    expect(asked.confirm?.prompt).toContain('Archive alpha?')
+    expect(booted.projects.configOf('alpha')).toBeDefined()
+
+    const done = await booted.commands.confirm(asked.confirm?.token as string, true, admin())
+    expect(done.text).toContain('alpha is archived')
+    expect(booted.projects.configOf('alpha')).toBeUndefined()
+    expect(booted.store.projects.get('alpha')?.status).toBe('archived')
+    const archived = join(booted.dataDir, 'config', 'projects', 'archived', 'alpha.yaml')
+    expect(existsSync(archived)).toBe(true)
+    expect((await booted.commands.runCommand('/archive nope', admin())).text).toContain('No project "nope"')
+
+    renameSync(archived, join(booted.dataDir, 'config', 'projects', 'alpha.yaml'))
+    expect(await run(booted, '/reload')).toContain('Restored: alpha')
+    expect(booted.store.projects.get('alpha')?.status).toBe('active')
+  }, 30_000)
+
+  it('/allow lists, adds after a confirmation, and removes', async () => {
+    const booted = await bootCommands()
+    expect(await run(booted, '/allow', admin())).toContain('No user was added')
+    const asked = await booted.commands.runCommand('/allow 4242', admin())
+    expect(asked.confirm?.prompt).toContain('Let 4242 use the bot on test?')
+    expect(booted.commands.addedUsers()).toEqual([])
+
+    await booted.commands.confirm(asked.confirm?.token as string, true, admin())
+    expect(booted.commands.addedUsers()).toEqual([{ channel: 'test', userId: '4242' }])
+    expect(await run(booted, '/allow', admin())).toContain('test 4242')
+    expect(await run(booted, '/allow 4242', admin())).toContain('already')
+
+    expect(await run(booted, '/allow remove 4242', admin())).toContain('can no longer')
+    expect(booted.commands.addedUsers()).toEqual([])
+    expect(await run(booted, '/allow remove 4242', admin())).toContain('was not added with /allow')
+    expect(await run(booted, '/allow bad/id', admin())).toContain('Syntax:')
   }, 30_000)
 })
 

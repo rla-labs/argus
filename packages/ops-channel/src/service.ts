@@ -109,7 +109,7 @@ export class OpsChannel {
   private readonly seen = new Set<string>()
 
   constructor(private readonly options: ChannelOptions) {
-    this.policy = new AccessPolicy(options.access)
+    this.policy = new AccessPolicy(options.access, () => options.commands.addedUsers())
     this.registry = new ChannelRegistry({
       onMessage: (message) => {
         void this.handleIncoming(message)
@@ -294,6 +294,7 @@ export class OpsChannel {
     const out = await this.options.commands.runCommand(line, {
       address: message.address,
       userId: message.userId,
+      isAdmin: this.policy.isAdmin(message.address, message.userId),
       ...(this.activeProjectOf(message.address) === undefined
         ? {}
         : { activeProject: this.activeProjectOf(message.address) as string }),

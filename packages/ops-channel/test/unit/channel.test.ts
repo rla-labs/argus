@@ -49,6 +49,26 @@ describe('AccessPolicy', () => {
     expect(policy.isEmpty).toBe(true)
   })
 
+  it('reads the users /allow added on every check', () => {
+    let added = [{ channel: 'telegram', userId: '7' }]
+    const policy = new AccessPolicy(accessConfig(), () => added)
+    expect(policy.isAllowed('telegram', '7')).toBe(true)
+    expect(policy.isEmpty).toBe(false)
+    added = []
+    expect(policy.check('telegram', '7').reason).toBe('no_allowlist')
+  })
+
+  it('knows the admin: the user, or anyone in the admin’s group chat', () => {
+    const user = new AccessPolicy(accessConfig({ admin: { channel: 'telegram', chatId: '42' } }))
+    expect(user.isAdmin({ channel: 'telegram', chatId: '42' }, '42')).toBe(true)
+    expect(user.isAdmin({ channel: 'telegram', chatId: '-100' }, '42')).toBe(true)
+    expect(user.isAdmin({ channel: 'telegram', chatId: '43' }, '43')).toBe(false)
+    expect(user.isAdmin({ channel: 'slack', chatId: '42' }, '42')).toBe(false)
+    const group = new AccessPolicy(accessConfig({ admin: { channel: 'telegram', chatId: '-100' } }))
+    expect(group.isAdmin({ channel: 'telegram', chatId: '-100' }, '43')).toBe(true)
+    expect(new AccessPolicy(accessConfig()).isAdmin({ channel: 'telegram', chatId: '42' }, '42')).toBe(false)
+  })
+
   it('allows a listed user on a listed channel', () => {
     const policy = new AccessPolicy(
       accessConfig({ allowed_users: [{ channel: 'telegram', userId: '123' }] }),

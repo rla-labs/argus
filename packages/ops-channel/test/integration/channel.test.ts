@@ -598,6 +598,29 @@ describe('delivery', () => {
     expect(big?.text).toContain(`Too large to send here: ${join(cwd, 'big.txt')}`)
   }, 30_000)
 
+  it('/allow is the admin’s, and lets a user in or out on the next message', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    const admin = (text: string): IncomingMessage =>
+      message(text, { address: { channel: 'console', chatId: 'admin-chat' }, userId: 'admin-chat' })
+    const stranger = (text: string): IncomingMessage =>
+      message(text, { address: { channel: 'console', chatId: 'chat-2' }, userId: 'user-2' })
+
+    await booted.channel.handleIncoming(message('/allow user-2'))
+    expect(booted.adapter.sent.at(-1)?.message.text).toContain('Only the admin')
+    expect((await booted.channel.handleIncoming(stranger('/projects'))).kind).toBe('rejected')
+
+    await booted.channel.handleIncoming(admin('/allow user-2'))
+    const yes = booted.adapter.sent.at(-1)?.message.buttons?.find((button) => button.label === 'Yes')?.value ?? ''
+    const token = /^__confirm:([^:]+):yes$/.exec(yes)?.[1]
+    expect(token, 'a confirmation').toBeDefined()
+    await booted.channel.handleIncoming(admin(`/confirm ${token} yes`))
+    expect(booted.adapter.sent.at(-1)?.message.text).toContain('user-2 can now use the bot on console')
+    expect((await booted.channel.handleIncoming(stranger('/projects'))).kind).toBe('command')
+
+    await booted.channel.handleIncoming(admin('/allow remove user-2'))
+    expect((await booted.channel.handleIncoming(stranger('/projects'))).kind).toBe('rejected')
+  }, 30_000)
+
   it('delivers a stop notice', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
     booted.ctx.emit('ops/run-stopped', {

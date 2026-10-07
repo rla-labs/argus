@@ -8,9 +8,9 @@
  *
  * @module @argus-agent/commands/handlers
  */
-import { existsSync, mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
-import { stringify as toYaml } from 'yaml'
+import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
 import type { ModelRef, Scope } from '@argus-agent/types'
 import {
   formatAge,
@@ -27,7 +27,15 @@ import {
   tokenize,
   truncate,
 } from './parse.js'
-import { errorResult, result, type CommandContext, type CommandResult, type CommandSpec } from './types.js'
+import {
+  ADDED_USERS_KEY,
+  errorResult,
+  result,
+  type AddedUser,
+  type CommandContext,
+  type CommandResult,
+  type CommandSpec,
+} from './types.js'
 import type { CommandsOptions } from './service.js'
 import type { CommandHandler } from './types.js'
 
@@ -132,6 +140,17 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       running: projects.isRunning({ kind: 'project', projectId }),
       cost: meter.spending(scopeOf(projectId)),
     }
+  }
+
+  /** Why a project cannot be archived now, or `undefined`. */
+  function archiveRefusal(projectId: string): string | undefined {
+    if (projects.configOf(projectId) === undefined && projects.invalidOf(projectId) === undefined) {
+      return `No project "${projectId}". Send /projects to see them.`
+    }
+    if (projects.isRunning({ kind: 'project', projectId })) {
+      return `${projectId} is running. Stop it first with /stop ${projectId}.`
+    }
+    return undefined
   }
 
   /**
@@ -990,6 +1009,223 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /set ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'set',
+        description: 'Change a project setting (admin)',
+        syntax: '/set <project-id> <key> <value>',
+        detail:
+          'Writes the setting into the project’s file and reloads it, so the change is ' +
+          'durable and checked by the same rules as at startup. A value that does not ' +
+          'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_per_run, ' +
+          'approvals.mode, approvals.auto_allow, description, fallback_model, preset, progress. ' +
+          '`model` takes provider/model. id and cwd cannot be changed. A list is written ' +
+          '[like, this]. Only the admin can run it.',
+        examples: [
+          '/set site-firma budget.day_usd 5',
+          '/set site-firma approvals.auto_allow [git status, npm test]',
+          '/set site-firma model openrouter/deepseek/deepseek-v4-flash',
+          '/set site-firma description The company website and its blog',
+        ],
+        mutating: true,
+        adminOnly: true,
+      },
+      async run(input): Promise<CommandResult> {
+        const [projectId, key] = tokenize(input)
+        const text = restAfter(input, 2).trim()
+        if (projectId === undefined || key === undefined || text.length === 0) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'set needs a project id, a key and a value.')
+        }
+        const file = projects.configOf(projectId)?.sourcePath ?? projects.invalidOf(projectId)?.path
+        if (file === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
+        const path = key.split('.')
+        if (path[0] === 'id' || path[0] === 'cwd') {
+          return errorResult(`${key} cannot be changed: it is the project's identity and its folder.`)
+        }
+        // A loaded project has every key, defaults included, so a key it lacks is a
+        // typo that the file would keep and nothing would read.
+        const loaded = projects.configOf(projectId)
+        const known = loaded === undefined ? undefined : settingKeys(loaded)
+        if (known !== undefined && key !== 'model' && !known.includes(key)) {
+          return errorResult(`"${key}" is not a project setting. Known: ${known.join(', ')}.`)
+        }
+
+        const original = readFileSync(file, 'utf8')
+        const doc = parseDocument(original)
+        let shown = text
+        if (key === 'model') {
+          const parsed = parseModelRef(text)
+          if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
+          const refusal = await modelRefusal(parsed.value)
+          if (refusal !== undefined) return errorResult(refusal)
+          doc.set('provider', parsed.value.provider)
+          doc.set('model', parsed.value.model)
+        } else {
+          const value = settingValue(text)
+          if (!value.ok) return errorResult(`"${text}" is not a valid value: ${value.message}`)
+          doc.setIn(path, value.value)
+          shown = JSON.stringify(value.value)
+        }
+
+        writeFileSync(file, doc.toString())
+        const restore = (why: string): CommandResult => {
+          writeFileSync(file, original)
+          options.reloadProjects()
+          return errorResult(`Not changed. ${why}`)
+        }
+        try {
+          options.reloadProjects()
+        } catch (err) {
+          return restore((err as Error).message)
+        }
+        const invalid = projects.invalidOf(projectId)
+        if (invalid !== undefined) return restore(`With ${key} = ${shown} the project does not validate:\n${invalid.reason}`)
+        const later = ['model', 'provider', 'preset', 'fallback_model'].includes(path[0] ?? '')
+          ? ' The running agent keeps the old one until /reset.'
+          : ''
+        return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${later}`)
+      },
+    },
+
+    // ── /archive ───────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'archive',
+        description: 'Archive a project (admin)',
+        syntax: '/archive <project-id>',
+        detail:
+          'Moves the project’s file to projects/archived/ and reloads, so the project ' +
+          'stops taking work. Nothing is deleted: its folder, memory, history and costs ' +
+          'stay. To bring it back, move the file back and send /reload. A running project ' +
+          'must be stopped first. Requires confirmation. Only the admin can run it.',
+        examples: ['/archive site-firma'],
+        mutating: true,
+        destructive: true,
+        adminOnly: true,
+      },
+      run(input, context): CommandResult {
+        const projectId = tokenize(input)[0]
+        if (projectId === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'archive needs a project id.')
+        const refusal = archiveRefusal(projectId)
+        if (refusal !== undefined) return errorResult(refusal)
+        return deps.service.requestConfirmationFor(
+          `/archive-confirm ${projectId}`,
+          context,
+          `Archive ${projectId}? It stops taking work. Its folder, memory and history are kept.`,
+        )
+      },
+    },
+
+    // ── /archive-confirm ───────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'archive-confirm',
+        description: 'Internal: the confirmed form of /archive',
+        syntax: '/archive-confirm <project-id>',
+        detail: 'Runs the archive the confirmation asked for. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input, context): CommandResult {
+        const projectId = tokenize(input)[0] ?? ''
+        // Checked again: the project may have started while the question was open.
+        const refusal = archiveRefusal(projectId)
+        if (refusal !== undefined) return errorResult(refusal)
+        const file = (projects.configOf(projectId)?.sourcePath ?? projects.invalidOf(projectId)?.path) as string
+        const dir = join(options.projectsConfigDir, 'archived')
+        mkdirSync(dir, { recursive: true })
+        // An earlier archive of the same id is kept, not overwritten.
+        const name = existsSync(join(dir, `${projectId}.yaml`)) ? `${projectId}-${context.now}.yaml` : `${projectId}.yaml`
+        renameSync(file, join(dir, name))
+        options.reloadProjects()
+        return result(
+          `${projectId} is archived; its file is now ${join(dir, name)}.\n` +
+            `To bring it back, move that file to ${join(options.projectsConfigDir, `${projectId}.yaml`)} and send /reload.`,
+        )
+      },
+    },
+
+    // ── /allow ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'allow',
+        description: 'Let another user use the bot (admin)',
+        syntax: '/allow [<user-id> | remove <user-id>]',
+        detail:
+          'With no argument, lists the users added here. With a user id, lets that user on ' +
+          'this channel use the bot, after a confirmation. `remove` takes the access away. ' +
+          'Users listed in access.allowed_users in ops.yaml are changed there, not here. ' +
+          'Only the admin can run it.',
+        examples: ['/allow', '/allow 123456789', '/allow remove 123456789'],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input, context): CommandResult {
+        const tokens = tokenize(input)
+        const added = store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
+        if (tokens.length === 0) {
+          if (added.length === 0) {
+            return result('No user was added with /allow. The admin and access.allowed_users in ops.yaml can use the bot.')
+          }
+          return result(
+            [
+              'Added with /allow:',
+              ...added.map((user) => `  ${user.channel} ${user.userId}`),
+              '',
+              'Plus the admin and access.allowed_users in ops.yaml.',
+            ].join('\n'),
+          )
+        }
+        const remove = tokens[0]?.toLowerCase() === 'remove'
+        const userId = remove ? tokens[1] : tokens[0]
+        if (userId === undefined || !/^[\w@.:-]{1,64}$/.test(userId)) {
+          return failWith(
+            { syntax: this.spec.syntax } as CommandSpec,
+            'A user id is letters, digits and - _ . : @, up to 64 characters.',
+          )
+        }
+        const channel = context.address.channel
+        const same = (user: AddedUser): boolean => user.channel === channel && user.userId === userId
+        if (remove) {
+          if (!added.some(same)) {
+            return errorResult(`${userId} was not added with /allow. A user in access.allowed_users is removed in ops.yaml.`)
+          }
+          store.runtimeState.set(ADDED_USERS_KEY, added.filter((user) => !same(user)), context.now)
+          return result(`${userId} can no longer use the bot on ${channel}.`)
+        }
+        if (added.some(same)) return result(`${userId} can already use the bot on ${channel}.`)
+        return deps.service.requestConfirmationFor(
+          `/allow-confirm ${userId}`,
+          context,
+          `Let ${userId} use the bot on ${channel}? They can run commands, spend the budgets and talk to every project.`,
+        )
+      },
+    },
+
+    // ── /allow-confirm ─────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'allow-confirm',
+        description: 'Internal: the confirmed form of /allow',
+        syntax: '/allow-confirm <user-id>',
+        detail: 'Adds the user the confirmation asked about. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input, context): CommandResult {
+        const userId = tokenize(input)[0] ?? ''
+        const channel = context.address.channel
+        const added = store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
+        if (!added.some((user) => user.channel === channel && user.userId === userId)) {
+          store.runtimeState.set(ADDED_USERS_KEY, [...added, { channel, userId }], context.now)
+        }
+        return result(`${userId} can now use the bot on ${channel}. /allow remove ${userId} takes it back.`)
+      },
+    },
+
     // ── /allow-free ────────────────────────────────────────────────────────
     {
       spec: {
@@ -1259,6 +1495,30 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
   ]
+}
+
+/**
+ * A `/set` value.
+ *
+ * Only a number, a boolean, null, a [list] or a {map} is read as YAML. Anything else
+ * is the text as typed: as YAML, `fix #3` would lose its end to a comment and
+ * `Site: blog` would become a map.
+ */
+function settingValue(text: string): { ok: true; value: unknown } | { ok: false; message: string } {
+  if (!/^[[{]/.test(text) && !/^(true|false|null|-?\d+(\.\d+)?)$/i.test(text)) return { ok: true, value: text }
+  try {
+    return { ok: true, value: parseYaml(text) as unknown }
+  } catch (err) {
+    return { ok: false, message: (err as Error).message.split('\n')[0] ?? 'unparseable' }
+  }
+}
+
+/** Every settable key of a loaded project, dotted. */
+function settingKeys(config: unknown, prefix = ''): string[] {
+  if (config === null || typeof config !== 'object' || Array.isArray(config)) return [prefix]
+  return Object.entries(config as Record<string, unknown>)
+    .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath'].includes(key))
+    .flatMap(([key, value]) => settingKeys(value, prefix.length === 0 ? key : `${prefix}.${key}`))
 }
 
 /** How many rows `/runs` shows. */

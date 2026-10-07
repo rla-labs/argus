@@ -1384,6 +1384,11 @@ committed or shown without leaking anything.
 | `allowed_users` | list | `[]` | More `{ channel, userId }` entries. **With no admin either, everyone is refused.** |
 | `warn_interval_minutes` | int | `15` | Rate limit for refusal warnings. |
 
+**The admin commands.** `/set`, `/archive` and `/allow` run only for the admin: the
+`access.admin` user, or anyone in the admin's chat when `access.admin` is a group. From
+the dsh Web UI they always run, because only someone on the server can reach it. Users
+added with `/allow` are allowed on top of `allowed_users`.
+
 ```yaml
 access:
   admin: '99887766'
@@ -2205,6 +2210,75 @@ Start site-firma's conversation over? Its history will not be deleted, but the p
 
 **The history is not deleted.** The session file stays on disk and its id is
 recorded in the audit log, so nothing is unrecoverable.
+
+---
+
+### `/set <project-id> <key> <value>`  *(admin)*
+
+Changes a project setting without opening the server. The setting is written into the
+project's file, comments kept, and the project is reloaded, so the change is durable and
+checked by the same rules as at startup. A value that does not validate is not written:
+the file stays as it was and the reply says why.
+
+```
+/set site-firma budget.day_usd 5
+/set site-firma limits.max_steps_per_run 100
+/set site-firma approvals.mode auto
+/set site-firma approvals.auto_allow [git status, npm test]
+/set site-firma description The company website and its blog
+/set site-firma model openrouter/deepseek/deepseek-v4-flash
+```
+
+| Key | What it changes |
+|---|---|
+| `description` | The sentence the front desk routes on |
+| `model` | `provider/model`; checked for a key and a price, like `/new` |
+| `fallback_model` | The cheaper model a `downgrade` budget switches to |
+| `budget.day_usd`, `budget.month_usd`, `budget.soft_action`, ... | The project's budget |
+| `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
+| `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
+| `memory.user_profile`, `progress`, `preset` | The rest |
+
+A misspelt key is refused with the list of the real ones. `id` and `cwd` cannot be
+changed: they are the project's identity and its folder. A number, `true`/`false`,
+`null` and a `[list]` are read as such; anything else is the text as typed.
+
+A change of `model`, `preset` or `fallback_model` reaches a running agent only after
+`/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+### `/archive <project-id>`  *(admin, asks first)*
+
+Stops a project taking work without deleting anything. Its file moves to
+`config/projects/archived/`; its folder, memory, history and costs stay. A running
+project must be stopped first.
+
+```
+/archive site-firma
+```
+
+```
+site-firma is archived; its file is now /data/config/projects/archived/site-firma.yaml.
+To bring it back, move that file to /data/config/projects/site-firma.yaml and send /reload.
+```
+
+---
+
+### `/allow [<user-id> | remove <user-id>]`  *(admin)*
+
+Lets someone else use the bot, without editing `ops.yaml`. Adding asks first; removing
+does not. The user is allowed on the channel you send the command from.
+
+```
+/allow
+/allow 123456789
+/allow remove 123456789
+```
+
+An added user can do everything you can except the admin commands: run commands, spend
+the budgets, talk to every project. The users added here are kept in the database
+(and in a backup); the ones in `access.allowed_users` are changed in `ops.yaml`.
 
 ---
 

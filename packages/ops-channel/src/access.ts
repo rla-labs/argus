@@ -47,8 +47,26 @@ export class AccessPolicy {
   private lastWarningAt = Number.NEGATIVE_INFINITY
   private suppressedWarnings = 0
 
-  constructor(private readonly config: AccessConfig) {
+  /**
+   * @param config the configured access.
+   * @param added the users added at runtime (`/allow`), read on every check so an
+   *   addition or removal applies to the next message.
+   */
+  constructor(
+    private readonly config: AccessConfig,
+    private readonly added: () => readonly AllowedUser[] = () => [],
+  ) {
     this.entries = config.allowed_users
+  }
+
+  /**
+   * Whether a message comes from the admin: the admin user, or the admin's chat
+   * when `access.admin` names a group.
+   */
+  isAdmin(address: ChannelAddress, userId: string): boolean {
+    const admin = this.config.admin
+    if (admin === undefined || admin.channel !== address.channel) return false
+    return admin.chatId === userId || admin.chatId === address.chatId
   }
 
   /**
@@ -63,8 +81,9 @@ export class AccessPolicy {
    * @returns the decision.
    */
   check(channel: string, userId: string): AccessDecision {
-    if (this.entries.length === 0) return { allowed: false, reason: 'no_allowlist' }
-    for (const entry of this.entries) {
+    const entries = [...this.entries, ...this.added()]
+    if (entries.length === 0) return { allowed: false, reason: 'no_allowlist' }
+    for (const entry of entries) {
       if (entry.userId !== userId) continue
       if (entry.channel === channel || entry.channel === '*') return { allowed: true }
     }
@@ -87,12 +106,12 @@ export class AccessPolicy {
 
   /** Whether any user is authorized at all. For diagnostics and startup warnings. */
   get isEmpty(): boolean {
-    return this.entries.length === 0
+    return this.size === 0
   }
 
-  /** How many entries are configured. */
+  /** How many entries are configured or added. */
   get size(): number {
-    return this.entries.length
+    return this.entries.length + this.added().length
   }
 
   /**
