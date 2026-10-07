@@ -68,7 +68,7 @@ FROM node:22-bookworm-slim AS runtime
 
 LABEL org.opencontainers.image.title="Argus Agent" \
       org.opencontainers.image.description="A self-hosted autonomous agent system on the DeepSeek Harness" \
-      org.opencontainers.image.source="https://github.com/rla-labs/argus-agent" \
+      org.opencontainers.image.source="https://github.com/rla-labs/argus" \
       org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${ARGUS_AGENT_VERSION:-0.1.0}" \
       com.argus-agent.dsh-version="0.2.0-rc.2" \

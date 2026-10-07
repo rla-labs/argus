@@ -15,7 +15,7 @@
 
 services:
   ops:
-    image: ${ARGUS_AGENT_IMAGE:-ghcr.io/rla-labs/argus-agent:latest}
+    image: ${ARGUS_AGENT_IMAGE:-ghcr.io/rla-labs/argus:latest}
     # Uncomment to build from a checkout instead of pulling.
     # build:
     #   context: ../..

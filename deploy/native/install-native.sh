@@ -293,7 +293,7 @@ elif [ -f "${REPO_ROOT}/package.json" ] && [ -d "${REPO_ROOT}/packages" ]; then
       -cf - . | tar -C "${APP_DIR}" -xf -
   ok "copied"
 else
-  REPO_URL="${ARGUS_AGENT_REPO_URL:-https://github.com/rla-labs/argus-agent.git}"
+  REPO_URL="${ARGUS_AGENT_REPO_URL:-https://github.com/rla-labs/argus.git}"
   info "cloning ${REPO_URL} into ${APP_DIR}"
   rm -rf "${APP_DIR}"
   git clone --depth 1 "${REPO_URL}" "${APP_DIR}" || die "the clone failed"

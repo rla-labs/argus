@@ -112,7 +112,8 @@ What is not verified yet:
 
 - **Agents running shell tools under the native systemd hardening.**
 - **The published Docker image.** No release has been tagged yet, so
-  `ghcr.io/rla-labs/argus-agent` does not exist; install with `--build` until it does.
+  `ghcr.io/rla-labs/argus` does not exist; install with `--build` until it does.
+  The first release is planned for the end of the next phase.
 - **Long-running use.** No deployment has run for weeks against real budgets.
 
 ## Where it is going
@@ -152,7 +153,7 @@ key for your model provider.
 ### Native install (recommended for a VPS)
 
 ```sh
-git clone https://github.com/rla-labs/argus-agent.git
+git clone https://github.com/rla-labs/argus.git
 cd argus-agent
 sudo ./deploy/native/install-native.sh
 ```
@@ -166,7 +167,7 @@ sends your first Telegram message. Back up with
 ### Docker
 
 ```sh
-git clone https://github.com/rla-labs/argus-agent.git
+git clone https://github.com/rla-labs/argus.git
 cd argus-agent
 ./deploy/scripts/install.sh --build
 ```

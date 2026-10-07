@@ -1,6 +1,6 @@
 # == ARGUS AGENT PROJECT ==
 # A version tag (v0.1.0, v0.2.0, …) publishes the Docker image to
-# ghcr.io/rla-labs/argus-agent, tagged with the version and `latest` — the image
+# ghcr.io/rla-labs/argus, tagged with the version and `latest` — the image
 # deploy/scripts/install.sh pulls by default.
 name: release
 
@@ -38,6 +38,6 @@ jobs:
           push: true
           build-args: ARGUS_AGENT_VERSION=${{ steps.version.outputs.version }}
           tags: |
-            ghcr.io/rla-labs/argus-agent:${{ steps.version.outputs.version }}
-            ghcr.io/rla-labs/argus-agent:latest
+            ghcr.io/rla-labs/argus:${{ steps.version.outputs.version }}
+            ghcr.io/rla-labs/argus:latest
           labels: org.opencontainers.image.version=${{ steps.version.outputs.version }}
