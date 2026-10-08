@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'files', 'get', 'set', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -551,10 +551,10 @@ describe('/runs', () => {
     await booted.commands.runCommand('/task something', contextFor())
     await waitRan(booted)
     // No active project: every run, with its owner.
-    expect(await run(booted, '/runs')).toMatch(/^adhoc\s+\S+ ago\s+completed/m)
+    expect(await run(booted, '/runs')).toMatch(/^1\s+adhoc\s+\S+ ago\s+completed/m)
     await run(booted, '/p alpha')
     expect(await run(booted, '/runs')).toBe('No runs yet for alpha.')
-    expect(await run(booted, '/runs all')).toMatch(/^adhoc\s/m)
+    expect(await run(booted, '/runs all')).toMatch(/^1\s+adhoc\s/m)
   }, 40_000)
 
   it('refuses an unknown project', async () => {
@@ -563,6 +563,38 @@ describe('/runs', () => {
     expect(out.error).toBe(true)
     expect(out.text).toContain('No project "nope"')
   }, 30_000)
+})
+
+// ── /log ───────────────────────────────────────────────────────────────────
+
+describe('/log', () => {
+  it('shows what a run did: the request, the reply, the cost, its approvals', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect((await booted.commands.runCommand('/log alpha', contextFor())).text).toContain('no run #1')
+    submit(booted, 'alpha', 'fix the  footer')
+    await waitRan(booted)
+    await waitFor(() => booted.store.audit.byAction('run.trail').length > 0, { timeoutMs: 20_000, label: 'the trail' })
+    const runId = booted.store.runs.recent(1)[0]?.id as string
+    booted.store.approvals.insert(
+      { id: 'a1', run_id: runId, project_id: 'alpha', request_json: JSON.stringify({ toolName: 'bash', action: 'npm run build' }), status: 'pending' },
+      Date.now(),
+    )
+    booted.store.approvals.decide('a1', 'granted', 'user-1', Date.now())
+
+    expect(await run(booted, '/runs alpha')).toMatch(/^#\s+Started/m)
+    const text = await run(booted, '/log alpha')
+    expect(text).toMatch(/^Run #1 of alpha: completed/)
+    expect(text).toContain('$0.001')
+    expect(text).toContain('Asked: fix the footer')
+    expect(text).toContain('No tools: it answered directly.')
+    expect(text).toContain('- npm run build: granted')
+    expect(text).toContain('Reply:\ndone')
+    // The active project, and the position, default the same way.
+    await run(booted, '/p alpha')
+    expect(await run(booted, '/log 1')).toBe(text)
+    expect((await booted.commands.runCommand('/log alpha 2', contextFor())).text).toContain('no run #2')
+    expect((await booted.commands.runCommand('/log alpha 99', contextFor())).error).toBe(true)
+  }, 40_000)
 })
 
 // ── /approvals ─────────────────────────────────────────────────────────────
@@ -612,6 +644,41 @@ describe('/memory', () => {
     expect(long.files?.[0]).toEqual({ name: 'beta-MEMORY.md', content: 'x'.repeat(5_000) })
     expect(await run(booted, '/memory gamma')).toContain('no memory yet')
     expect((await booted.commands.runCommand('/memory', contextFor())).text).toContain('no active project')
+  }, 30_000)
+})
+
+// ── /forget ────────────────────────────────────────────────────────────────
+
+describe('/forget', () => {
+  it('lists the sections, and removes one after a confirmation', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    let sections = [{ name: 'Build', chars: 12 }, { name: 'Deploy notes', chars: 40 }]
+    const forgotten: string[] = []
+    const ctx = booted.ctx as unknown as { provide(name: string): void; set(name: string, value: unknown): void }
+    ctx.provide('opsMemory')
+    ctx.set('opsMemory', {
+      memoryPath: () => '',
+      readMemory: () => '',
+      sections: () => sections,
+      forgetSection: (_id: string, section: string, actor: string) => {
+        const match = sections.find((entry) => entry.name === section)
+        if (match === undefined) return { ok: false, sections: sections.map((entry) => entry.name) }
+        forgotten.push(`${section} by ${actor}`)
+        sections = sections.filter((entry) => entry !== match)
+        return { ok: true, name: match.name }
+      },
+    })
+
+    expect(await run(booted, '/forget alpha')).toContain('- Deploy notes (40 chars)')
+    expect((await booted.commands.runCommand('/forget alpha Nope', contextFor())).text).toContain('no section "Nope"')
+
+    // Matched without regard to case; nothing happens before the answer.
+    const asked = await booted.commands.runCommand('/forget alpha deploy NOTES', contextFor())
+    expect(asked.confirm?.prompt).toContain('Remove the section "Deploy notes"')
+    expect(forgotten).toEqual([])
+    const done = await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())
+    expect(done.text).toContain('Removed "Deploy notes"')
+    expect(forgotten).toEqual(['Deploy notes by user-1'])
   }, 30_000)
 })
 

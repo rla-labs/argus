@@ -55,6 +55,7 @@ import {
   diffSummary,
   parseMemory,
   readMemoryFile,
+  removeSection,
   writeMemoryFileAtomic,
 } from './memory-file.js'
 import { estimateTokens, memoryFile, projectStateDir, recallFile, userProfileFile } from './paths.js'
@@ -166,6 +167,42 @@ export class OpsMemory {
   /** Read a project's memory text. */
   readMemory(projectId: string): string {
     return readMemoryFile(this.memoryPath(projectId))
+  }
+
+  /**
+   * The sections of a project's memory, with their sizes, for `/forget` to list.
+   * @param projectId the project.
+   * @returns the sections in file order.
+   */
+  sections(projectId: string): Array<{ name: string; chars: number }> {
+    return parseMemory(this.readMemory(projectId)).sections.map((section) => ({ name: section.name, chars: section.body.trim().length }))
+  }
+
+  /**
+   * Remove one section of a project's memory: `/forget`. Audited as
+   * `memory.forgotten`. A running agent keeps what was injected into its context
+   * until its session is reset; later sessions do not see the section.
+   *
+   * @param projectId the project.
+   * @param section the section's name (case-insensitive when unambiguous).
+   * @param actor who asked, for the audit log.
+   * @returns the removed section's name, or the names there are.
+   */
+  forgetSection(
+    projectId: string,
+    section: string,
+    actor: string,
+  ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] } {
+    const path = this.memoryPath(projectId)
+    const before = readMemoryFile(path)
+    const removed = removeSection(before, section)
+    if (!removed.ok) return removed
+    writeMemoryFileAtomic(path, removed.text)
+    this.options.store.audit.record(
+      { actor, action: 'memory.forgotten', target: `${projectId}:${removed.name}`, details: { summary: diffSummary(before, removed.text) } },
+      this.options.now(),
+    )
+    return { ok: true, name: removed.name }
   }
 
   /** Read the global user profile. */

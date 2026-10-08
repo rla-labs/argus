@@ -59,6 +59,7 @@ When a line needs a closer look:
 /status                 what is running and what is queued, right now
 /usage global day       the cost of the day, by project and by model
 /runs site-firma        what that project did and how each run ended
+/log site-firma         the latest run, step by step: what it ran, what it replied
 ```
 
 **During the day,** work happens in whichever project the chat points at:
@@ -229,12 +230,14 @@ chat quiet on good days.
 | What did it produce? | `/files site-firma`, then `/files site-firma reports` |
 | Send me that file | `/get site-firma reports/week-41.md` |
 | What did it do today, and what did it cost? | `/runs site-firma` |
+| What exactly did that run do? | `/log site-firma`, or `/log site-firma 3` for the third in `/runs` |
 | What did it ask permission for? | `/approvals` |
 
 **Memory is the project's own notes,** kept outside its folder and surviving `/reset`.
 The agent writes to it as it learns: conventions, decisions, where things are. Read it
 from time to time. If it has written down something wrong, tell the project so in a
-message. The agent edits its memory itself.
+message. The agent edits its memory itself. To remove a whole section yourself,
+`/forget site-firma` lists them and `/forget site-firma <section>` removes one.
 
 **Ask for results as files** when you will want to keep them ("write it to
 `reports/…`"). A file in the project folder outlives the chat, and `/get` brings it back
@@ -273,7 +276,7 @@ For a project's full file (every key, with comments) see
 | A project is working on the wrong thing | `/stop <project>`: the current turn stops, queued messages stay |
 | Something is spending fast, or acting strangely, and you are not sure where | `/panic`: everything stops and nothing new starts until `/resume-all` |
 | A project stopped with `budget_stopped` | `/budget <project>`, then `+<usd>` or wait until tomorrow |
-| A run ended in `error` | `/runs <project>` for when; the daily report's Errors section for the provider error |
+| A run ended in `error` | `/runs <project>` for when, `/log <project>` for the step that failed; the daily report's Errors section for the provider error |
 | `UNPRICED_MODEL` | The model has no price. Pick another, or add it under `pricing` in `ops.yaml` |
 | The bot does not answer at all | On the host: `argus status`, then `argus logs`. Then [The bot is silent](troubleshooting.md#the-bot-is-silent) |
 | After a restart: "run(s) were interrupted" | Press **Retry** on the ones you still want |
@@ -309,7 +312,7 @@ talk to every project, run commands and spend the budgets. They cannot run `/set
 | Choosing where messages go | `/p`, `/p <id>`, `/p none`, `/projects` |
 | Seeing what is happening | `/status`, `/status <project>`, `/approvals`, `/health` |
 | Money | `/usage`, `/usage global month`, `/budget <scope>`, `/budget <scope> +<usd>` |
-| What a project did | `/runs`, `/memory`, `/files`, `/get` |
+| What a project did | `/runs`, `/log`, `/memory`, `/forget`, `/files`, `/get` |
 | Starting work | a plain message, `/task <text>`, `/cron add ...` |
 | Stopping work | `/stop`, `/panic`, `/resume-all` |
 | Changing things (admin) | `/new`, `/set`, `/model`, `/reset`, `/archive`, `/reload`, `/allow`, `/allow-free` |

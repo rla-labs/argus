@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameS
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
 import type { ModelRef, Scope } from '@argus-agent/types'
+import { RUN_TRAIL_ACTION, type RunTrail } from '@argus-agent/projects'
 import {
   formatAge,
   formatDuration,
@@ -590,10 +591,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         // Usage is written in batches; a run that just ended would read as $0.
         await meter.flush()
         const now = options.now()
-        const rows = [[...(projectId === undefined ? ['Owner'] : []), 'Started', 'Status', 'Steps', 'Took', 'Cost']]
-        for (const run of runs) {
+        const rows = [['#', ...(projectId === undefined ? ['Owner'] : []), 'Started', 'Status', 'Steps', 'Took', 'Cost']]
+        for (const [index, run] of runs.entries()) {
           const cost = store.usage.totalsByRun(run.id).cost_micros
           rows.push([
+            String(index + 1),
             ...(projectId === undefined ? [truncate(run.owner_key.replace(/^project:/, ''), 16)] : []),
             formatAge(run.started_at, now),
             run.status,
@@ -602,7 +604,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             `$${formatUsd(cost)}`,
           ])
         }
-        return result([`Recent runs: ${subject}`, '', ...renderTable(rows)].join('\n'))
+        const again = projectId === undefined ? '/log all <#>' : `/log ${projectId} <#>`
+        return result([`Recent runs: ${subject}`, '', ...renderTable(rows), '', `What one did: ${again}`].join('\n'))
       },
     },
 
@@ -688,6 +691,138 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           })
         }
         return result(`Memory of ${projectId}:\n\n${text}`)
+      },
+    },
+
+    // ── /log ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'log',
+        description: 'Show what one run did: the request, the tools, the reply',
+        syntax: '/log [project-id | all] [#]',
+        detail:
+          'Shows one run: what was asked, the tools it called (failed ones marked ✗), the ' +
+          'approvals it asked for, the start of its reply, and what it cost. # is the run’s ' +
+          'number in /runs, 1 for the latest, which is the default. With no project, uses ' +
+          'this chat’s active one; with none set, or with "all", counts every run.',
+        examples: ['/log', '/log site-firma', '/log site-firma 3', '/log all 2'],
+        mutating: false,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const tokens = tokenize(input)
+        const last = tokens[tokens.length - 1]
+        const position = last !== undefined && /^\d+$/.test(last) ? Number(tokens.pop()) : 1
+        const argument = tokens[0]
+        const projectId = argument?.toLowerCase() === 'all' ? undefined : projectOf(argument, context)
+        if (projectId !== undefined) {
+          const state = projectState(projectId)
+          if (!state.found) return errorResult(state.text)
+        }
+        if (position < 1 || position > RUNS_SHOWN) return errorResult(`# is a run's number in /runs, 1 to ${RUNS_SHOWN}.`)
+        const runs = projectId === undefined ? store.runs.recent(position) : store.runs.byOwner(scopeOf(projectId), position)
+        const run = runs[position - 1]
+        if (run === undefined) return errorResult(`There is no run #${position} for ${projectId ?? 'all projects and tasks'}. See /runs.`)
+
+        await meter.flush()
+        const now = options.now()
+        const usage = store.usage.totalsByRun(run.id)
+        const owner = run.owner_key.replace(/^project:/, '')
+        const lines = [
+          `Run #${position} of ${owner}: ${run.status}${run.stop_reason === null ? '' : ` (${run.stop_reason})`}`,
+          `Started ${formatAge(run.started_at, now)}, took ${formatDuration((run.ended_at ?? now) - run.started_at)}, ` +
+            `${run.steps} step(s), ${run.provider}/${run.model}, $${formatUsd(usage.cost_micros)}`,
+        ]
+        const request = run.inbound_id === null ? undefined : store.inbound.get(run.inbound_id)
+        const asked = request === undefined ? undefined : requestText(request.payload)
+        if (asked !== undefined) lines.push('', `Asked: ${truncate(asked, LOG_REQUEST_CHARS)}`)
+
+        const trailRow = store.audit.byTarget(`run:${run.id}`, 10).find((row) => row.action === RUN_TRAIL_ACTION)
+        const trail = trailRow?.details_json == null ? undefined : (JSON.parse(trailRow.details_json) as RunTrail)
+        if (trail !== undefined && trail.tools.length > 0) {
+          lines.push('', `Tools (${trail.toolsTotal}):`)
+          for (const [index, tool] of trail.tools.entries()) {
+            lines.push(`${index + 1}. ${tool.name}${tool.arg.length > 0 ? `: ${tool.arg}` : ''}${tool.failed ? ' ✗' : ''}`)
+          }
+          if (trail.toolsTotal > trail.tools.length) lines.push(`… and ${trail.toolsTotal - trail.tools.length} more`)
+        } else if (trail !== undefined) {
+          lines.push('', 'No tools: it answered directly.')
+        }
+
+        const approvals = store.approvals.byRun(run.id)
+        if (approvals.length > 0) {
+          lines.push('', 'Approvals:')
+          for (const approval of approvals) lines.push(`- ${truncate(actionOf(approval.request_json), 80)}: ${approval.status}`)
+        }
+
+        if (trail !== undefined && trail.reply.length > 0) lines.push('', 'Reply:', trail.reply)
+        if (trail === undefined) {
+          lines.push('', run.status === 'running' ? 'Still running: the tools and the reply show here when it ends.' : 'No details were kept for this run.')
+        }
+        return result(lines.join('\n'))
+      },
+    },
+
+    // ── /forget ────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'forget',
+        description: 'Remove one section of a project’s memory',
+        syntax: '/forget <project-id> [section]',
+        detail:
+          'A project’s memory is a list of sections (“## Build”, “## Conventions”, …). ' +
+          'With no section, lists them; with one, removes it after a confirmation. The ' +
+          'name is matched without regard to case. A running agent keeps what it already ' +
+          'read until /reset; later sessions do not see the section.',
+        examples: ['/forget site-firma', '/forget site-firma Deploy notes'],
+        mutating: true,
+        destructive: true,
+        requires: 'ops-memory',
+      },
+      run(input, context): CommandResult {
+        const memory = options.memory?.()
+        if (memory === undefined) return errorResult('Project memory (ops-memory) is not installed on this deployment.')
+        const projectId = tokenize(input)[0]
+        if (projectId === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'forget needs a project id.')
+        const state = projectState(projectId)
+        if (!state.found) return errorResult(state.text)
+        const section = restAfter(input, 1).trim()
+        const sections = memory.sections(projectId)
+        if (section.length === 0) {
+          if (sections.length === 0) return result(`${projectId} has no memory sections.`)
+          return result(
+            [`Sections of ${projectId}'s memory:`, ...sections.map((entry) => `- ${entry.name} (${entry.chars} chars)`), '', `Remove one: /forget ${projectId} <section>`].join('\n'),
+          )
+        }
+        const match = sections.find((entry) => entry.name === section) ?? sections.find((entry) => entry.name.toLowerCase() === section.toLowerCase())
+        if (match === undefined) {
+          return errorResult(`${projectId}'s memory has no section "${section}". Send /forget ${projectId} to list them.`)
+        }
+        return deps.service.requestConfirmationFor(
+          `/forget-confirm ${projectId} ${match.name}`,
+          context,
+          `Remove the section "${match.name}" (${match.chars} chars) from ${projectId}'s memory? /memory ${projectId} shows it first.`,
+        )
+      },
+    },
+
+    // ── /forget-confirm ────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'forget-confirm',
+        description: 'Internal: the confirmed form of /forget',
+        syntax: '/forget-confirm <project-id> <section>',
+        detail: 'Removes the section the confirmation asked about. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        requires: 'ops-memory',
+      },
+      run(input, context): CommandResult {
+        const memory = options.memory?.()
+        if (memory === undefined) return errorResult('Project memory (ops-memory) is not installed on this deployment.')
+        const projectId = tokenize(input)[0] ?? ''
+        const removed = memory.forgetSection(projectId, restAfter(input, 1).trim(), context.userId)
+        if (!removed.ok) return errorResult(`That section is no longer in ${projectId}'s memory.`)
+        return result(`Removed "${removed.name}" from ${projectId}'s memory. A running agent keeps what it already read until /reset ${projectId}.`)
       },
     },
 
@@ -1529,6 +1664,8 @@ const APPROVALS_SHOWN = 5
 const FILES_SHOWN = 40
 /** A memory longer than this is sent as a file: a chat message is no place to read it. */
 const MEMORY_INLINE_CHARS = 3_000
+/** How much of the request `/log` shows. */
+const LOG_REQUEST_CHARS = 300
 
 /** The action an approval row is about, from its recorded request. */
 function actionOf(requestJson: string): string {
@@ -1538,6 +1675,17 @@ function actionOf(requestJson: string): string {
     return truncate(action.replace(/\s+/g, ' '), 48)
   } catch {
     return '?'
+  }
+}
+
+/** The text of an inbound request, from its stored envelope. */
+function requestText(payload: string): string | undefined {
+  try {
+    const parsed = JSON.parse(payload) as { content?: Array<{ type?: string; text?: string }> }
+    const text = (parsed.content ?? []).flatMap((block) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('\n')
+    return text.length > 0 ? text.replace(/\s+/g, ' ').trim() : undefined
+  } catch {
+    return undefined
   }
 }
 

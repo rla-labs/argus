@@ -163,6 +163,32 @@ export function applyUpdate(
 }
 
 /**
+ * Remove one `##` section. The name matches exactly, or else case-insensitively when
+ * exactly one section matches that way, so `/forget site build` finds "Build".
+ *
+ * @param text the file's text.
+ * @param section the section's name.
+ * @returns the new text and the removed section's exact name, or the section names
+ *   when none matches.
+ */
+export function removeSection(
+  text: string,
+  section: string,
+): { readonly ok: true; readonly text: string; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] } {
+  const parsed = parseMemory(text)
+  const wanted = section.trim()
+  let index = parsed.sections.findIndex((entry) => entry.name === wanted)
+  if (index === -1) {
+    const loose = parsed.sections.flatMap((entry, i) => (entry.name.toLowerCase() === wanted.toLowerCase() ? [i] : []))
+    if (loose.length === 1) index = loose[0] as number
+  }
+  if (index === -1) return { ok: false, sections: parsed.sections.map((entry) => entry.name) }
+  const name = (parsed.sections[index] as MemoryBlock).name
+  const sections = parsed.sections.filter((_, i) => i !== index)
+  return { ok: true, text: renderMemory({ preamble: parsed.preamble, sections }), name }
+}
+
+/**
  * Read a memory file, or `''` when it does not exist.
  *
  * A missing file is not an error: it is a project that has not written memory yet,

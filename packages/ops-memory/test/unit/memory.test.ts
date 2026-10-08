@@ -19,7 +19,7 @@ import {
   recallFile,
   userProfileFile,
 } from '../../src/paths.js'
-import { applyUpdate, diffSummary, parseMemory, readMemoryFile, renderMemory, writeMemoryFileAtomic } from '../../src/memory-file.js'
+import { applyUpdate, diffSummary, parseMemory, readMemoryFile, removeSection, renderMemory, writeMemoryFileAtomic } from '../../src/memory-file.js'
 import { composeInjection, hasContent, MEMORY_HEADING } from '../../src/truncate.js'
 import { snippet, tokenizeQuery } from '../../src/recall.js'
 import { memoryOf } from '../../src/config.js'
@@ -567,5 +567,22 @@ describe('memoryOf', () => {
 
   it('rejects a recall limit of zero', () => {
     expect(() => memoryOf({ memory: { recall_limit: 0 } })).toThrow()
+  })
+})
+
+describe('removeSection (/forget)', () => {
+  const text = '# Memory\n\n## Build\npnpm build\n\n## Deploy notes\nrsync to the VPS\n'
+
+  it('removes the section, matched exactly or case-insensitively, and keeps the rest', () => {
+    const removed = removeSection(text, 'deploy NOTES')
+    expect(removed).toMatchObject({ ok: true, name: 'Deploy notes' })
+    const after = (removed as { text: string }).text
+    expect(after).toMatch(/## Build\s+pnpm build/)
+    expect(after).not.toContain('rsync')
+    expect(after.startsWith('# Memory')).toBe(true)
+  })
+
+  it('names the sections there are when none matches', () => {
+    expect(removeSection(text, 'Nope')).toEqual({ ok: false, sections: ['Build', 'Deploy notes'] })
   })
 })

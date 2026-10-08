@@ -15,8 +15,8 @@ For which command fits which moment, read
 | Group | Commands |
 |---|---|
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
-| What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/approvals`](#approvals) · [`/health`](#health) |
-| A project's results | [`/memory`](#memory-project-id) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) |
+| What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
+| A project's results | [`/memory`](#memory-project-id) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
@@ -235,14 +235,53 @@ every run, one-off tasks included.
 ```
 Recent runs: site-firma
 
-Started   Status     Steps  Took   Cost
-12m ago   completed  6      1m 4s  $0.0312
-2h ago    error      2      9s     $0.004
+#  Started   Status     Steps  Took   Cost
+1  12m ago   completed  6      1m 4s  $0.0312
+2  2h ago    error      2      9s     $0.004
+
+What one did: /log site-firma <#>
 ```
 
 The status is `running`, `completed`, `aborted` (`/stop` or `/panic`), `error`,
 `budget_stopped`, `limit_stopped` (a step or time limit) or `interrupted` (cut off by a
 restart; the startup report offers to retry it).
+
+---
+
+## `/log [project-id | all] [#]`
+
+What one run did: the request, every tool it called, the approvals it asked for, the
+start of its reply, and what it cost. `#` is the run's number in `/runs`, and `1`, the
+latest, is the default. The project defaults the way `/runs` does.
+
+```
+/log
+/log site-firma
+/log site-firma 2
+/log all 3
+```
+
+```
+Run #1 of site-firma: completed
+Started 12m ago, took 1m 4s, 6 step(s), openrouter/deepseek/deepseek-v4-flash, $0.0312
+
+Asked: the footer shows last year, fix it
+
+Tools (3):
+1. read: src/components/Footer.astro
+2. edit: src/components/Footer.astro
+3. bash: npm run build ✗
+
+Approvals:
+- npm run build: granted
+
+Reply:
+The footer now takes the year from the build date. The build failed once …
+```
+
+`✗` marks a tool call that failed. The run keeps at most 40 calls, each argument cut to
+100 characters, and the first 600 characters of the reply. The full conversation stays
+in the session log on the server. A run from before 0.2.0 has no tools or reply to show.
 
 ---
 
@@ -278,6 +317,23 @@ Defaults to the active project. A memory longer than 3,000 characters is sent as
 /memory
 /memory site-firma
 ```
+
+---
+
+## `/forget <project-id> [section]`  *(asks first)*
+
+A project's memory is a list of `##` sections (`## Build`, `## Conventions`, ...).
+With no section, `/forget` lists them with their sizes. With a section, it removes that
+section after a confirmation. The name is matched without regard to case.
+
+```
+/forget site-firma
+/forget site-firma Deploy notes
+```
+
+Use it when the project learned something wrong, or something that is no longer true.
+A running agent keeps what it already read until `/reset`; its next session does not
+see the section. The removal is in the audit log as `memory.forgotten`.
 
 ---
 
@@ -632,7 +688,7 @@ A destructive command returns a **confirmation** instead of acting:
 | Scoped to | The user who asked — a forwarded message cannot confirm someone else's action |
 | On no, or expiry | Nothing changes |
 
-`/panic`, `/reset`, `/allow-free`, `/archive` and adding a user with `/allow` ask. Nothing else does.
+`/panic`, `/reset`, `/allow-free`, `/archive`, `/forget` and adding a user with `/allow` ask. Nothing else does.
 
 ## Errors
 

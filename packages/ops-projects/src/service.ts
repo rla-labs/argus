@@ -18,6 +18,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
+import { RUN_TRAIL_ACTION, runTrail } from './run-trail.js'
 import {
   OpsError,
   ownerKey,
@@ -750,6 +751,17 @@ export class OpsProjects {
     entry.runEvents = []
     entry.producing = false
     this.ownership.clearRun(rootSession)
+
+    // What the run did, for /log. A trail is a convenience: failing to write it must
+    // not lose the run's output.
+    try {
+      const reply = (content as ReadonlyArray<{ type?: string; text?: string }>)
+        .flatMap((block) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
+        .join('\n')
+      this.store.audit.record({ actor: 'agent', action: RUN_TRAIL_ACTION, target: `run:${runId}`, details: { ...runTrail(events, reply) } }, Date.now())
+    } catch (error) {
+      this.ctx.logger('ops-projects').warn('could not record the trail of run %s: %s', runId, error instanceof Error ? error.message : String(error))
+    }
 
     this.ctx.emit('ops/run-output', {
       owner,

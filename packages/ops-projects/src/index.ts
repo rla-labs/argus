@@ -24,6 +24,7 @@ export * from './project-loader.js'
 export * from './ownership.js'
 export * from './capability.js'
 export * from './service.js'
+export * from './run-trail.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'

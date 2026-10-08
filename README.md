@@ -44,9 +44,11 @@ And it should tell you, in plain words, what happened and what it needs from you
   `/panic` are deterministic code, so they work without a model in the loop. Any
   other message goes to the active project, verbatim, or to a cheap "front desk"
   agent that routes it.
-- **Administration from the chat.** Read a project's runs, memory and files
-  (`/runs`, `/memory`, `/files`, `/get`), change its settings (`/set`), archive it,
-  and let someone else in (`/allow`), without opening SSH.
+- **Administration from the chat.** Read a project's runs, what each one did, its
+  memory and its files (`/runs`, `/log`, `/memory`, `/files`, `/get`), remove a wrong
+  memory (`/forget`), change its settings (`/set`), archive it, and let someone else in
+  (`/allow`), without opening SSH. On the host, `argus doctor` checks keys, models and
+  projects, and says how to fix what fails.
 - **Hard cost control.** Every execution passes through one governor, which
   enforces concurrency and budgets before anything starts and again at every step.
   Prices for DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter)

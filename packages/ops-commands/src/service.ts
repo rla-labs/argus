@@ -69,6 +69,12 @@ export interface SchedulerPort {
 export interface MemoryPort {
   memoryPath(projectId: string): string
   readMemory(projectId: string): string
+  sections(projectId: string): Array<{ name: string; chars: number }>
+  forgetSection(
+    projectId: string,
+    section: string,
+    actor: string,
+  ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] }
 }
 
 /** What `/health` needs from `ops-health`. */
