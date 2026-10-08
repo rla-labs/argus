@@ -32,6 +32,7 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 readonly SCRIPT_NAME="backup.sh"
+reexec_as_root "$@"
 OUTPUT_DIR="${BACKUP_OUTPUT_DIR:-${DATA_PATH}/backups}"
 KEEP="${BACKUP_KEEP:-7}"
 DRY_RUN=0
@@ -103,6 +104,8 @@ DB_BACKED_UP=0
 
 if service_running; then
   dim "  the service is running: using SQLite's online backup"
+  # A temporary file left by an interrupted backup would make VACUUM INTO refuse.
+  docker exec "${CONTAINER_NAME}" rm -f /data/backups/.tmp-backup.sqlite 2>/dev/null || true
   if docker exec "${CONTAINER_NAME}" sh -c \
        "command -v sqlite3 >/dev/null 2>&1 && sqlite3 /data/ops.sqlite '.backup /data/backups/.tmp-backup.sqlite'" 2>/dev/null; then
     # Move it out of the volume into the output directory, with the right name.
@@ -129,12 +132,10 @@ fi
 if [ "${DB_BACKED_UP}" = "0" ]; then
   if [ -f "${DB_PATH}" ]; then
     if service_running; then
-      # Running but neither method worked. A `cp` of a live SQLite database is
-      # usually fine and occasionally a torn page — so it is a WARNING, and the
-      # archive below still captures the WAL sidecars.
-      warn "could not take an online backup; copying the database file while the service runs."
-      warn "The copy may be inconsistent. Verify it before relying on it:"
-      warn "  sqlite3 ${DB_ARTIFACT} 'PRAGMA integrity_check'"
+      # Running but neither method worked. A copy of the live file is NOT a backup:
+      # recent writes live in the WAL beside it, and a copy without them is a valid,
+      # silently older database (seen on a fresh install: an empty one).
+      die "could not take an online backup of the running database. Stop the service and run the backup again."
     fi
     cp -p "${DB_PATH}" "${DB_ARTIFACT}"
     DB_BACKED_UP=1

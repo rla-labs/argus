@@ -25,6 +25,7 @@
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 
 readonly SCRIPT_NAME="restore.sh"
+reexec_as_root "$@"
 DB_FILE=""
 DATA_FILE=""
 FROM_DIR=""

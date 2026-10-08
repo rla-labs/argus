@@ -271,6 +271,16 @@ unlink_argus() {
   esac
 }
 
+# Re-run the calling script as root when the data directory is not writable. It
+# belongs to the container's uid 10001 (mode 0750), so a backup can neither read it
+# nor write into backups/ as the operator's own user, and a restore cannot replace it.
+reexec_as_root() {
+  [ "$(id -u)" = "0" ] && return 0
+  [ ! -d "${DATA_PATH}" ] || [ -w "${DATA_PATH}" ] && return 0
+  command -v sudo >/dev/null 2>&1 || die "${DATA_PATH} belongs to the container's user; run this as root"
+  exec sudo -E bash "$0" "$@"
+}
+
 timestamp() { date -u '+%Y%m%d-%H%M%S'; }
 
 # A human size.
