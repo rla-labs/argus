@@ -133,7 +133,8 @@ export function apply(ctx: Context): void {
       })
       .catch((error: unknown) => {
         logger.warn('the orchestrator failed: %s', error instanceof Error ? error.message : String(error))
-        void ctx.opsChannel.reply(payload.address, 'Something went wrong handling that. Try again.')
+        // The reply itself may fail the same way; that must not crash the process.
+        ctx.opsChannel.reply(payload.address, 'Something went wrong handling that. Try again.').catch(() => undefined)
       })
   })
 

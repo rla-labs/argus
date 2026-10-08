@@ -719,6 +719,24 @@ describe('delivery', () => {
     expect(text).toContain('2 agent(s)')
   }, 30_000)
 
+  it('logs a notice the channel refuses, instead of crashing on an unhandled rejection', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    booted.adapter.send = async () => {
+      throw new Error("Call to 'sendMessage' failed! (401: Unauthorized)")
+    }
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      booted.ctx.emit('ops/panic', { cancelled: 0, tookMs: 1 })
+      await settle()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+    expect(unhandled).toEqual([])
+  }, 30_000)
+
   it('emits ops/channel-output when it delivers a run’s output', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
     const seen: string[] = []

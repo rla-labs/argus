@@ -314,7 +314,8 @@ export class PriceRefresher {
   }
 
   private diffOf(apply: () => void): PriceChange[] {
-    const models = this.options.watched()
+    // One entry per model: the same model is often both tasks.model and orchestrator.model.
+    const models = [...new Map(this.options.watched().map((m) => [`${m.provider}/${m.model}`, m])).values()]
     const summary = (price: ResolvedPrice | undefined) =>
       price === undefined ? null : { input: price.input, output: price.output }
     const before = models.map((model) => summary(this.options.prices.resolve(model)))

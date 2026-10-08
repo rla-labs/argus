@@ -68,6 +68,15 @@ export function apply(ctx: Context): void {
   // Unaddressed output goes to the admin unless another address is configured.
   const defaultAddress = parseAddress(channel.default_address) ?? admin
 
+  // Notices are fire-and-forget. A send the channel refuses (a revoked token, a
+  // blocked bot) is logged; unhandled, it would take the whole process down.
+  const logger = ctx.logger('ops-channel')
+  const fire = (delivery: Promise<unknown>): void => {
+    delivery.catch((error: unknown) => {
+      logger.warn('a notice was not delivered: %s', error instanceof Error ? error.message : String(error))
+    })
+  }
+
   // Resolved LIVE rather than captured: `ops-orchestrator` may be mounted after
   // this plugin, and a captured `undefined` would make the channel answer "I do
   // not know where that goes" for the rest of the process. `ctx.get` is cheap.
@@ -130,30 +139,30 @@ export function apply(ctx: Context): void {
     const replyTo = addressForRun(ctx, runId)
     if (replyTo !== undefined) service.rememberReplyTo(runId, replyTo)
     ctx.emit('ops/channel-output', { owner, runId, content })
-    void service.deliverRunOutput(runId, subject, content)
+    fire(service.deliverRunOutput(runId, subject, content))
   })
 
   // ── run lifecycle notices ────────────────────────────────────────────────
   ctx.on('ops/run-stopped', ({ owner, runId, reason, detail }) => {
-    void service.deliverStopped(runId, subjectOf(owner), reason, detail)
+    fire(service.deliverStopped(runId, subjectOf(owner), reason, detail))
   })
 
   ctx.on('ops/run-interrupted', ({ owner, runId }) => {
-    void service.deliverInterrupted(runId, subjectOf(owner))
+    fire(service.deliverInterrupted(runId, subjectOf(owner)))
   })
 
   // ── budget and queue notices ─────────────────────────────────────────────
   ctx.on('ops/budget-threshold', ({ scope, level, pct, spentMicros, limitMicros }) => {
-    void service.deliverThreshold(scope, level, pct, spentMicros, limitMicros)
+    fire(service.deliverThreshold(scope, level, pct, spentMicros, limitMicros))
   })
 
   ctx.on('ops/queue-stalled', ({ requestId, owner, waitedMs, reason }) => {
     const projectId = owner !== undefined && owner.kind === 'project' ? owner.projectId : null
-    void service.deliverStalled(requestId, projectId, waitedMs, reason)
+    fire(service.deliverStalled(requestId, projectId, waitedMs, reason))
   })
 
   ctx.on('ops/panic', ({ cancelled, tookMs }) => {
-    void service.deliverPanic(cancelled, tookMs)
+    fire(service.deliverPanic(cancelled, tookMs))
   })
 
   // ── refusals: the sender hears why ───────────────────────────────────────
@@ -161,17 +170,17 @@ export function apply(ctx: Context): void {
   // top of it would be noise.
   ctx.on('ops/request-rejected', ({ requestId, code, message }) => {
     if (code === 'PANIC_MODE') return
-    void service.deliverRejected(addressForRun(ctx, requestId), code, message)
+    fire(service.deliverRejected(addressForRun(ctx, requestId), code, message))
   })
 
   // ── prices that moved under a model in use ───────────────────────────────
   ctx.on('ops/prices-changed', ({ changes }) => {
-    void service.deliverPricesChanged(changes)
+    fire(service.deliverPricesChanged(changes))
   })
 
   // ── project files that do not validate ───────────────────────────────────
   ctx.on('ops/projects-invalid', ({ invalid, fixed }) => {
-    void service.deliverInvalidProjects(invalid, fixed)
+    fire(service.deliverInvalidProjects(invalid, fixed))
   })
 
   // `ops/schedule-skipped` arrives with `ops-scheduler` (prompt 10), which
@@ -188,7 +197,7 @@ export function apply(ctx: Context): void {
 
     const now = Date.now()
     const spend = ctx.opsMeter.runTotals(runId)
-    void service.reportProgress(
+    fire(service.reportProgress(
       runId,
       subjectOf(owner),
       progressText({
@@ -198,7 +207,7 @@ export function apply(ctx: Context): void {
         maxSteps: 60,
         costMicros: (spend.costMicros + deltaMicros) as never,
       }),
-    )
+    ))
   })
 
   void ctx.opsMeter

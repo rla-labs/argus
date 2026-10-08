@@ -202,10 +202,11 @@ export class TelegramChannelAdapter implements ChannelAdapter {
       const oversized = result.message.attachments?.filter((attachment) => tooLargeToDownload(attachment.sizeBytes))
       if (oversized !== undefined && oversized.length > 0) {
         for (const attachment of oversized) {
-          void this.send(result.message.address, {
+          // A refused send must not crash the process.
+          this.send(result.message.address, {
             text: escapeHtml(tooLargeText(attachment.name, attachment.sizeBytes)),
             parseMode: 'HTML',
-          } as never)
+          } as never).catch(() => undefined)
         }
         void this.downloadAttachments(result.message)
         return

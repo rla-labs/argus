@@ -77,7 +77,8 @@ function setup(fetchImpl: typeof fetch, options: { now?: () => number; store?: O
     now: options.now ?? (() => Date.parse('2026-11-02T00:00:00Z')),
     fetch: fetchImpl,
     log: { info: (m) => logs.push(`info ${m}`), warn: (m) => logs.push(`warn ${m}`) },
-    watched: () => [{ provider: 'deepseek', model: 'deepseek-flash' }],
+    // Twice, as when tasks.model and orchestrator.model are the same: reported once.
+    watched: () => [{ provider: 'deepseek', model: 'deepseek-flash' }, { provider: 'deepseek', model: 'deepseek-flash' }],
     onChanges: (c) => changes.push(...c),
   })
   return { store, prices, refresher, logs, changes }
