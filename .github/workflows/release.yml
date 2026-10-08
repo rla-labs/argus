@@ -1,7 +1,8 @@
 # == ARGUS AGENT PROJECT ==
 # A version tag (v0.1.0, v0.2.0, …) publishes the Docker image to
 # ghcr.io/rla-labs/argus, tagged with the version and `latest` — the image
-# deploy/scripts/install.sh pulls by default.
+# deploy/scripts/install.sh pulls by default — and then the GitHub Release, with notes
+# generated from the commits since the previous tag (CHANGELOG.md is not in the repo).
 name: release
 
 on:
@@ -9,7 +10,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
@@ -41,3 +42,12 @@ jobs:
             ghcr.io/rla-labs/argus:${{ steps.version.outputs.version }}
             ghcr.io/rla-labs/argus:latest
           labels: org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      # After the image, so a release never points at an image that failed to publish.
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --generate-notes \
+            --title "Argus Agent ${{ steps.version.outputs.version }}" \
+            --notes "Docker image: \`ghcr.io/rla-labs/argus:${{ steps.version.outputs.version }}\`"
