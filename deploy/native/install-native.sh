@@ -397,20 +397,6 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
 
   mv "${TMP_YAML}" "${CONFIG_FILE}"
   ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
-
-  if [ -f "${DEPLOY_DIR}/templates/projects/example.yaml" ]; then
-    # The template is written for the container, where the data is at /data. Here it
-    # is DATA_DIR, and a project whose cwd is outside DATA_DIR/projects is rejected —
-    # which stops ops-projects, and every plugin after it, from starting.
-    sed "s|/data/|${DATA_DIR}/|g" "${DEPLOY_DIR}/templates/projects/example.yaml" \
-      > "${DATA_DIR}/config/projects/example.yaml"
-    if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
-      sed -i -e "s|^provider: deepseek|provider: openrouter|" -e "s|^model: deepseek-v4-pro|model: deepseek/deepseek-v4-pro|" \
-        -e "s|^fallback_model: deepseek/deepseek-flash|fallback_model: openrouter/deepseek/deepseek-v4-flash|" \
-        "${DATA_DIR}/config/projects/example.yaml"
-    fi
-    dim "  an example project was placed at config/projects/example.yaml — edit or delete it"
-  fi
 fi
 
 info "writing ${SECRETS_FILE}"
@@ -580,10 +566,9 @@ cat >&2 <<EOF
   before running anything you would not run by hand.
 
   Next:
-    1. Edit ${DATA_DIR}/config/projects/example.yaml, or copy it to make a
-       real project. The 'description' field is what the orchestrator routes on.
-    2. Send /help to your bot, then /status.
-    3. Read docs/user/configuration.md for the full reference.
+    1. Open the chat with your bot and send /start.
+    2. /new <name> creates your first project; or just write what you need.
+    3. docs/user/getting-started.md walks through the first ten minutes.
 
   Back up regularly:
     argus backup

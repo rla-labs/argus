@@ -297,8 +297,6 @@ the link is wrong or `/opt/argus-agent/packages/argus-agent/lib` was not built.
 ```sh
 sudo -u ops cp /opt/argus-agent/deploy/templates/ops.yaml.minimal \
                 /srv/argus-agent/data/config/ops.yaml
-sudo -u ops cp /opt/argus-agent/deploy/templates/projects/example.yaml \
-                /srv/argus-agent/data/config/projects/example.yaml
 sudo chmod 0640 /srv/argus-agent/data/config/ops.yaml
 ```
 
@@ -509,15 +507,19 @@ sudo systemctl restart argus-agent
 
 ## 7. Creating your first project
 
-A project is a top-level agent with its own folder, model, budget and memory.
+A project is a top-level agent with its own folder, model, budget and memory. Create
+it from the chat. `/new` makes the folder and the file, and `/set` changes a setting
+without opening the server:
 
-```sh
-sudo -u ops cp /srv/argus-agent/data/config/projects/example.yaml \
-                /srv/argus-agent/data/config/projects/reports.yaml
-sudo -u ops editor /srv/argus-agent/data/config/projects/reports.yaml
+```
+/new reports
+/set reports description The customer reporting pipeline: nightly aggregations, CSV exports, and the monthly invoice run
 ```
 
-The essentials:
+[Getting started](getting-started.md) goes on from there. The project's file is
+`/srv/argus-agent/data/config/projects/reports.yaml`, and you may also edit it by hand,
+then send `/reload`. A complete file, every key with a comment, is
+`deploy/templates/projects/example.yaml`. The essentials:
 
 ```yaml
 id: reports                         # MUST match the filename
@@ -538,14 +540,6 @@ approvals:
   auto_allow: []                    # nothing runs unattended
 ```
 
-Then:
-
-```sh
-sudo mkdir -p /srv/argus-agent/data/projects/reports
-sudo chown -R ops:ops /srv/argus-agent/data/projects/reports
-sudo systemctl restart argus-agent
-```
-
 ### Two fields that decide whether this works
 
 **`description`** is the **only** thing the orchestrator knows about what a project is
@@ -553,7 +547,7 @@ for. A model cannot infer purpose from a name: `reports` tells it nothing, and "
 customer reporting pipeline — nightly aggregations, CSV exports, and the monthly invoice
 run" tells it when to route a message here. Write it as a sentence, not a label.
 
-**`cwd`** must be inside `<data_dir>/projects/`. The loader **refuses** a path outside it
+**`cwd`** (`/new` sets it) must be inside `<data_dir>/projects/`. The loader **refuses** a path outside it
 — that boundary is what keeps one project out of another's files, and a project that can
 write into its neighbour's workspace has no isolation at all.
 

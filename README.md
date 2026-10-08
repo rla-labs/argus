@@ -125,16 +125,13 @@ What is not verified yet:
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **First-run experience.** One command (`argus init`) that asks five questions
-   and leaves you with a working bot, plus `argus doctor` for when something
-   doesn't.
-2. **A web dashboard.** Costs, the queue, live runs, approvals and schedules on
+1. **A web dashboard.** Costs, the queue, live runs, approvals and schedules on
    one page.
-3. **Integrations through MCP**, so agents can reach GitHub, mail, calendars and
+2. **Integrations through MCP**, so agents can reach GitHub, mail, calendars and
    databases, with the same approvals and budgets.
-4. **More channels and more people.** Slack, Discord or a web chat, plus roles,
+3. **More channels and more people.** Slack, Discord or a web chat, plus roles,
    so a team can share one Argus.
-5. **Project templates.** Start "a website maintainer" or "a daily researcher"
+4. **Project templates.** Start "a website maintainer" or "a daily researcher"
    without writing a prompt.
 
 If any of this is something you need, an issue describing your use case is the
@@ -183,6 +180,9 @@ command runs the rest, for both installs: `argus status`, `argus doctor`, `argus
 `argus backup`, `argus restore`, `argus upgrade`. The user
 documentation starts at [`docs/user/`](docs/user/README.md):
 
+- [Getting started](docs/user/getting-started.md): from an empty server to a working
+  project and a schedule, in ten minutes
+- [Three scenarios](docs/user/scenarios.md): a website, a daily report, a file you send
 - [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,
   and how to work well with them
 - [Telegram commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),

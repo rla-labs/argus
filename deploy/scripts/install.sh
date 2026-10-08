@@ -403,17 +403,6 @@ else
   chown 10001:10001 "${OPS_YAML}" 2>/dev/null || sudo chown 10001:10001 "${OPS_YAML}" 2>/dev/null || true
   ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
 
-  if [ -f "${DEPLOY_DIR}/templates/projects/example.yaml" ]; then
-    cp "${DEPLOY_DIR}/templates/projects/example.yaml" "${FINAL_DATA_PATH}/config/projects/example.yaml"
-    if [ -z "${V_DEEPSEEK_KEY}" ] && [ -n "${V_OPENROUTER_KEY}" ]; then
-      sed -i -e "s|^provider: deepseek|provider: openrouter|" -e "s|^model: deepseek-v4-pro|model: deepseek/deepseek-v4-pro|" \
-        -e "s|^fallback_model: deepseek/deepseek-flash|fallback_model: openrouter/deepseek/deepseek-v4-flash|" \
-        "${FINAL_DATA_PATH}/config/projects/example.yaml"
-    fi
-    chown 10001:10001 "${FINAL_DATA_PATH}/config/projects/example.yaml" 2>/dev/null || true
-    dim "  an example project was placed at config/projects/example.yaml — edit or delete it"
-  fi
-
   # ── .env ──
   info "writing ${ENV_FILE}"
   # A fresh file rather than a sed of the template: the template's comments are useful
@@ -582,10 +571,9 @@ fi
 
 cat >&2 <<EOF
   Next:
-    1. Edit ${FINAL_DATA_PATH}/config/projects/example.yaml, or copy it to make
-       a real project. The 'description' field is what the orchestrator routes on.
-    2. Send /help to your bot, then /status.
-    3. Read docs/user/configuration.md for the full reference.
+    1. Open the chat with your bot and send /start.
+    2. /new <name> creates your first project; or just write what you need.
+    3. docs/user/getting-started.md walks through the first ten minutes.
 
   Keep the bot token secret. Anyone with it can drive this system as the bot.
 

@@ -285,10 +285,10 @@ argus backup      # a backup
 
 Then:
 
-1. **Create a project.** Copy `config/projects/example.yaml`, change `id`, `cwd` and —
-   most importantly — `description`, which is what the orchestrator routes on.
-2. **Send `/help`** to your bot, then `/status`.
-3. **Read [CONFIGURE.md](configuration.md)** for the full reference.
+1. **Send `/start`** to your bot. It says what to do next.
+2. **Create a project** from the chat: `/new <name>`, then
+   `/set <name> description <what it is for>`.
+3. **Follow [Getting started](getting-started.md)** for the rest of the first ten minutes.
 
 ## The Ollama variant
 

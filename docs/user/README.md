@@ -8,6 +8,8 @@ supported alternative.
 
 | If you want to | Read |
 |---|---|
+| Go from an empty server to a working project in ten minutes | [Getting started](getting-started.md) |
+| See it set up for real work: a website, a daily report, a file | [Three scenarios](scenarios.md) |
 | Install it, with Docker | [Install with Docker](install-docker.md) |
 | Install it on a VPS without Docker | [Install natively (systemd)](install-native.md) |
 | Learn how to use it well, day to day | [Working with Argus every day](daily-use.md) |
