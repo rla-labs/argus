@@ -111,12 +111,15 @@ log "  data     ${DATA_PATH}"
 log "  backup   $([ "${SKIP_BACKUP}" = "1" ] && printf 'SKIPPED (--no-backup)' || printf 'first, before anything changes')"
 log ""
 
-if [ "${CURRENT_IMAGE}" = "${TARGET_IMAGE}" ] && [ "${BUILD_FROM_SOURCE}" = "0" ]; then
-  warn "the target equals the current image — this will restart the same version"
-  log "  Pass --to <image> to change version, or --build to rebuild from this checkout."
-  log "  Pulling again is still useful: a moving tag like ':latest' may have been"
-  log "  republished."
-  log ""
+# The same pinned tag again is no upgrade, and a tag built here was never published,
+# so its pull fails. Only a moving tag like ':latest' is worth pulling again.
+if [ "${CURRENT_IMAGE}" = "${TARGET_IMAGE}" ] && [ "${BUILD_FROM_SOURCE}" = "0" ] && [ "${TARGET_IMAGE##*:}" != "latest" ]; then
+  CHECKOUT_VERSION="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${REPO_ROOT}/package.json" | head -n 1)"
+  log "${TARGET_IMAGE} is already running. To upgrade:"
+  [ "${CHECKOUT_VERSION}" = "$(image_version "${TARGET_IMAGE}")" ] ||
+    log "  argus upgrade --to ${TARGET_IMAGE%:*}:${CHECKOUT_VERSION:-<version>}   the published image"
+  log "  git pull && argus upgrade --build                 built from this checkout"
+  die "nothing to upgrade to"
 fi
 
 if [ "${DRY_RUN}" = "1" ]; then

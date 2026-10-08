@@ -317,7 +317,7 @@ still a mismatch.
 
 | Option | Effect |
 |---|---|
-| `--to IMAGE` | The image to upgrade to. Default: the tag in `.env`. |
+| `--to IMAGE` | The image to upgrade to. Default: the tag in `.env`; when that is the running one (and not `latest`), the script stops and prints the command to upgrade. |
 | `--build` | Build from this checkout instead of pulling. |
 | `--no-backup` | Skip the pre-upgrade backup. **Not recommended.** |
 | `--force-rollback` | Fail after upgrading, to exercise the rollback path. |
