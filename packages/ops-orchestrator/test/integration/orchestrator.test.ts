@@ -6,9 +6,9 @@
  * calls — so the tool surface, the agent scope, verbatim forwarding and the
  * channel round trip are all exercised end to end.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bootOps,
@@ -454,6 +454,34 @@ describe('routing a message to a project', () => {
     // The ad-hoc row is recorded with no project.
     const row = booted.store.inbound.listByStatus('done').at(-1)
     expect(row?.project_id).toBeNull()
+  }, 90_000)
+
+  it('gives a task the files sent with the message, in its own folder', async () => {
+    const booted = await bootOrchestrator()
+    const sent = join(mkdtempSync(join(tmpdir(), 'ops-orch-attach-')), 'sales.csv')
+    dirs.push(dirname(sent))
+    writeFileSync(sent, 'month,total\nseptember,42\n')
+    const inboundId = seedInbound(booted, 'inbound-attach', 'summarise this file')
+    booted.boot.fake!.setScript(toolTurn([{ name: 'run_task', args: { messageRef: inboundId } }], 'Running.'))
+
+    await booted.orchestrator.submit({
+      messageRef: inboundId,
+      address: { channel: 'console', chatId: 'dev' },
+      userId: 'dev',
+      text: 'summarise this file',
+      attachments: [sent],
+    })
+    // The task's own request, whatever became of it (this deployment has no task model).
+    const taskRow = () =>
+      (['pending', 'admitted', 'rejected', 'done'] as const).flatMap((status) => booted.store.inbound.listByStatus(status)).find((row) => row.payload.includes('Attached file'))
+    await waitFor(() => taskRow() !== undefined, { timeoutMs: 40_000, label: 'the task request' })
+    const payload = taskRow()?.payload ?? ''
+    const blocks = (JSON.parse(payload) as { content: Array<{ text: string }> }).content.map((block) => block.text)
+    // The user's words first and unchanged, then where the file is.
+    expect(blocks[0]).toBe('summarise this file')
+    const saved = /^Attached file saved at (.+)$/.exec(blocks[1] ?? '')?.[1] as string
+    expect(saved).toMatch(/[/\\]task-[^/\\]+[/\\]inbox[/\\]sales\.csv$/)
+    expect(readFileSync(saved, 'utf8')).toContain('september,42')
   }, 90_000)
 })
 

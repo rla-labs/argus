@@ -410,13 +410,24 @@ export class OpsProjects {
    * @param options what to create.
    * @returns the agent.
    */
+  /**
+   * The working directory of a one-off task: `<scratch>/<runId>`. Known before the task
+   * runs, so a file sent with it can be put where the task will find it.
+   *
+   * @param runId the task's run id (`adhoc.runId`).
+   * @returns the directory.
+   */
+  taskDirOf(runId: string): string {
+    return join(this.scratchDir, runId)
+  }
+
   async createEphemeral(options: EphemeralOptions): Promise<Agent> {
     const owner = options.kind === 'adhoc' ? adhocOwner(options.runId) : orchestratorOwner()
     const key = ownerKey(owner)
     const existing = this.live.get(key)
     if (existing !== undefined) return existing.handle.agent
 
-    const cwd = options.cwd ?? join(this.scratchDir, options.kind === 'adhoc' ? options.runId : 'orchestrator')
+    const cwd = options.cwd ?? (options.kind === 'adhoc' ? this.taskDirOf(options.runId) : join(this.scratchDir, 'orchestrator'))
     mkdirSync(cwd, { recursive: true })
 
     const handle = await this.ctx.agents.create({

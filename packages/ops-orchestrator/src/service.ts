@@ -8,6 +8,8 @@
  *
  * @module @argus-agent/orchestrator/service
  */
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
@@ -158,10 +160,11 @@ export class OpsOrchestrator {
       resolveRef: (ref) => this.resolveRef(ref),
       sendToProject: ({ projectId, text, messageRef }) => {
         const address = this.current?.address
+        const cwd = options.projects.configOf(projectId)?.cwd
         return options.governor.submit({
           source: 'channel',
           target: { projectId },
-          content: [{ type: 'text', text }],
+          content: [{ type: 'text', text }, ...(cwd === undefined ? [] : this.attachInto(cwd))],
           priority: 0,
           ...(address === undefined ? {} : { replyTo: address }),
           ...(messageRef.length === 0 ? {} : {}),
@@ -170,15 +173,16 @@ export class OpsOrchestrator {
       runTask: ({ text, model, messageRef }) => {
         const address = this.current?.address
         const chosen = model === undefined ? undefined : splitModelRef(model)
+        const runId = `task-${this.options.now().toString(36)}`
         return options.governor.submit({
           source: 'channel',
           target: {
             adhoc: {
-              runId: `task-${this.options.now().toString(36)}`,
+              runId,
               ...(chosen === undefined ? {} : { model: chosen }),
             },
           },
-          content: [{ type: 'text', text }],
+          content: [{ type: 'text', text }, ...this.attachInto(options.projects.taskDirOf(runId))],
           priority: 0,
           ...(address === undefined ? {} : { replyTo: address }),
           ...(chosen === undefined ? {} : { model: chosen }),
@@ -368,6 +372,26 @@ export class OpsOrchestrator {
    *
    * @returns the report.
    */
+  /**
+   * Copy the current message's attachments into `<dir>/inbox/`, where the agent that
+   * gets the work can read them, and say where each one is: the same block the channel
+   * adds when a file is sent straight to a project.
+   *
+   * @param dir the working directory of the project or task.
+   * @returns one text block per attachment.
+   */
+  private attachInto(dir: string): Array<{ type: 'text'; text: string }> {
+    const attachments = this.current?.attachments ?? []
+    if (attachments.length === 0) return []
+    const inbox = join(dir, 'inbox')
+    mkdirSync(inbox, { recursive: true })
+    return attachments.map((path) => {
+      const target = join(inbox, basename(path))
+      copyFileSync(path, target)
+      return { type: 'text' as const, text: `Attached file saved at ${target}` }
+    })
+  }
+
   /**
    * `argus doctor`: can the orchestrator answer free text. Its model is checked like
    * a project's (a provider route, a key, a price).
