@@ -133,9 +133,13 @@ esac
 
 # Disk. The image plus a first database needs a few GB; the check is a warning rather
 # than a failure because only the operator knows what else the host does.
-AVAIL_KB="$(df -Pk "$(dirname "${FINAL_DATA_PATH}")" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)"
+# The data path usually does not exist yet, so the check looks at its nearest existing
+# parent: `df` on a missing path fails, which would read as 0 bytes free.
+DISK_PATH="${FINAL_DATA_PATH}"
+while [ ! -d "${DISK_PATH}" ]; do DISK_PATH="$(dirname "${DISK_PATH}")"; done
+AVAIL_KB="$(df -Pk "${DISK_PATH}" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)"
 if [ -n "${AVAIL_KB}" ] && [ "${AVAIL_KB}" -lt 5242880 ] 2>/dev/null; then
-  warn "less than 5 GB free at $(dirname "${FINAL_DATA_PATH}") — the image and the database need room"
+  warn "less than 5 GB free at ${DISK_PATH} — the image and the database need room"
 fi
 
 # The network, for the image pull and the Telegram API. A one-second probe, because a
@@ -376,9 +380,9 @@ else
   # The minimal template: only what differs per install. Every other key has a default,
   # documented in templates/ops.yaml.example.
   #
-  # `TMP_YAML` is written beside the target because a cross-device `mv` fails, and the
-  # target is often a different mount.
-  TMP_YAML="${OPS_YAML}.tmp"
+  # `TMP_YAML` is built in the caller's temp directory: the data directory is already
+  # owned by uid 10001, so a caller who is not root cannot write into it.
+  TMP_YAML="$(mktemp)"
   cp "${TEMPLATE}" "${TMP_YAML}"
 
   # The timezone, including the commented example line so the file still explains it.
@@ -397,9 +401,12 @@ else
     printf '\n# Only an OpenRouter key was given, so the defaults run through it.\ntasks:\n  model: openrouter/deepseek/deepseek-v4-flash\norchestrator:\n  model: openrouter/deepseek/deepseek-v4-flash\n' >> "${TMP_YAML}"
   fi
 
-  # The container reads it as uid 10001, so it must be readable by it.
-  mv "${TMP_YAML}" "${OPS_YAML}" 2>/dev/null || { cat "${TMP_YAML}" > "${OPS_YAML}"; rm -f "${TMP_YAML}"; }
-  chmod 0640 "${OPS_YAML}" 2>/dev/null || sudo chmod 0640 "${OPS_YAML}"
+  # The container reads it as uid 10001, so it is installed owned by it. Without root
+  # or sudo, the caller owns the data directory (the chown above failed and said so),
+  # and the file is installed as the caller.
+  # (`install -o 10001` is not used: GNU install refuses a uid with no passwd entry.)
+  install -m 0640 "${TMP_YAML}" "${OPS_YAML}" 2>/dev/null || sudo install -m 0640 "${TMP_YAML}" "${OPS_YAML}"
+  rm -f "${TMP_YAML}"
   chown 10001:10001 "${OPS_YAML}" 2>/dev/null || sudo chown 10001:10001 "${OPS_YAML}" 2>/dev/null || true
   ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
 
