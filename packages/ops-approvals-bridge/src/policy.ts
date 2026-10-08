@@ -78,8 +78,10 @@ export function decideApproval(snapshot: PolicySnapshot): ApprovalDecision {
     return { kind: 'deny', reason: 'the project policy is deny' }
   }
 
-  // 3. The allowlist, under `auto` only. An unparseable action is never allowed.
-  if (mode === 'auto' && snapshot.action !== undefined) {
+  // 3. The allowlist, under `auto` and `ask` alike: listing a command is the
+  // operator's own decision not to be asked about it. An unparseable action is
+  // never allowed.
+  if (snapshot.action !== undefined) {
     const match = matchAllowList(snapshot.action.argv, snapshot.autoAllow)
     if (match.allowed) return { kind: 'allow', rule: match.rule }
   }

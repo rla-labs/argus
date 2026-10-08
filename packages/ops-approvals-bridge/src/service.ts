@@ -18,6 +18,7 @@ import type { ApprovalStatus, OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
+import { argumentsOf } from '@argus-agent/governor'
 import { parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
 import { APPROVE, APPROVE_ALL, DENY, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
@@ -73,6 +74,13 @@ export interface BridgeRequest {
 export class OpsApprovalsBridge {
   /** Run-scoped grants, keyed `runId|kind`. */
   private readonly grants = new Map<string, RunGrant>()
+  /**
+   * The action of each call the gate sent to approval, keyed by call id, until
+   * dsh's approval request for it arrives.
+   * ponytail: an entry whose request never comes (a call cancelled in between)
+   * stays; clear by age if a long-lived process ever shows it growing.
+   */
+  private readonly gated = new Map<string, ParsedAction>()
   /** The decision for each request, for diagnostics. */
   readonly history: BridgeOutcome[] = []
   /** Counts by ending. */
@@ -82,6 +90,37 @@ export class OpsApprovalsBridge {
     private readonly ctx: Context,
     private readonly options: BridgeOptions,
   ) {}
+
+  // ── the gate ─────────────────────────────────────────────────────────────
+
+  /**
+   * Decide whether a tool call needs approval, before it runs (`tools/pre-execute`).
+   *
+   * dsh asks only when a pre-execute listener answers `ask`; nothing else in the
+   * pinned version does, so without this gate every command and write ran
+   * unasked. Commands and file writes of a project or task agent are sent to
+   * approval; reads, searches and the front desk's own tools pass. The call's
+   * own arguments are kept for {@link handle}, because dsh's approval request
+   * carries only the tool name and call id.
+   *
+   * @param exec the pending call.
+   * @returns `ask`, or `undefined` to let the call through.
+   */
+  gate(exec: {
+    readonly name: string
+    readonly arguments: unknown
+    readonly callId: string
+    readonly agent?: Agent
+  }): { kind: 'ask'; reason: string } | undefined {
+    if (exec.agent === undefined) return undefined
+    const owner = this.options.projects.ownerOf(exec.agent.id as string)
+    if (owner === undefined || owner.kind === 'orchestrator') return undefined
+    const { argv, path } = argumentsOf(exec.arguments)
+    const action = parseAction(exec.name, argv, path)
+    if (action.kind !== 'command' && action.kind !== 'file-write') return undefined
+    this.gated.set(exec.callId, action)
+    return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
+  }
 
   // ── the waterfall ────────────────────────────────────────────────────────
 
@@ -292,6 +331,13 @@ export class OpsApprovalsBridge {
    * @returns the action, or `undefined`.
    */
   private actionFor(request: BridgeRequest, sessionId: string, runId: string): ParsedAction | undefined {
+    // The gate saw the call's own arguments: exact, where the observation below
+    // may be a previous call of the same tool.
+    const gated = request.callId === undefined ? undefined : this.gated.get(request.callId)
+    if (gated !== undefined) {
+      this.gated.delete(request.callId as string)
+      return gated
+    }
     // Looked up by SESSION first: a run id is only assigned when the governor admits
     // work, so an idle agent that has observed a tool call has no run id yet — and
     // the allowlist would silently fail to match.

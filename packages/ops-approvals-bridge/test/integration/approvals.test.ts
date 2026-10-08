@@ -65,6 +65,7 @@ async function bootBridge(options: {
   projects?: Record<string, string>
   opsYaml?: string
   dataDir?: string
+  script?: readonly unknown[]
 } = {}): Promise<Booted> {
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), 'ops-appr-'))
   if (options.dataDir === undefined) dirs.push(dataDir)
@@ -88,7 +89,7 @@ async function bootBridge(options: {
   const bootOptions: { -readonly [K in keyof BootOpsOptions]: BootOpsOptions[K] } = {
     files: { 'config/ops.yaml': opsYaml },
     bareModuleBaseUrl: import.meta.url,
-    fake: { script: [{ text: 'ok' }] as never, repeatLast: true },
+    fake: { script: (options.script ?? [{ text: 'ok' }]) as never, repeatLast: true },
     replaceEntries: [
       ...BASE_ENTRIES,
       persistenceEntry(join(dataDir, 'sessions')),
@@ -166,6 +167,95 @@ async function withConsole(booted: Booted): Promise<ConsoleChannelAdapter> {
 function consoleOf(booted: Booted): ConsoleChannelAdapter {
   return booted.channel.adapters().find((entry) => entry.name === 'console') as ConsoleChannelAdapter
 }
+
+// ── the gate: dsh's real tool pipeline ─────────────────────────────────────
+
+describe('the gate', () => {
+  it('makes dsh ask before a command runs, and lets a read through', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: projectDocument(dataDir, 'alpha') },
+      script: [
+        {
+          text: 'working',
+          toolCalls: [
+            { name: 'read', arguments: '{"path":"notes.md"}', id: 'c1' },
+            { name: 'bash', arguments: '{"command":"rm -rf build"}', id: 'c2' },
+          ],
+        },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+
+    // Stand-ins under the real names, so the gate classifies them as dsh's own.
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const name of ['read', 'bash']) {
+      agent.ctx.tools.register(
+        defineTool({
+          name,
+          description: name,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async () => {
+            ran.push(name)
+            return 'ok'
+          },
+        }),
+      )
+    }
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await answerNext(booted, APPROVE)
+    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'run ended' })
+
+    // One question, about the command, with the call's own arguments.
+    const rows = booted.store.approvals.recent(10)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.request_json).toContain('rm -rf build')
+    expect(rows[0]?.status).toBe('granted')
+    expect(ran.sort()).toEqual(['bash', 'read'])
+  }, 60_000)
+
+  it('runs an allow-listed command under the default mode without asking', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\napprovals:\n  auto_allow: ["npm test"]` },
+      script: [
+        { text: 'testing', toolCalls: [{ name: 'bash', arguments: '{"command":"npm test"}', id: 'c1' }] },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    let ran = false
+    agent.ctx.tools.register(
+      defineTool({
+        name: 'bash',
+        description: 'bash',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        execute: async () => {
+          ran = true
+          return 'ok'
+        },
+      }),
+    )
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(() => ran, { timeoutMs: 30_000, label: 'the command ran' })
+    expect(consoleOf(booted).pendingCount).toBe(0)
+    expect(booted.store.approvals.recent(1)[0]?.status).toBe('granted')
+  }, 60_000)
+})
 
 // ── mounting ───────────────────────────────────────────────────────────────
 

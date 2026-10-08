@@ -258,6 +258,8 @@ export function classifyAction(toolName: string, argv: readonly string[]): Actio
 function isProcessTool(name: string): boolean {
   return (
     name === 'bash' ||
+    name === 'pwsh' ||
+    name === 'run_code' ||
     name === 'shell' ||
     name === 'exec' ||
     name === 'run' ||

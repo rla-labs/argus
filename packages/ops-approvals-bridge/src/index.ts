@@ -12,6 +12,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: brings in the `ctx.approval` augmentation.
 import type {} from '@deepseek-ai/dsh-user-approval'
+// Type-only: brings in the `tools/pre-execute` event.
+import type {} from '@deepseek-ai/dsh-tools'
 import { approvalsOf, approvalsSchema } from './config.js'
 import { OpsApprovalsBridge, type BridgeRequest } from './service.js'
 
@@ -87,6 +89,12 @@ export function apply(ctx: Context): void {
   ctx.on('approval/request', async function (this: unknown, request, next) {
     return bridge.handle(request as BridgeRequest, next)
   })
+
+  /**
+   * The trigger. dsh asks for approval only when a `tools/pre-execute` listener
+   * answers `ask`; the bridge's gate does, for commands and file writes.
+   */
+  ctx.on('tools/pre-execute', async (exec, next) => bridge.gate(exec) ?? next())
 
   logger.info(
     'approvals ready: ad-hoc policy=%s, timeout=%d minute(s), run grants=%s',

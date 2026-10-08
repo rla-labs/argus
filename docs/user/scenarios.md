@@ -153,6 +153,10 @@ The front desk sees there is no project for this and runs it as a one-off task. 
 is copied into the task's own folder, and the task is told where it is. The answer comes
 back in this chat. A long answer arrives as a `.md` file.
 
+A one-off task can read the file, but it runs no commands and writes no files: it has
+no project to ask approval for, so `approvals_adhoc: deny` refuses them. A question
+answered by reading is the right size for it. Work that needs a script goes to a project.
+
 **Send it to a project instead** when the file belongs to ongoing work: with
 `/p reports` active, the same file goes to that project's `inbox/` folder, and the
 answer can be kept in the project (say "save the result as `analysis/sales-2026.md`",
