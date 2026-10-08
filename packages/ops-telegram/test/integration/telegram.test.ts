@@ -549,6 +549,26 @@ describe('rate limits and errors', () => {
     }
   })
 
+  it('registers the command menu it is given, with Telegram-legal names', async () => {
+    const fake = new FakeBotApi()
+    const adapter = new TelegramChannelAdapter({
+      token: '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw',
+      allowGroups: false,
+      api: fake as never,
+      commands: [
+        { name: 'status', description: 'What is running' },
+        { name: 'forget-confirm', description: 'internal' },
+      ],
+    })
+    const stop = await adapter.start(() => undefined, () => undefined)
+    try {
+      const call = fake.sent.find((entry) => entry.method === 'setMyCommands')
+      expect(call?.payload['commands']).toContainEqual({ command: 'status', description: 'What is running' })
+    } finally {
+      await stop()
+    }
+  })
+
   it('gives up after the attempt limit on a server error', async () => {
     const booted = await bootTelegram()
     api.failWith('sendMessage', { error_code: 500, description: 'boom' }, 20)

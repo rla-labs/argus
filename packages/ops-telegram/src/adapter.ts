@@ -51,6 +51,8 @@ export interface TelegramAdapterOptions {
   readonly sendIntervalMs?: number
   readonly maxAttempts?: number
   readonly registerCommands?: boolean
+  /** The command menu to register, from the command layer's metadata. */
+  readonly commands?: ReadonlyArray<{ readonly name: string; readonly description: string }>
   /** Called for every state transition, so a log records them. */
   readonly onState?: (state: TelegramState, detail?: string) => void
   /** Called when a send is retried or abandoned. */
@@ -373,8 +375,7 @@ export class TelegramChannelAdapter implements ChannelAdapter {
    * characters, so both are trimmed rather than rejected by the API.
    */
   private async registerCommands(): Promise<void> {
-    const commands = (globalThis as { __argusAgentCommands?: Array<{ name: string; description: string }> })
-      .__argusAgentCommands
+    const commands = this.options.commands
     if (commands === undefined || commands.length === 0) return
     const menu = commands.flatMap((command) => {
       const name = toMenuCommand(command.name)

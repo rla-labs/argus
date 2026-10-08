@@ -90,6 +90,9 @@ export function apply(ctx: Context): void {
     sendIntervalMs: config.send_interval_ms,
     maxAttempts: config.max_attempts,
     registerCommands: config.register_commands,
+    // The command menu Telegram shows comes from the command layer, so the two
+    // cannot drift apart.
+    commands: ctx.opsCommands.specs().map((spec) => ({ name: spec.name, description: spec.description })),
     ...(injectedApi === undefined ? {} : { api: injectedApi }),
     onState: (state: TelegramState, detail?: string) => {
       // Every transition is logged, which is what makes a silent bot diagnosable:
@@ -104,14 +107,6 @@ export function apply(ctx: Context): void {
   })
 
   ctx.provide('opsTelegram', adapter)
-
-  // The command menu Telegram shows comes from the command layer, so the two
-  // cannot drift apart. The adapter reads it when it starts.
-  const commands = ctx.opsCommands.specs().map((spec) => ({
-    name: spec.name,
-    description: spec.description,
-  }))
-  ;(globalThis as { __argusAgentCommands?: typeof commands }).__argusAgentCommands = commands
 
   const dispose = ctx.opsChannel.register(adapter)
   ctx.effect(() => () => {
