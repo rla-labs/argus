@@ -282,3 +282,21 @@ describe('model references', () => {
     expect(projectFallbackRef(parse({ fallback_model: 'a/b' }))).toEqual({ provider: 'a', model: 'b' })
   })
 })
+
+describe('the budget defaults from ops.yaml', () => {
+  const budgetDefaults = { day_usd: 10, month_usd: 150 }
+  const withDefaults = (overrides: Record<string, unknown> = {}) =>
+    parseProjectConfig(doc(overrides), { sourcePath: SOURCE, projectsRoot: ROOT, expectedId: 'site', budgetDefaults })
+
+  it('apply to a project file that sets no budget, as the installer promises', () => {
+    expect(withDefaults().budget).toMatchObject({ day_usd: 10, month_usd: 150 })
+  })
+
+  it('never override what the file sets, key by key', () => {
+    expect(withDefaults({ budget: { day_usd: 2 } }).budget).toMatchObject({ day_usd: 2, month_usd: 150 })
+  })
+
+  it('leave the schema defaults when ops.yaml has none', () => {
+    expect(parse().budget).toMatchObject({ day_usd: 3, month_usd: 40 })
+  })
+})

@@ -218,7 +218,7 @@ export function defaultProjectCwd(projectId: string, projectsRoot: string): stri
  */
 export function parseProjectConfig(
   raw: unknown,
-  options: { sourcePath: string; projectsRoot: string; expectedId?: string },
+  options: { sourcePath: string; projectsRoot: string; expectedId?: string; budgetDefaults?: BudgetDefaults },
 ): ProjectConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new ProjectConfigError(`${options.sourcePath} must contain a mapping at the top level`, [
@@ -277,9 +277,17 @@ export function parseProjectConfig(
     })
   }
 
+  // A budget the file does not set comes from ops.yaml (`budgets.default_*_usd`), which is
+  // what the installer asks for as "per project"; the file's own value always wins.
+  const budget = document['budget']
+  const withDefaults =
+    options.budgetDefaults === undefined || (budget !== undefined && (budget === null || typeof budget !== 'object'))
+      ? document
+      : { ...document, budget: { ...options.budgetDefaults, ...(budget as Record<string, unknown> | undefined) } }
+
   let validated: Record<string, unknown>
   try {
-    validated = projectConfigSchema(document) as unknown as Record<string, unknown>
+    validated = projectConfigSchema(withDefaults) as unknown as Record<string, unknown>
   } catch (error) {
     throw new ProjectConfigError(`${options.sourcePath} failed validation`, [
       { path: '(root)', message: (error as Error).message },
@@ -305,6 +313,12 @@ export function parseProjectConfig(
   }
 }
 
+/** `budgets.default_day_usd` / `default_month_usd` from ops.yaml, as a project's budget defaults. */
+export interface BudgetDefaults {
+  readonly day_usd: number
+  readonly month_usd: number
+}
+
 /**
  * Parse a project document from YAML text.
  *
@@ -315,7 +329,7 @@ export function parseProjectConfig(
  */
 export function parseProjectYaml(
   text: string,
-  options: { sourcePath: string; projectsRoot: string; expectedId?: string },
+  options: { sourcePath: string; projectsRoot: string; expectedId?: string; budgetDefaults?: BudgetDefaults },
 ): ProjectConfig {
   let parsed: unknown
   try {

@@ -16,7 +16,7 @@ import type {} from '@argus-agent/argus-agent'
 import { OpsProjects } from './service.js'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
-import type { ProjectConfig } from './project-config.js'
+import type { BudgetDefaults, ProjectConfig } from './project-config.js'
 import './events.js'
 
 export * from './project-config.js'
@@ -156,7 +156,7 @@ export interface ReloadReport extends SyncReport {
 function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
   const paths = pathsOf(ctx.opsRawConfig)
   const projectsRoot = join(paths.dataDirAbs, 'projects')
-  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false })
+  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig) })
   // A file that validates can still name a model that cannot run: no key, no price.
   const failing = files.configs.flatMap((config) => {
     const models: Array<[string, ModelRef | undefined]> = [
@@ -202,4 +202,18 @@ function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
 }
 
 /** The owner type, re-exported for convenience. */
+/**
+ * ops.yaml `budgets.default_day_usd` / `default_month_usd`: a project's budget when its
+ * file sets none. Absent keys keep the project schema's own defaults ($3 / $40, the same
+ * as the governor's).
+ */
+function budgetDefaultsOf(raw: Record<string, unknown>): BudgetDefaults | undefined {
+  const budgets = raw['budgets']
+  if (budgets === null || typeof budgets !== 'object') return undefined
+  const day = (budgets as Record<string, unknown>)['default_day_usd']
+  const month = (budgets as Record<string, unknown>)['default_month_usd']
+  if (typeof day !== 'number' && typeof month !== 'number') return undefined
+  return { day_usd: typeof day === 'number' ? day : 3, month_usd: typeof month === 'number' ? month : 40 }
+}
+
 export type { InvalidProject, Owner, ProjectConfig }
