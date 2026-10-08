@@ -252,6 +252,25 @@ data_is_initialized() {
 # ── misc ───────────────────────────────────────────────────────────────────────
 
 # The current time, UTC, for filenames. Sorts lexicographically.
+# Link `argus` into the PATH. A failure is only a warning: every script still runs by
+# its own path.
+link_argus() {
+  local bin="${ARGUS_AGENT_BIN_DIR:-/usr/local/bin}"
+  if ln -sfn "$1" "${bin}/argus" 2>/dev/null || sudo ln -sfn "$1" "${bin}/argus" 2>/dev/null; then
+    ok "linked ${bin}/argus"
+  else
+    warn "could not link ${bin}/argus; run $1 by its path instead"
+  fi
+}
+
+# Remove the `argus` link, when it is ours.
+unlink_argus() {
+  local link="${ARGUS_AGENT_BIN_DIR:-/usr/local/bin}/argus"
+  case "$(readlink "${link}" 2>/dev/null || true)" in
+    */deploy/argus.sh) rm -f "${link}" 2>/dev/null || sudo rm -f "${link}" 2>/dev/null || true ;;
+  esac
+}
+
 timestamp() { date -u '+%Y%m%d-%H%M%S'; }
 
 # A human size.

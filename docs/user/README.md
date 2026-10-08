@@ -36,7 +36,28 @@ sudo ./deploy/native/install-native.sh       # or: native
 ```
 
 The installer asks four questions, writes a short `ops.yaml`, starts the service and sends
-you a first Telegram message. Then open the chat with the bot and send `/start`.
+you a first Telegram message. Then open the chat with the bot and send `/start`. From then
+on, [`argus`](#running-it-from-the-shell-argus) runs everything on the host.
+
+## Running it from the shell: `argus`
+
+The installers link one command, `argus`, into `/usr/local/bin`. It works the same for
+both installs: it runs the native scripts when the systemd unit `argus-agent.service` is
+installed, and the Docker ones otherwise.
+
+| Command | What it does |
+|---|---|
+| `argus status` | Is the service running, and what does its health check say. Exits 1 when it is not healthy. |
+| `argus doctor` | The full smoke test: every check, and what failed. |
+| `argus logs [-f]` | The last 100 lines of the log; `-f` follows it. |
+| `argus backup` | Back up the database and the data directory. [More](backup-and-upgrade.md#running-it) |
+| `argus restore` | Restore from a backup (Docker). On the native install it points to [the manual steps](install-native.md#restoring). |
+| `argus upgrade` | Back up, upgrade, and roll back if the new version does not start. [More](backup-and-upgrade.md#upgrading) |
+| `argus init` | Install, or reinstall over an existing deployment. `argus --native init` picks the native install. |
+
+Options after the command go to the script that does the work: `argus backup --keep 30`,
+`argus upgrade --to ghcr.io/rla-labs/argus:0.2.0`, `argus restore --list`.
+`argus <command> --help` lists them. The native commands need root: `sudo argus ...`.
 
 ## Where everything lives
 

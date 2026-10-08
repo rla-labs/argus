@@ -538,6 +538,8 @@ else
   warn "the smoke test reported problems (see above)"
 fi
 
+link_argus "${APP_DIR}/deploy/argus.sh"
+
 # ── 12. next steps ─────────────────────────────────────────────────────────────
 
 cat >&2 <<EOF
@@ -549,8 +551,8 @@ ${C_GREEN}${C_BOLD}Argus Agent is installed (native, systemd).${C_RESET}
   configuration    ${CONFIG_FILE}
   secrets          ${SECRETS_FILE}   (mode 600)
   unit             ${UNIT_PATH}
-  logs             journalctl -u ${SERVICE_NAME} -f
-  health           curl -s http://127.0.0.1:3090/health
+  status           argus status
+  logs             argus logs -f
   restart          systemctl restart ${SERVICE_NAME}
 
 EOF
@@ -584,7 +586,7 @@ cat >&2 <<EOF
     3. Read docs/user/configuration.md for the full reference.
 
   Back up regularly:
-    ${NATIVE_DIR}/backup-native.sh
+    argus backup
 
   Keep the bot token secret. Anyone with it can drive this service as the bot.
 

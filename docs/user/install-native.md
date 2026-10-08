@@ -574,21 +574,22 @@ write into its neighbour's workspace has no isolation at all.
 
 ## 8. Everyday operation
 
+`argus` runs the native scripts here, because the unit is installed
+([all its commands](README.md#running-it-from-the-shell-argus)).
+
 ```sh
-# Is it running?
-systemctl status argus-agent --no-pager
+# Is it running, and healthy?
+argus status
 
-# Follow the log
-journalctl -u argus-agent -f
-
-# The last 100 lines
-journalctl -u argus-agent -n 100 --no-pager
-
-# Health
-curl -s http://127.0.0.1:3090/health | head -30
+# Follow the log (the journal needs root, or the adm group)
+sudo argus logs -f
 
 # The smoke test
-sudo /opt/argus-agent/deploy/native/smoke-native.sh
+sudo argus doctor
+
+# Backup and upgrade
+sudo argus backup
+sudo argus upgrade
 
 # Restart after a configuration change
 sudo systemctl restart argus-agent
@@ -827,6 +828,7 @@ rule is that `/opt/argus-agent` is replaceable and `/srv/argus-agent/data` is no
 
 | Native script | What it does |
 |---|---|
+| `argus.sh` | The `argus` command, linked at `/usr/local/bin/argus` |
 | `native/install-native.sh` | Fresh VPS → working bot, no Docker |
 | `native/upgrade-native.sh` | Backup, revision change, rebuild, rollback on failure |
 | `native/backup-native.sh` | Online SQLite backup + a data archive, with retention |

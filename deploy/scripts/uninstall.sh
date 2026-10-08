@@ -136,6 +136,8 @@ else
   dim "  no containers to remove"
 fi
 
+unlink_argus
+
 # ── purge ──────────────────────────────────────────────────────────────────────
 
 if [ "${PURGE}" = "1" ]; then

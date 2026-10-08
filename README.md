@@ -174,11 +174,11 @@ sudo ./deploy/native/install-native.sh
 
 A fully supported alternative. The installer creates a service account, builds the
 code and composes the dsh profile. It then installs a hardened systemd unit, waits for
-the health check and sends your first Telegram message. Back up with
-`deploy/native/backup-native.sh`; upgrade from git with
-`deploy/native/upgrade-native.sh`.
+the health check and sends your first Telegram message.
 
-After either install, open the chat with your bot and send `/start`. The user
+After either install, open the chat with your bot and send `/start`. On the host, one
+command runs the rest, for both installs: `argus status`, `argus doctor`, `argus logs -f`,
+`argus backup`, `argus restore`, `argus upgrade`. The user
 documentation starts at [`docs/user/`](docs/user/README.md):
 
 - [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,

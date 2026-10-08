@@ -134,6 +134,8 @@ else
   dim "  no unit at ${UNIT_PATH}"
 fi
 
+unlink_argus
+
 # ── purge ──────────────────────────────────────────────────────────────────────
 
 if [ "${PURGE}" = "1" ]; then

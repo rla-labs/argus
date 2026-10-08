@@ -12,7 +12,7 @@ the system that does nothing at all, and [By symptom](#by-symptom) the rest.
 
 | Check | Fix |
 |---|---|
-| `docker compose ps` | Not running: `docker compose logs --tail=100 ops` |
+| `argus status` | Not running: `argus logs` shows why. `argus doctor` runs every check. |
 | `grep 'startup failed'` | A required plugin did not activate. The log names it and the package. |
 | The `Argus Agent <version> started` line | Absent means the process never got to a running state |
 | `curl http://127.0.0.1:3090/health` **inside** the container | 503 means `down`; the report names the problem |

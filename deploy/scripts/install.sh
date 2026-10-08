@@ -547,6 +547,8 @@ else
   warn "The system is running, but not everything works. See docs/user/troubleshooting.md"
 fi
 
+link_argus "${DEPLOY_DIR}/argus.sh"
+
 # ── 9. next steps ──────────────────────────────────────────────────────────────
 
 cat >&2 <<EOF
@@ -556,8 +558,8 @@ ${C_GREEN}${C_BOLD}Argus Agent is installed.${C_RESET}
   data directory   ${FINAL_DATA_PATH}
   configuration    ${FINAL_DATA_PATH}/config/ops.yaml
   environment      ${ENV_FILE}   (mode 600)
-  logs             docker compose -f ${COMPOSE_FILE} logs -f
-  health           docker exec ${CONTAINER_NAME} curl -s http://127.0.0.1:3090/health
+  status           argus status
+  logs             argus logs -f
 
 EOF
 
@@ -588,6 +590,6 @@ cat >&2 <<EOF
   Keep the bot token secret. Anyone with it can drive this system as the bot.
 
   Back up regularly:
-    ${LIB_DIR}/backup.sh
+    argus backup
 
 EOF

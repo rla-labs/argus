@@ -275,7 +275,7 @@ For a project's full file (every key, with comments) see
 | A project stopped with `budget_stopped` | `/budget <project>`, then `+<usd>` or wait until tomorrow |
 | A run ended in `error` | `/runs <project>` for when; the daily report's Errors section for the provider error |
 | `UNPRICED_MODEL` | The model has no price. Pick another, or add it under `pricing` in `ops.yaml` |
-| The bot does not answer at all | [The bot is silent](troubleshooting.md#the-bot-is-silent) |
+| The bot does not answer at all | On the host: `argus status`, then `argus logs`. Then [The bot is silent](troubleshooting.md#the-bot-is-silent) |
 | After a restart: "run(s) were interrupted" | Press **Retry** on the ones you still want |
 | A project file was edited by hand and broke | The project is ignored and you are told why; fix the file, then `/reload` |
 | `/health` says `degraded` | It names the subsystem; [Troubleshooting](troubleshooting.md) has the fix |

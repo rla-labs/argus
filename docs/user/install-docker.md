@@ -277,17 +277,10 @@ worse than one that admits its gaps.
 ## After installing
 
 ```sh
-# Logs
-docker compose -f deploy/compose/docker-compose.yml logs -f
-
-# Health
-docker exec argus-agent curl -s http://127.0.0.1:3090/health
-
-# The smoke test
-./deploy/scripts/smoke.sh
-
-# A backup
-./deploy/scripts/backup.sh
+argus status      # running, and healthy?
+argus logs -f     # follow the log
+argus doctor      # the full smoke test
+argus backup      # a backup
 ```
 
 Then:
@@ -334,30 +327,36 @@ installed and upgraded by its own scripts.
 
 ## Everyday commands
 
-```sh
-# Logs
-docker compose -f deploy/compose/docker-compose.yml logs -f
+`argus` runs the scripts in `deploy/scripts/` ([all its commands](README.md#running-it-from-the-shell-argus)).
 
-# Health (the endpoint is loopback-only, so this runs inside the container)
-docker exec argus-agent curl -s http://127.0.0.1:3090/health
+```sh
+# Running, and healthy?
+argus status
+
+# Logs
+argus logs -f
 
 # Is everything working?
-./deploy/scripts/smoke.sh
+argus doctor
 
 # Back up, and copy it off the machine
-./deploy/scripts/backup.sh
+argus backup
 rsync -av /srv/argus-agent/data/backups/ you@elsewhere:/backups/argus-agent/
 
 # Upgrade, with rollback
-./deploy/scripts/upgrade.sh --to ghcr.io/rla-labs/argus:0.2.0
+argus upgrade --to ghcr.io/rla-labs/argus:0.2.0
 
 # Restore
-./deploy/scripts/restore.sh --list
-./deploy/scripts/restore.sh
+argus restore --list
+argus restore
 
 # Remove the containers, keep the data
 ./deploy/scripts/uninstall.sh
 ```
+
+If `argus` is not found (the installer could not write to `/usr/local/bin`), run it by
+its path, `./deploy/argus.sh`, or link it yourself:
+`sudo ln -s "$PWD/deploy/argus.sh" /usr/local/bin/argus`.
 
 ## Three things to know
 
@@ -379,6 +378,7 @@ with it. The `rsync` line above is not optional.
 | `docker/entrypoint.sh` | Verifies `/data`, creates the layout, refuses without a config, starts dsh |
 | `compose/docker-compose.yml` | One service, bind-mounted data, hardened, log-capped |
 | `compose/docker-compose.ollama.yml` | Overlay adding a local Ollama on an internal network |
+| `argus.sh` | The `argus` command: picks the Docker or the native script ([commands](README.md#running-it-from-the-shell-argus)) |
 | `scripts/install.sh` | Fresh host → first Telegram message |
 | `scripts/upgrade.sh` | Backup, upgrade, smoke test, rollback on failure |
 | `scripts/backup.sh` | Online SQLite backup + a `/data` archive, with retention |
