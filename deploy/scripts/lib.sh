@@ -86,6 +86,11 @@ require_docker() {
   # not running, and a `compose up` against a stopped daemon fails with a message
   # about a socket rather than about Docker.
   if ! docker info >/dev/null 2>&1; then
+    # A group added after this login (Docker's install adds it) applies only to new
+    # logins, so the account is in the group and this shell still is not.
+    if ! id -nG | tr ' ' '\n' | grep -qx docker && id -nG "${USER}" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+      die "${USER} is in the docker group, but this login started before it was added. Log out and back in (or run: newgrp docker), then try again."
+    fi
     die "the Docker daemon is not reachable. Start it (sudo systemctl start docker) or add $USER to the docker group."
   fi
   if docker compose version >/dev/null 2>&1; then
