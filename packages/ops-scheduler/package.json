@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/scheduler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reliable cron scheduling: fires on time, exactly once, surviving restarts and respecting budgets",
   "type": "module",
   "main": "lib/index.js",

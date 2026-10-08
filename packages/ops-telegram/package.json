@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/telegram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The Telegram channel adapter: translates between Telegram and the ChannelAdapter contract, with no business logic",
   "type": "module",
   "main": "lib/index.js",
