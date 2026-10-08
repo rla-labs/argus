@@ -19,7 +19,7 @@
 #   data-<stamp>.tar.gz    everything else, excluding scratch/ and the database
 #
 # Usage:
-#   backup-native.sh [--output DIR] [--keep N] [--dry-run] [--force-copy]
+#   backup-native.sh [--output DIR] [--keep N] [--dry-run] [--yes] [--force-copy]
 
 # shellcheck source=lib-native.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib-native.sh"
@@ -37,6 +37,7 @@ Usage: backup-native.sh [options]
   --keep N       how many backup SETS to keep (default: ${KEEP})
   --force-copy   copy the database even without sqlite3 (NOT consistent — see below)
   --dry-run      show what would happen, write nothing
+  --yes          answer yes to every confirmation
   --help         this message
 
 The database is backed up with SQLite's online backup API — through sqlite3 when it
@@ -53,6 +54,7 @@ while [ $# -gt 0 ]; do
     --keep)       KEEP="${2:?--keep needs a number}"; shift 2 ;;
     --force-copy) FORCE_COPY=1; shift ;;
     --dry-run)    DRY_RUN=1; shift ;;
+    --yes|-y)     ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h)    usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac

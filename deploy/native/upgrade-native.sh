@@ -21,7 +21,7 @@
 # docs/developer-docs.md#verified-dsh-facts), so it is not something an upgrade does implicitly.
 #
 # Usage:
-#   upgrade-native.sh [--revision REF] [--no-backup] [--force-rollback] [--dry-run]
+#   upgrade-native.sh [--revision REF] [--no-backup] [--force-rollback] [--dry-run] [--yes]
 #
 # `--force-rollback` fails AFTER a successful upgrade, which is how the rollback path is
 # tested deliberately rather than only in production.
@@ -42,6 +42,7 @@ Usage: upgrade-native.sh [options]
   --no-backup       skip the pre-upgrade backup (NOT recommended)
   --force-rollback  fail after upgrading, to exercise the rollback path
   --dry-run         show the plan; change nothing
+  --yes             answer yes to every confirmation
   --help            this message
 
 Exit: 0 on a successful upgrade, 1 when it failed (whether or not the rollback worked).
@@ -58,6 +59,7 @@ while [ $# -gt 0 ]; do
     --no-backup)       SKIP_BACKUP=1; shift ;;
     --force-rollback)  FORCE_ROLLBACK=1; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
+    --yes|-y)          ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h)         usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac

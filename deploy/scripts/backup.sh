@@ -18,7 +18,7 @@
 # meaningless without the process that wrote them.
 #
 # Usage:
-#   backup.sh [--output DIR] [--keep N] [--dry-run]
+#   backup.sh [--output DIR] [--keep N] [--dry-run] [--yes]
 #
 # Environment:
 #   ARGUS_AGENT_DATA_PATH   the data directory (default /srv/argus-agent/data)
@@ -44,6 +44,7 @@ Usage: ${SCRIPT_NAME} [options]
   --output DIR   where to write the artifacts (default: ${OUTPUT_DIR})
   --keep N       how many backup SETS to keep (default: ${KEEP})
   --dry-run      show what would happen, write nothing
+  --yes          answer yes to every confirmation
   --help         this message
 
 Backs up the database with SQLite's online backup API and archives the rest of the
@@ -56,6 +57,7 @@ while [ $# -gt 0 ]; do
     --output)  OUTPUT_DIR="${2:?--output needs a directory}"; shift 2 ;;
     --keep)    KEEP="${2:?--keep needs a number}"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --yes|-y)  ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac

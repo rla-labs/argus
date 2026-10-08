@@ -17,7 +17,7 @@
 #   6. ROLL BACK the image on failure, and the DATABASE too when migrations ran.
 #
 # Usage:
-#   upgrade.sh [--to IMAGE] [--build] [--no-backup] [--force-rollback] [--dry-run]
+#   upgrade.sh [--to IMAGE] [--build] [--no-backup] [--force-rollback] [--dry-run] [--yes]
 #
 # `--force-rollback` fails on purpose after the upgrade, which is how the rollback path
 # itself is tested. Without it, the rollback code would only ever run in production.
@@ -42,6 +42,7 @@ Usage: ${SCRIPT_NAME} [options]
   --no-backup       skip the pre-upgrade backup (NOT recommended)
   --force-rollback  fail after upgrading, to exercise the rollback path
   --dry-run         show the plan; change nothing
+  --yes             answer yes to every confirmation
   --help            this message
 
 Exit: 0 on a successful upgrade, 1 when the upgrade failed (whether or not the
@@ -61,6 +62,7 @@ while [ $# -gt 0 ]; do
     --no-backup)       SKIP_BACKUP=1; shift ;;
     --force-rollback)  FORCE_ROLLBACK=1; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
+    --yes|-y)          ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h)         usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac

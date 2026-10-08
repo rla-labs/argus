@@ -15,7 +15,7 @@
 #   4. START, and VERIFY. A restore nobody verified is a hope.
 #
 # Usage:
-#   restore.sh [--db FILE] [--data FILE] [--from DIR] [--list] [--dry-run]
+#   restore.sh [--db FILE] [--data FILE] [--from DIR] [--list] [--dry-run] [--yes]
 #
 # Environment:
 #   ARGUS_AGENT_DATA_PATH   the data directory (default /srv/argus-agent/data)
@@ -41,6 +41,7 @@ Usage: ${SCRIPT_NAME} [options]
   --data FILE    the archive to restore
   --list         list what is available, restore nothing
   --dry-run      show what would happen, change nothing
+  --yes          answer yes to every confirmation
   --help         this message
 
 With no --db/--data, the newest pair in the backup directory is used.
@@ -58,6 +59,7 @@ while [ $# -gt 0 ]; do
     --data)    DATA_FILE="${2:?--data needs a file}"; shift 2 ;;
     --list)    LIST_ONLY=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --yes|-y)  ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
