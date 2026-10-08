@@ -97,10 +97,16 @@ fi
 
 CURRENT_VERSION="$(image_version "${CURRENT_IMAGE}")"
 
-# The target: --to, else the tag in .env, else the current one.
+CHECKOUT_VERSION="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${REPO_ROOT}/package.json" | head -n 1)"
+
+# The target: --to, else the tag in .env, else the current one. A build is tagged
+# with the checkout's version, so the tag says what runs.
 if [ -z "${TARGET_IMAGE}" ]; then
   TARGET_IMAGE="$(configured_image)"
   TARGET_IMAGE="${TARGET_IMAGE:-${CURRENT_IMAGE}}"
+  if [ "${BUILD_FROM_SOURCE}" = "1" ] && [ -n "${CHECKOUT_VERSION}" ]; then
+    TARGET_IMAGE="${TARGET_IMAGE%:*}:${CHECKOUT_VERSION}"
+  fi
 fi
 
 log ""
@@ -114,7 +120,6 @@ log ""
 # The same pinned tag again is no upgrade, and a tag built here was never published,
 # so its pull fails. Only a moving tag like ':latest' is worth pulling again.
 if [ "${CURRENT_IMAGE}" = "${TARGET_IMAGE}" ] && [ "${BUILD_FROM_SOURCE}" = "0" ] && [ "${TARGET_IMAGE##*:}" != "latest" ]; then
-  CHECKOUT_VERSION="$(sed -n 's/^[[:space:]]*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "${REPO_ROOT}/package.json" | head -n 1)"
   log "${TARGET_IMAGE} is already running. To upgrade:"
   [ "${CHECKOUT_VERSION}" = "$(image_version "${TARGET_IMAGE}")" ] ||
     log "  argus upgrade --to ${TARGET_IMAGE%:*}:${CHECKOUT_VERSION:-<version>}   the published image"
