@@ -558,3 +558,40 @@ describe('lifecycle', () => {
     expect(booted.health.recovery).toBeDefined()
   }, 40_000)
 })
+
+describe('argus doctor', () => {
+  it('collects every mounted service’s findings, on GET /doctor too', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-health-doctor-'))
+    dirs.push(dataDir)
+    const port = 32_900 + Math.floor(Math.random() * 400)
+    const booted = await bootHealth({
+      dataDir,
+      projects: {
+        alpha: projectDocument(dataDir, 'alpha'),
+        // Valid YAML, but its model has no price: the project is invalid.
+        beta: projectDocument(dataDir, 'beta', { provider: 'nobody', model: 'unpriced' }),
+      },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `tasks:\n  model: fake/fake-model\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  allowed_users:\n    - { channel: console, userId: dev }\n` +
+        `channel:\n  default_address: console:dev\n` +
+        `health:\n  enabled: true\n  endpoint: true\n  port: ${port}\n  daily_report: false\n  backup: false\n`,
+    })
+
+    const findings = await booted.health.doctor()
+    const byCheck = new Map(findings.map((finding) => [finding.check, finding]))
+    expect(byCheck.get('project beta')).toMatchObject({ ok: false, fix: expect.stringContaining('beta.yaml, then send /reload') })
+    expect(byCheck.get('project alpha')).toBeUndefined()
+    expect(byCheck.get('the /task model')).toMatchObject({ ok: true, detail: 'fake/fake-model' })
+    expect(byCheck.get('the admin')).toMatchObject({ ok: false, fix: expect.stringContaining('access.admin') })
+    expect(byCheck.has('the chat channel')).toBe(true)
+
+    await waitFor(() => booted.health.endpoint !== undefined, { timeoutMs: 20_000, label: 'the endpoint' })
+    const response = await fetch(`http://127.0.0.1:${port}/doctor`)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { findings: Array<{ check: string }> }
+    expect(body.findings.map((finding) => finding.check)).toEqual(findings.map((finding) => finding.check))
+  }, 60_000)
+})

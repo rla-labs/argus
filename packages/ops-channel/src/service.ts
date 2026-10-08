@@ -18,6 +18,7 @@ import {
   type Button,
   type ChannelAddress,
   type ContentBlockLike,
+  type DoctorFinding,
   type IncomingAttachment,
   type IncomingMessage,
   type MessageRef,
@@ -140,6 +141,29 @@ export class OpsChannel {
    *
    * @returns the report.
    */
+  /**
+   * `argus doctor`: can anyone actually reach the system.
+   *
+   * @returns the findings.
+   */
+  doctor(): DoctorFinding[] {
+    const adapters = this.adapters().map((adapter) => adapter.name)
+    const failure = this.registry.startFailure
+    const findings: DoctorFinding[] = [
+      adapters.length === 0
+        ? { ok: false, check: 'the chat channel', detail: 'no channel is connected', fix: 'set TELEGRAM_BOT_TOKEN (from @BotFather) in .env, or secrets.env on a native install, then restart' }
+        : failure !== undefined
+          ? { ok: false, check: 'the chat channel', detail: `it failed to start: ${failure}`, fix: 'check TELEGRAM_BOT_TOKEN: the whole token from @BotFather, then restart' }
+          : { ok: true, check: 'the chat channel', detail: `connected: ${adapters.join(', ')}` },
+    ]
+    findings.push(
+      this.options.access.admin === undefined
+        ? { ok: false, check: 'the admin', detail: 'access.admin is not set, so nobody can run /set, /archive or /allow', fix: 'set access.admin in ops.yaml to your numeric Telegram id (from @userinfobot), then restart' }
+        : { ok: true, check: 'the admin', detail: `${this.options.access.admin.channel}:${this.options.access.admin.chatId}` },
+    )
+    return findings
+  }
+
   health(): ServiceHealth {
     const adapters = this.adapters().map((adapter) => adapter.name)
     const details: Record<string, unknown> = {

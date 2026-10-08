@@ -2,11 +2,25 @@
 
 Symptom → check → fix.
 
-**Start with [the five checks](#five-checks-that-answer-most-reports)** at the bottom
-of this page: they answer most reports. After them, [Start here](#start-here) covers
+**Start with `argus doctor`** ([below](#start-here)), then [the five checks](#five-checks-that-answer-most-reports)
+at the bottom of this page: they answer most reports. After them, [Start here](#start-here) covers
 the system that does nothing at all, and [By symptom](#by-symptom) the rest.
 
 ## Start here
+
+Run `argus doctor` first. It checks what the system needs to do work, not only that it
+runs. That means a provider key the provider accepts, a model with a price, project files
+that validate, and a connected bot. Each failure comes with the step that fixes it:
+
+```
+ err deepinfra: the API key: refused (HTTP 401)
+     fix: check DEEPINFRA_API_KEY in .env (secrets.env on a native install): the whole key, then restart
+ err project site: model: zai/glm-5.3-flash needs an API key: set ZAI_API_KEY in the environment (.env), then restart
+     fix: edit /data/config/projects/site.yaml, then send /reload
+```
+
+When the service does not start at all, it shows the last warnings and errors from the
+log instead.
 
 ### Nothing happens at all
 

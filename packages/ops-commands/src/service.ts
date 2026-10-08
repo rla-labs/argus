@@ -10,7 +10,7 @@
  */
 import type { ReloadReport } from '@argus-agent/projects'
 import { randomUUID } from 'node:crypto'
-import type { ChannelAddress, ServiceHealth } from '@argus-agent/types'
+import type { ChannelAddress, DoctorFinding, ServiceHealth } from '@argus-agent/types'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
@@ -116,6 +116,24 @@ export class OpsCommands {
       return { status: 'degraded', details: { ...details, reason: 'several confirmations are unanswered' } }
     }
     return { status: 'ok', details }
+  }
+
+  /**
+   * `argus doctor`: can `/task` run. Its model is `tasks.model`, whose default is a
+   * DeepSeek model, so an install with only another provider's key fails here first.
+   *
+   * @returns the finding.
+   */
+  async doctor(): Promise<DoctorFinding[]> {
+    const model = this.options.adhocModel
+    const name = `${model.provider}/${model.model}`
+    await this.options.meter.ensurePriced(model)
+    const problem = this.options.projects.checkModel(model)
+    return [
+      problem === undefined
+        ? { ok: true, check: 'the /task model', detail: name }
+        : { ok: false, check: 'the /task model', detail: problem.message, fix: `set tasks.model in ops.yaml to a model you have a key for (now ${name}), then restart` },
+    ]
   }
 
   constructor(private readonly options: CommandsOptions) {

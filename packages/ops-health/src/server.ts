@@ -11,6 +11,7 @@
  * @module @argus-agent/health/server
  */
 import { createServer, type Server } from 'node:http'
+import type { DoctorFinding } from '@argus-agent/types'
 import { httpStatusFor, type HealthReport } from './model.js'
 
 /** A running endpoint. */
@@ -25,6 +26,8 @@ export interface ServerOptions {
   readonly port: number
   /** Builds the current report. */
   readonly report: () => HealthReport
+  /** Builds the `argus doctor` findings; `/doctor` answers 404 without it. */
+  readonly doctor?: () => Promise<readonly DoctorFinding[]>
   /** Called on a request, for a log. */
   readonly onRequest?: (info: { readonly path: string; readonly status: number }) => void
 }
@@ -57,9 +60,19 @@ export async function startHealthServer(options: ServerOptions): Promise<HealthS
       return
     }
 
+    if (path === '/doctor' && options.doctor !== undefined) {
+      // Always 200: the findings are the answer, including the failed ones.
+      void options.doctor().then((findings) => {
+        options.onRequest?.({ path, status: 200 })
+        response.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        response.end(JSON.stringify({ findings }, null, 2))
+      })
+      return
+    }
+
     options.onRequest?.({ path, status: 404 })
     response.writeHead(404, { 'content-type': 'application/json' })
-    response.end(JSON.stringify({ error: 'not found', paths: ['/health'] }))
+    response.end(JSON.stringify({ error: 'not found', paths: options.doctor === undefined ? ['/health'] : ['/health', '/doctor'] }))
   })
 
   await new Promise<void>((resolve, reject) => {

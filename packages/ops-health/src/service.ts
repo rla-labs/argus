@@ -11,7 +11,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
-import { MAX_TIMEOUT_MS, type ChannelAddress, type HealthStatus, type ServiceHealth, type TimerHandle } from '@argus-agent/types'
+import { MAX_TIMEOUT_MS, type ChannelAddress, type DoctorFinding, type DoctorSource, type HealthStatus, type ServiceHealth, type TimerHandle } from '@argus-agent/types'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
@@ -70,6 +70,9 @@ export interface InterruptedRun {
  * health signal gets ignored.
  */
 const REQUIRED_SUBSYSTEMS = ['opsStore', 'opsProjects', 'opsMeter', 'opsGovernor', 'opsChannel'] as const
+
+/** The services that contribute to `argus doctor`, each through its `doctor()`. */
+const DOCTOR_SOURCES = ['opsProjects', 'opsChannel', 'opsProviders', 'opsCommands', 'opsOrchestrator'] as const
 
 /** Optional plugins, reported only when mounted. */
 const OPTIONAL_SUBSYSTEMS = ['opsScheduler', 'opsMemory', 'opsApprovals', 'opsOrchestrator'] as const
@@ -143,6 +146,27 @@ export class OpsHealth {
       version: this.options.version,
       now,
     })
+  }
+
+  /**
+   * What `argus doctor` reports beyond the smoke test: whether the system can actually
+   * do work, from every mounted service that can tell (`DOCTOR_SOURCES`). A source
+   * that throws becomes a failed finding instead of hiding the others.
+   *
+   * @returns the findings, in source order.
+   */
+  async doctor(): Promise<DoctorFinding[]> {
+    const findings: DoctorFinding[] = []
+    for (const name of DOCTOR_SOURCES) {
+      const source = this.ctx.get(name as never) as Partial<DoctorSource> | undefined
+      if (typeof source?.doctor !== 'function') continue
+      try {
+        findings.push(...(await source.doctor()))
+      } catch (error) {
+        findings.push({ ok: false, check: `${name}: the check itself`, detail: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    return findings
   }
 
   /** A one-line summary, for `/health` and for a log. */
@@ -460,6 +484,7 @@ export class OpsHealth {
       this.server = await startHealthServer({
         port: this.options.config.port,
         report: () => this.report(),
+        doctor: () => this.doctor(),
         onRequest: (info) => this.ctx.logger('ops-health').debug('GET %s → %d', info.path, info.status),
       })
       this.ctx.logger('ops-health').info('health endpoint on %s (loopback only)', this.server.url)

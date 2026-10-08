@@ -48,7 +48,7 @@ installed, and the Docker ones otherwise.
 | Command | What it does |
 |---|---|
 | `argus status` | Is the service running, and what does its health check say. Exits 1 when it is not healthy. |
-| `argus doctor` | The full smoke test: every check, and what failed. |
+| `argus doctor` | The smoke test, then whether it can actually work: every provider key (one free request each, no tokens spent), the `/task` and orchestrator models, the project files, the chat channel and the admin. Every failure comes with its fix. |
 | `argus logs [-f]` | The last 100 lines of the log; `-f` follows it. |
 | `argus backup` | Back up the database and the data directory. [More](backup-and-upgrade.md#running-it) |
 | `argus restore` | Restore from a backup (Docker). On the native install it points to [the manual steps](install-native.md#restoring). |

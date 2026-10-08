@@ -83,3 +83,24 @@ export function rankOf(status: HealthStatus): number {
       return 2
   }
 }
+
+/**
+ * One finding of `argus doctor`: something checked, whether it passed, and what to do
+ * when it did not. A service that can tell whether it will actually work (a key the
+ * provider accepts, a model with a price) exposes `doctor()` returning these; the
+ * health plugin collects them on `GET /doctor`.
+ */
+export interface DoctorFinding {
+  readonly ok: boolean
+  /** What was checked, e.g. `deepseek: the API key`. */
+  readonly check: string
+  /** What was found, when it adds something to `check`. */
+  readonly detail?: string
+  /** What to do about a failure, as a step the operator can follow. */
+  readonly fix?: string
+}
+
+/** A service that contributes to `argus doctor`. */
+export interface DoctorSource {
+  doctor(): Promise<readonly DoctorFinding[]> | readonly DoctorFinding[]
+}

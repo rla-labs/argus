@@ -29,6 +29,7 @@
 
 readonly SCRIPT_NAME="smoke.sh"
 JSON_OUT=0
+DOCTOR=0
 QUIET=0
 CHECKS_PASSED=0
 CHECKS_FAILED=0
@@ -38,6 +39,7 @@ usage() {
   cat <<EOF
 Usage: ${SCRIPT_NAME} [options]
 
+  --doctor   also check that it can do work: keys, models, projects (argus doctor)
   --json     also print a JSON summary on stdout
   --quiet    only print failures
   --help     this message
@@ -49,6 +51,7 @@ EOF
 while [ $# -gt 0 ]; do
   case "$1" in
     --json)  JSON_OUT=1; shift ;;
+    --doctor) DOCTOR=1; shift ;;
     --quiet) QUIET=1; shift ;;
     --help|-h) usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
@@ -83,6 +86,11 @@ finish() {
   log "Failures:"
   for f in "${FAILURES[@]}"; do log "  - ${f}"; done
   log ""
+  if [ "${DOCTOR}" = "1" ]; then
+    log "The last errors in the log:"
+    docker logs --tail 300 "${CONTAINER_NAME}" 2>&1 | grep -E '(^|: )(warn|error) ' | tail -n 5 | sed 's/^/  /' >&2 || true
+    log ""
+  fi
   log "See docs/user/troubleshooting.md, or: docker logs --tail 100 ${CONTAINER_NAME}"
   if [ "${JSON_OUT}" = "1" ]; then
     printf '{"ok":false,"passed":%d,"failed":%d,"failures":[' "${CHECKS_PASSED}" "${CHECKS_FAILED}"
@@ -95,6 +103,26 @@ finish() {
     printf ']}\n'
   fi
   exit 1
+}
+
+# ── argus doctor ───────────────────────────────────────────────────────────────
+#
+# With --doctor, the checks the RUNNING service makes of itself (GET /doctor): the
+# project files, the /task and orchestrator models, every provider key (one free
+# request each), the chat channel and the admin. Each failure comes with its fix.
+
+# The /doctor JSON as lines: ok<TAB>what<TAB>fix.
+readonly DOCTOR_PARSE='let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{const flat=(t)=>String(t||"").replace(/\s+/g," ");try{for(const f of JSON.parse(s).findings)console.log([f.ok?"1":"0",flat([f.check,f.detail].filter(Boolean).join(": ")),flat(f.fix)].join("\t"))}catch{console.log("E")}})'
+
+report_doctor() {
+  local lines="$1" good text fix
+  if [ -z "${lines}" ] || [ "${lines}" = "E" ]; then
+    check_fail "the service did not answer the doctor checks" "a version before 0.2.0 has none: argus upgrade"
+    return 0
+  fi
+  while IFS=$'\t' read -r good text fix; do
+    if [ "${good}" = "1" ]; then check_pass "${text}"; else check_fail "${text}" "${fix:+fix: ${fix}}"; fi
+  done <<<"${lines}"
 }
 
 # ── 1. the container is running ────────────────────────────────────────────────
@@ -223,6 +251,10 @@ if docker exec "${CONTAINER_NAME}" sh -c 'touch /data/.smoke-write && rm -f /dat
   check_pass "the data directory is writable"
 else
   check_fail "the data directory is not writable" "the volume may be full or mounted read-only"
+fi
+
+if [ "${DOCTOR}" = "1" ]; then
+  report_doctor "$(docker exec "${CONTAINER_NAME}" sh -c "curl --fail --silent --max-time 60 http://127.0.0.1:3090/doctor | node -e '${DOCTOR_PARSE}'" 2>/dev/null || true)"
 fi
 
 finish

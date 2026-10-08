@@ -25,7 +25,7 @@ Usage: argus [--docker|--native] <command> [options]
 
   init       install, or reinstall over an existing deployment
   status     is it running, and is it healthy
-  doctor     the full smoke test: what works and what does not
+  doctor     the smoke test, plus: keys, models and projects, each with its fix
   logs       the service log (add -f to follow)
   backup     back up the database and the data
   restore    restore from a backup
@@ -92,7 +92,7 @@ status() {
 
 case "${COMMAND}" in
   init)    script install.sh install-native.sh "$@" ;;
-  doctor)  script smoke.sh smoke-native.sh "$@" ;;
+  doctor)  script smoke.sh smoke-native.sh --doctor "$@" ;;
   backup)  script backup.sh backup-native.sh "$@" ;;
   upgrade) script upgrade.sh upgrade-native.sh "$@" ;;
   restore)

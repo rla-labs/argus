@@ -25,7 +25,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels, getBuiltinProviders, type BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
-import { apiKeyEnvOf, type ModelProblem, type ModelRef } from '@argus-agent/types'
+import { apiKeyEnvOf, type DoctorFinding, type ModelProblem, type ModelRef } from '@argus-agent/types'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-providers'
@@ -86,6 +86,36 @@ export interface ProviderRoute {
   readonly models: ReadonlySet<string>
   /** Why the declaration cannot be used, when it cannot. */
   readonly error?: string
+  /** The endpoint from `ops.yaml`, when it sets one; a catalog route uses pi-ai's otherwise. */
+  readonly baseUrl?: string
+  /** The wire protocol from `ops.yaml`, for a declared provider. */
+  readonly api?: string
+}
+
+/** How long `argus doctor` waits for a provider. */
+const PROBE_TIMEOUT_MS = 10_000
+
+/**
+ * A request that proves a key is accepted without spending anything: a model list,
+ * or the account itself where the model list is public (OpenRouter) or the account
+ * says more (DeepSeek's balance). `undefined` for a protocol with no such request.
+ */
+export function probeRequest(
+  provider: string,
+  baseUrl: string,
+  api: string,
+  key: string | undefined,
+): { url: string; headers: Record<string, string> } | undefined {
+  const base = baseUrl.replace(/\/+$/, '')
+  const bearer: Record<string, string> = key === undefined ? {} : { authorization: `Bearer ${key}` }
+  if (provider === 'openrouter') return { url: 'https://openrouter.ai/api/v1/key', headers: bearer }
+  if (provider === 'deepseek') return { url: `${base}/user/balance`, headers: bearer }
+  if (api === 'anthropic-messages') {
+    return { url: `${base}/v1/models`, headers: { 'anthropic-version': '2023-06-01', ...(key === undefined ? {} : { 'x-api-key': key }) } }
+  }
+  if (api === 'google-generative-ai') return { url: `${base}/models`, headers: key === undefined ? {} : { 'x-goog-api-key': key } }
+  if (api === 'openai-completions' || api === 'openai-responses') return { url: `${base}/models`, headers: bearer }
+  return undefined
 }
 
 /** The providers service, `ctx.opsProviders`. */
@@ -93,7 +123,54 @@ export class OpsProviders {
   constructor(
     private readonly routes: ReadonlyMap<string, ProviderRoute>,
     private readonly env: (name: string) => string | undefined = (name) => process.env[name],
+    private readonly fetch: typeof globalThis.fetch = globalThis.fetch,
   ) {}
+
+  /**
+   * `argus doctor`: does each provider with a key accept it. One free request per
+   * provider (`probeRequest`); a keyless declared provider is checked for reachability.
+   *
+   * @returns one finding per provider, or one failure when no provider has a key.
+   */
+  async doctor(): Promise<DoctorFinding[]> {
+    const usable = [...this.routes.values()].filter(
+      (route) => route.error === undefined && (route.keyEnv === null ? route.declared : (this.env(route.keyEnv) ?? '').length > 0),
+    )
+    if (usable.length === 0) {
+      return [{ ok: false, check: 'the model providers', detail: 'no provider has an API key', fix: 'set one in .env (secrets.env on a native install), e.g. DEEPSEEK_API_KEY or OPENROUTER_API_KEY, then restart' }]
+    }
+    return Promise.all(usable.map((route) => this.probe(route)))
+  }
+
+  private async probe(route: ProviderRoute): Promise<DoctorFinding> {
+    const check = route.keyEnv === null ? `${route.provider}: the endpoint` : `${route.provider}: the API key`
+    const shipped = route.declared ? undefined : getBuiltinModels(route.provider as BuiltinProvider)[0]
+    const baseUrl = route.baseUrl ?? shipped?.baseUrl
+    const api = route.api ?? shipped?.api
+    const key = route.keyEnv === null ? undefined : this.env(route.keyEnv)
+    const request = baseUrl === undefined || api === undefined ? undefined : probeRequest(route.provider, baseUrl, api, key)
+    if (request === undefined) return { ok: true, check, detail: 'set; not verified (this provider has no free check)' }
+    const fixKey = `check ${route.keyEnv ?? 'the key'} in .env (secrets.env on a native install): the whole key, then restart`
+    try {
+      const response = await this.fetch(request.url, { headers: request.headers, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+      // Google answers a bad key with 400 (API_KEY_INVALID) rather than 401.
+      if (response.status === 401 || response.status === 403 || (response.status === 400 && api === 'google-generative-ai')) return { ok: false, check, detail: `refused (HTTP ${response.status})`, fix: fixKey }
+      if (response.status === 402) return { ok: false, check, detail: 'the account has no credit (HTTP 402)', fix: `add credit to your ${route.provider} account` }
+      if (!response.ok) return { ok: false, check, detail: `HTTP ${response.status} from ${request.url}` }
+      if (route.provider === 'deepseek') {
+        const body = (await response.json().catch(() => ({}))) as { is_available?: boolean }
+        if (body.is_available === false) return { ok: false, check, detail: 'accepted, but the balance is empty', fix: 'top up at platform.deepseek.com' }
+      }
+      return { ok: true, check, detail: 'accepted' }
+    } catch (error) {
+      return {
+        ok: false,
+        check,
+        detail: `could not reach ${request.url}: ${error instanceof Error ? error.message : String(error)}`,
+        fix: route.declared ? `check providers.${route.provider}.base_url in ops.yaml, and that this host can reach it` : 'check that this host can reach the internet',
+      }
+    }
+  }
 
   /** The variable holding a provider's key: `<PROVIDER>_API_KEY`. */
   keyEnvOf(provider: string): string {
@@ -170,7 +247,7 @@ export function buildRoutes(
     const extra = declared[provider]
     const keyEnv = extra?.key === 'none' ? null : apiKeyEnvOf(provider)
     const all = [...new Set([...models, ...(extra?.models ?? [])])]
-    routes.set(provider, { provider, declared: false, keyEnv, models: new Set(all) })
+    routes.set(provider, { provider, declared: false, keyEnv, models: new Set(all), ...(extra?.base_url === undefined ? {} : { baseUrl: extra.base_url }) })
     profiles[provider] = {
       ...(keyEnv === null ? { headers: { Authorization: 'Bearer none' } } : { apiKeyEnv: keyEnv }),
       ...(extra?.base_url === undefined ? {} : { baseURL: extra.base_url }),
@@ -189,7 +266,14 @@ export function buildRoutes(
         : models.length === 0
           ? 'models is required for a provider pi-ai does not ship'
           : undefined
-    routes.set(provider, { provider, declared: true, keyEnv, models: new Set(models), ...(error === undefined ? {} : { error }) })
+    routes.set(provider, {
+      provider,
+      declared: true,
+      keyEnv,
+      models: new Set(models),
+      ...(error === undefined ? {} : { error }),
+      ...(entry.base_url === undefined ? {} : { baseUrl: entry.base_url, api: entry.api ?? 'openai-completions' }),
+    })
     if (error !== undefined) continue
     profiles[provider] = {
       api: entry.api ?? 'openai-completions',

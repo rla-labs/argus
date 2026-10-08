@@ -1,7 +1,7 @@
 // == ARGUS AGENT PROJECT ==
 /** Unit tests for the provider routes and the configuration-time model check. */
 import { describe, expect, it } from 'vitest'
-import { OpsProviders, buildRoutes } from '../../src/providers-row.js'
+import { OpsProviders, buildRoutes, probeRequest } from '../../src/providers-row.js'
 
 const shipped = new Map([
   ['zai', ['glm-5.3-flash']],
@@ -73,5 +73,54 @@ describe('OpsProviders.check', () => {
       { provider: 'openrouter', declared: false, hasKey: false },
       { provider: 'zai', declared: false, hasKey: true },
     ])
+  })
+})
+
+describe('argus doctor: the provider keys', () => {
+  const declared = { deepinfra: { base_url: 'https://api.deepinfra.com/v1/openai/', models: ['m'] } }
+
+  function doctor(env: Record<string, string>, answer: (url: string) => Response | Promise<Response>) {
+    const urls: string[] = []
+    const { routes } = buildRoutes(declared, shipped)
+    const fetch = (async (url: string) => {
+      urls.push(url)
+      return answer(url)
+    }) as unknown as typeof globalThis.fetch
+    return { urls, run: () => new OpsProviders(routes, (name) => env[name], fetch).doctor() }
+  }
+
+  it('fails, with the fix, when no provider has a key', async () => {
+    const [finding] = await doctor({}, () => new Response('{}')).run()
+    expect(finding).toMatchObject({ ok: false, fix: expect.stringContaining('_API_KEY') })
+  })
+
+  it('asks each provider with a key, for free, and reports what it said', async () => {
+    const { urls, run } = doctor({ OPENROUTER_API_KEY: 'k', DEEPINFRA_API_KEY: 'bad' }, (url) =>
+      new Response('{}', { status: url.includes('deepinfra') ? 401 : 200 }),
+    )
+    const findings = await run()
+    expect(urls.sort()).toEqual(['https://api.deepinfra.com/v1/openai/models', 'https://openrouter.ai/api/v1/key'])
+    expect(findings).toContainEqual({ ok: true, check: 'openrouter: the API key', detail: 'accepted' })
+    expect(findings).toContainEqual(
+      expect.objectContaining({ ok: false, check: 'deepinfra: the API key', detail: 'refused (HTTP 401)', fix: expect.stringContaining('DEEPINFRA_API_KEY') }),
+    )
+  })
+
+  it('reports no credit, and an unreachable endpoint', async () => {
+    const credit = await doctor({ OPENROUTER_API_KEY: 'k' }, () => new Response('{}', { status: 402 })).run()
+    expect(credit[0]).toMatchObject({ ok: false, detail: expect.stringContaining('no credit') })
+    const down = await doctor({ DEEPINFRA_API_KEY: 'k' }, () => Promise.reject(new Error('ECONNREFUSED'))).run()
+    expect(down[0]).toMatchObject({ ok: false, detail: expect.stringContaining('ECONNREFUSED'), fix: expect.stringContaining('providers.deepinfra.base_url') })
+  })
+
+  it('builds a free request for each protocol', () => {
+    expect(probeRequest('deepseek', 'https://api.deepseek.com', 'openai-completions', 'k')).toEqual({
+      url: 'https://api.deepseek.com/user/balance',
+      headers: { authorization: 'Bearer k' },
+    })
+    expect(probeRequest('anthropic', 'https://api.anthropic.com', 'anthropic-messages', 'k')?.headers).toMatchObject({ 'x-api-key': 'k' })
+    expect(probeRequest('google', 'https://g/v1beta', 'google-generative-ai', 'k')).toEqual({ url: 'https://g/v1beta/models', headers: { 'x-goog-api-key': 'k' } })
+    expect(probeRequest('local', 'http://ollama:11434/v1', 'openai-completions', undefined)).toEqual({ url: 'http://ollama:11434/v1/models', headers: {} })
+    expect(probeRequest('x', 'https://x', 'bedrock-converse', 'k')).toBeUndefined()
   })
 })

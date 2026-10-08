@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { ModelCheck, ModelProblem, ModelRef, ServiceHealth } from '@argus-agent/types'
+import type { DoctorFinding, ModelCheck, ModelProblem, ModelRef, ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -186,6 +186,25 @@ export class OpsProjects {
       if (problem !== undefined) return problem
     }
     return undefined
+  }
+
+  /**
+   * `argus doctor`: every project file that does not validate, including a model that
+   * cannot run (no key, no price), with the file to fix.
+   *
+   * @returns the findings.
+   */
+  doctor(): DoctorFinding[] {
+    const invalid = this.invalidProjects()
+    if (invalid.length === 0) {
+      return [{ ok: true, check: 'the project files', detail: `${this.configuredIds().length} valid` }]
+    }
+    return invalid.map((project) => ({
+      ok: false,
+      check: `project ${project.id}`,
+      detail: project.reason,
+      fix: `edit ${project.path}, then send /reload`,
+    }))
   }
 
   /** Re-check every project's model: something a check reads changed (a price arrived). */

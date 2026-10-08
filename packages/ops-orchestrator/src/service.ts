@@ -11,7 +11,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
-import type { ChannelAddress, ModelRef, ServiceHealth } from '@argus-agent/types'
+import type { ChannelAddress, DoctorFinding, ModelRef, ServiceHealth } from '@argus-agent/types'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
@@ -368,6 +368,23 @@ export class OpsOrchestrator {
    *
    * @returns the report.
    */
+  /**
+   * `argus doctor`: can the orchestrator answer free text. Its model is checked like
+   * a project's (a provider route, a key, a price).
+   *
+   * @returns the finding.
+   */
+  async doctor(): Promise<DoctorFinding[]> {
+    const model = this.modelRef()
+    await this.options.meter.ensurePriced(model)
+    const problem = this.options.projects.checkModel(model)
+    return [
+      problem === undefined
+        ? { ok: true, check: 'the orchestrator model', detail: this.options.config.model }
+        : { ok: false, check: 'the orchestrator model', detail: problem.message, fix: `set orchestrator.model in ops.yaml to a model you have a key for (now ${this.options.config.model}), then restart` },
+    ]
+  }
+
   health(): ServiceHealth {
     const live = this.agent !== undefined
     const details: Record<string, unknown> = {

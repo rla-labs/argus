@@ -230,6 +230,22 @@ describe('mounting', () => {
     })
     expect((booted.ctx as unknown as { opsOrchestrator?: unknown }).opsOrchestrator).toBeUndefined()
   }, 40_000)
+
+  it('argus doctor: reports whether its model can run', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-orch-doctor-'))
+    dirs.push(dataDir)
+    const booted = await bootOrchestrator({
+      dataDir,
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  allowed_users:\n    - { channel: console, userId: dev }\n` +
+        `channel:\n  default_address: console:dev\n` +
+        `orchestrator:\n  enabled: true\n  model: nobody/unpriced\n`,
+    })
+    const [finding] = await booted.orchestrator.doctor()
+    expect(finding).toMatchObject({ ok: false, check: 'the orchestrator model', fix: expect.stringContaining('orchestrator.model') })
+  }, 40_000)
 })
 
 // ── the tool surface inside a real agent ───────────────────────────────────

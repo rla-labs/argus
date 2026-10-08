@@ -57,13 +57,14 @@ function argus(args: string[], env: Record<string, string> = {}, native = false)
 
 describe('argus', () => {
   it.each([
-    ['init', 'install.sh', 'install-native.sh'],
-    ['doctor', 'smoke.sh', 'smoke-native.sh'],
-    ['backup', 'backup.sh', 'backup-native.sh'],
-    ['upgrade', 'upgrade.sh', 'upgrade-native.sh'],
-  ])('%s runs %s on Docker and %s on native, with the arguments', async (command, docker, native) => {
-    expect((await argus([command, '--x', 'a b'])).out.trim()).toBe(`docker:${docker} --x a b`)
-    expect((await argus([command, '--x'], {}, true)).out.trim()).toBe(`native:${native} --x`)
+    ['init', 'install.sh', 'install-native.sh', ''],
+    // doctor is the smoke test plus the service's own checks.
+    ['doctor', 'smoke.sh', 'smoke-native.sh', ' --doctor'],
+    ['backup', 'backup.sh', 'backup-native.sh', ''],
+    ['upgrade', 'upgrade.sh', 'upgrade-native.sh', ''],
+  ])('%s runs %s on Docker and %s on native, with the arguments', async (command, docker, native, added) => {
+    expect((await argus([command, '--x', 'a b'])).out.trim()).toBe(`docker:${docker}${added} --x a b`)
+    expect((await argus([command, '--x'], {}, true)).out.trim()).toBe(`native:${native}${added} --x`)
   })
 
   it('picks the install type from the unit, and a flag overrides it', async () => {
