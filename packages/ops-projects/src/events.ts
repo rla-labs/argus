@@ -76,8 +76,8 @@ declare module '@deepseek-ai/cordis' {
      * A run finished, carrying its final assistant output.
      *
      * The channel delivers this; the governor closes the run's bookkeeping. The
-     * content is the last non-empty assistant message of the run, extracted with
-     * dsh's own `finalAssistantOutput` (SPIKES.md spike 1).
+     * content is the text the run wrote after its last real tool call (`runAnswer`),
+     * else dsh's own `finalAssistantOutput` (SPIKES.md spike 1).
      *
      * @param payload.owner what the run belonged to.
      * @param payload.sessionId the session that ran.

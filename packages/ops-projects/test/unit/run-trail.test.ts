@@ -2,7 +2,7 @@
 /** Unit tests for the run trail `/log` shows. */
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
-import { runTrail } from '../../src/run-trail.js'
+import { runAnswer, runTrail } from '../../src/run-trail.js'
 
 function call(callId: string, name: string, args: unknown): SessionEvent {
   return { type: 'tool/call', data: { turn: 1, step: 1, callId, name, arguments: typeof args === 'string' ? args : JSON.stringify(args) } } as unknown as SessionEvent
@@ -36,5 +36,23 @@ describe('runTrail', () => {
     expect(trail.toolsTotal).toBe(50)
     expect(trail.tools[0]?.arg).toHaveLength(100)
     expect(trail.reply).toHaveLength(600)
+  })
+})
+
+function said(text: string, ...tools: string[]): SessionEvent {
+  const content = [{ type: 'text', text }, ...tools.map((name, i) => ({ type: 'tool-call', id: `c${i}`, name, arguments: '{}' }))]
+  return { type: 'assistant/message', data: { turn: 1, step: 1, message: { role: 'assistant', content } } } as unknown as SessionEvent
+}
+
+describe('runAnswer', () => {
+  it('keeps the answer written next to a todo_write, not just the closing line', () => {
+    // The Substack task in production: the list, a todo tick, then one closing sentence.
+    const answer = runAnswer([said('Let me look.', 'web_fetch'), said('1. First article', 'todo_write'), said('All ten are recent.')])
+    expect(answer).toBe('1. First article\n\nAll ten are recent.')
+  })
+
+  it('restarts after a real tool call, and is undefined with no text after it', () => {
+    expect(runAnswer([said('Draft', 'todo_write'), said('Checking.', 'bash'), said('Final.')])).toBe('Final.')
+    expect(runAnswer([said('Fetching.', 'web_fetch')])).toBeUndefined()
   })
 })

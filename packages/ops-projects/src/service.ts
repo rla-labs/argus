@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
-import { RUN_TRAIL_ACTION, runTrail } from './run-trail.js'
+import { RUN_TRAIL_ACTION, runAnswer, runTrail } from './run-trail.js'
 import {
   OpsError,
   ownerKey,
@@ -757,7 +757,9 @@ export class OpsProjects {
 
     const runId = entry.runId
     const events = entry.runEvents
-    const content = finalAssistantOutput(events) ?? []
+    const answer = runAnswer(events)
+    // ponytail: the joined answer is text only, so an image in those messages is dropped; keep blocks if agents send images.
+    const content = answer === undefined ? (finalAssistantOutput(events) ?? []) : [{ type: 'text', text: answer }]
     const owner = entry.owner
     const rootSession = entry.handle.agent.id as string
     entry.runId = undefined

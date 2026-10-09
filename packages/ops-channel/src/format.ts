@@ -195,7 +195,8 @@ export interface ProgressInput {
  * The progress text.
  *
  * It carries the step count **against the limit**, because "12 steps" means
- * nothing to an operator and "12 of 60" tells them how much rope is left.
+ * nothing to an operator and "12 (limit 60 per run)" tells them how much rope is
+ * left. "12 of 60" read as sixty tasks to do.
  *
  * @param input the run's progress.
  * @returns the text.
@@ -207,7 +208,7 @@ export function progressText(input: ProgressInput): string {
   const elapsed = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
   return (
     `${prefix}working…\n` +
-    `  steps   ${input.steps} of ${input.maxSteps}\n` +
+    `  step    ${input.steps} (limit ${input.maxSteps} per run)\n` +
     `  elapsed ${elapsed}\n` +
     `  cost    $${formatUsd(input.costMicros)}`
   )

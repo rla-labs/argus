@@ -383,7 +383,7 @@ describe('shouldSendProgress', () => {
 
 describe('progressText', () => {
   it('reports steps against the limit', () => {
-    // "12 steps" means nothing to an operator; "12 of 60" says how much rope is
+    // "12 steps" means nothing to an operator; "12 (limit 60 per run)" says how much rope is
     // left.
     const text = progressText({
       subject: { kind: 'project', projectId: 'alpha' },
@@ -393,7 +393,7 @@ describe('progressText', () => {
       costMicros: 1_500,
     })
     expect(text).toContain('[alpha]')
-    expect(text).toContain('12 of 60')
+    expect(text).toContain('step    12 (limit 60 per run)')
     expect(text).toContain('1m 30s')
     expect(text).toContain('$0.0015')
   })

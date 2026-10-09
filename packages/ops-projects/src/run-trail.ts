@@ -69,3 +69,34 @@ export function runTrail(events: readonly SessionEvent[], reply: string): RunTra
   const text = reply.trim()
   return { tools: calls.slice(0, TOOLS_KEPT), toolsTotal: calls.length, reply: text.length <= REPLY_CHARS ? text : `${text.slice(0, REPLY_CHARS - 1)}…` }
 }
+
+/** Tools that only keep the agent's own notes: a message calling just these still speaks to the person. */
+const BOOKKEEPING_TOOLS = new Set(['todo_write', 'create_goal', 'get_goal', 'update_goal'])
+
+/**
+ * A run's answer: the text of its messages after its last real tool call.
+ *
+ * dsh's `finalAssistantOutput` keeps only the last message, and a model often writes
+ * its answer next to a `todo_write`, then closes with one line, which was all the
+ * person received. A message that calls any other tool is work in progress, so the
+ * answer restarts after it.
+ *
+ * @param events every event of the run.
+ * @returns the answer, or `undefined` when the run wrote no text after its last tool call.
+ */
+export function runAnswer(events: readonly SessionEvent[]): string | undefined {
+  let texts: string[] = []
+  for (const event of events) {
+    if (event.type !== 'assistant/message') continue
+    const content = (event.data as { message: { content: ReadonlyArray<{ type?: string; text?: string; name?: string }> } }).message.content
+    if (content.some((block) => block.type === 'tool-call' && !BOOKKEEPING_TOOLS.has(block.name ?? ''))) {
+      texts = []
+      continue
+    }
+    const text = content
+      .flatMap((block) => (block.type === 'text' && typeof block.text === 'string' && block.text.trim().length > 0 ? [block.text.trim()] : []))
+      .join('\n')
+    if (text.length > 0) texts.push(text)
+  }
+  return texts.length === 0 ? undefined : texts.join('\n\n')
+}
