@@ -504,7 +504,7 @@ export class OpsGovernor {
     if (isAdhoc) {
       const runId = envelope?.adhoc?.runId ?? row.id
       const requested = envelope?.adhoc?.model
-      const model = requested ?? this.defaultAdhocModel(runId)
+      const model = requested ?? this.options.config.adhoc_model
       return {
         id: row.id,
         priority: row.priority as Priority,
@@ -531,13 +531,6 @@ export class OpsGovernor {
       model: { provider: model.provider, model: model.model },
       submittedAt: row.created_at,
     }
-  }
-
-  /** The model an ad-hoc run with no explicit choice should use. */
-  private defaultAdhocModel(runId: string): ModelRef {
-    void runId
-    const configured = this.options.store.runtimeState.get<ModelRef>('adhoc.default_model')
-    return configured ?? { provider: 'unknown', model: 'unknown' }
   }
 
   /** The model a project will use. */

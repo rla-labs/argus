@@ -84,6 +84,8 @@ export interface GovernorConfig {
   readonly queues: QueuesConfig
   /** How a paused project treats an arriving request. */
   readonly paused_policy: PausedPolicy
+  /** The model an ad-hoc task uses when none is named: `tasks.model`, the same one `/task` uses. */
+  readonly adhoc_model: { readonly provider: string; readonly model: string }
 }
 
 /** The `concurrency` section. */
@@ -149,5 +151,15 @@ export function governorConfigOf(raw: Record<string, unknown>): GovernorConfig {
     limits: asFn<LimitsConfig>(limitsSchema)(raw['limits'] ?? {}),
     queues: asFn<QueuesConfig>(queuesSchema)(raw['queues'] ?? {}),
     paused_policy: asFn<PausedPolicy>(pausedPolicySchema)(raw['paused_policy'] ?? 'keep'),
+    adhoc_model: adhocModelOf(raw),
   }
+}
+
+/** `tasks.model` as `provider/model`; ops-commands registers and validates the section, with the same default. */
+function adhocModelOf(raw: Record<string, unknown>): { provider: string; model: string } {
+  const tasks = raw['tasks']
+  const configured = tasks !== null && typeof tasks === 'object' ? (tasks as Record<string, unknown>)['model'] : undefined
+  const ref = typeof configured === 'string' && configured.includes('/') ? configured : 'deepseek/deepseek-flash'
+  const slash = ref.indexOf('/')
+  return { provider: ref.slice(0, slash), model: ref.slice(slash + 1) }
 }

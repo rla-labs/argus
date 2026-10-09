@@ -460,7 +460,8 @@ describe('routing a message to a project', () => {
     const booted = await bootOrchestrator()
     // What ops-channel passes: the platform's message id, never an inbound row.
     const ref = 'dev:179'
-    booted.boot.fake!.setScript(toolTurn([{ name: 'run_task', args: { messageRef: ref, model: 'fake/fake-model' } }], 'Running.'))
+    // No model, as the front desk asks in production: the task runs on tasks.model.
+    booted.boot.fake!.setScript(toolTurn([{ name: 'run_task', args: { messageRef: ref } }], 'Running.'))
 
     await booted.orchestrator.submit({
       messageRef: ref,
@@ -472,6 +473,7 @@ describe('routing a message to a project', () => {
     await waitIdle(booted)
     const row = booted.store.inbound.listByStatus('done').at(-1)
     expect(row?.payload).toContain('Dă-mi cele mai recente 20 de știri')
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ provider: 'fake', model: 'fake-model' })
   }, 90_000)
 
   it('gives a task the files sent with the message, in its own folder', async () => {
