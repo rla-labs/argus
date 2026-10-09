@@ -456,6 +456,24 @@ describe('routing a message to a project', () => {
     expect(row?.project_id).toBeNull()
   }, 90_000)
 
+  it('forwards a message by the reference the channel gives it, with nothing in the store', async () => {
+    const booted = await bootOrchestrator()
+    // What ops-channel passes: the platform's message id, never an inbound row.
+    const ref = 'dev:179'
+    booted.boot.fake!.setScript(toolTurn([{ name: 'run_task', args: { messageRef: ref, model: 'fake/fake-model' } }], 'Running.'))
+
+    await booted.orchestrator.submit({
+      messageRef: ref,
+      address: { channel: 'console', chatId: 'dev' },
+      userId: 'dev',
+      text: 'Dă-mi cele mai recente 20 de știri',
+      attachments: [],
+    })
+    await waitIdle(booted)
+    const row = booted.store.inbound.listByStatus('done').at(-1)
+    expect(row?.payload).toContain('Dă-mi cele mai recente 20 de știri')
+  }, 90_000)
+
   it('gives a task the files sent with the message, in its own folder', async () => {
     const booted = await bootOrchestrator()
     const sent = join(mkdtempSync(join(tmpdir(), 'ops-orch-attach-')), 'sales.csv')

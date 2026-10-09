@@ -201,6 +201,8 @@ describe('ownership', () => {
       model: { provider: 'fake', model: 'flash' },
     })
     expect(projects.ownerOf(agent.id as string)).toEqual({ kind: 'orchestrator' })
+    // The front desk has no project session to record, which is not a fault.
+    expect(projects.health().status).toBe('ok')
   })
 
   it('resolves a subagent session to its parent project', async () => {

@@ -378,12 +378,14 @@ export class OpsProjects {
    * @returns the report.
    */
   health(): ServiceHealth {
-    const live = this.listLive()
+    // Only a project's session is recorded; the front desk and tasks have none.
+    const all = this.listLive()
+    const live = all.filter((entry) => entry.target.kind === 'project')
     const recorded = new Set(this.store.projects.list().map((row) => row.session_id).filter((id): id is string => id !== null))
     const unrecorded = live.filter((entry) => !recorded.has(entry.sessionId)).map((entry) => entry.sessionId)
     const details: Record<string, unknown> = {
-      liveAgents: live.length,
-      running: live.filter((entry) => entry.status === 'running').length,
+      liveAgents: all.length,
+      running: all.filter((entry) => entry.status === 'running').length,
       projects: this.configuredIds().length,
     }
     if (unrecorded.length > 0) {

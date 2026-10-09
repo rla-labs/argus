@@ -38,6 +38,9 @@ export interface OrchestratorOptions {
   readonly now: () => number
 }
 
+/** How many received messages the desk remembers for forwarding. */
+const RECEIVED_CAP = 100
+
 /** What an incoming free-text message carries. */
 export interface OrchestratorRequest {
   readonly messageRef: string
@@ -57,6 +60,15 @@ export class OpsOrchestrator {
   private creating: Promise<Agent> | undefined
   /** The turn currently in flight, so a tool knows which message it is routing. */
   private current: OrchestratorRequest | undefined
+  /**
+   * The text of the messages this desk received, by `messageRef`. Nothing writes a
+   * free-text message to the store, so this is where a forwarding tool finds the
+   * person's exact words.
+   *
+   * ponytail: in memory and capped at {@link RECEIVED_CAP}; a restart forgets them,
+   * so a message from before it cannot be forwarded (the person sends it again).
+   */
+  private readonly received = new Map<string, string>()
   /** The reply a turn produced. */
   private reply: string | undefined
   /** The day the session was last reset, for `reset_daily`. */
@@ -235,6 +247,8 @@ export class OpsOrchestrator {
 
   /** Resolve a message reference to its stored text. */
   private resolveRef(ref: string): { readonly text: string; readonly projectId: string | null } | undefined {
+    const text = this.received.get(ref)
+    if (text !== undefined) return { text, projectId: null }
     const row = this.options.store.inbound.get(ref)
     if (row === undefined) return undefined
     const payload = parsePayload(row.payload)
@@ -257,6 +271,8 @@ export class OpsOrchestrator {
     const agent = await this.ensureAgent()
 
     this.current = request
+    this.received.set(request.messageRef, request.text)
+    if (this.received.size > RECEIVED_CAP) this.received.delete(this.received.keys().next().value as string)
     this.reply = undefined
 
     // The turn is awaited through `ops/agent-idle`, which `ops-projects` emits
