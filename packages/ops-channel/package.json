@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/channel",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "The channel abstraction: routing, access control and delivery, independent of the platform",
   "type": "module",
   "main": "lib/index.js",
