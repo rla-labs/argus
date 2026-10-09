@@ -62,8 +62,8 @@ Make a file ideas.md with three ideas for a blog post about home automation, one
 The project works in its folder and answers in the chat. A long answer arrives as a
 file.
 
-When it wants to write a file or run a command, you get a question with **Approve** and
-**Deny** buttons. Nothing happens before you answer.
+When it wants to write a file, run a command, use the web or read outside its folder, you
+get a question with **Approve** and **Deny** buttons. Nothing happens before you answer.
 [Approvals without the noise](daily-use.md#approvals-without-the-noise) shows how to stop
 the harmless ones from asking.
 

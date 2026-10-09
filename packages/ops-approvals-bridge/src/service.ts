@@ -19,11 +19,28 @@ import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
-import { parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
+import { isInside, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
 import { APPROVE, APPROVE_ALL, DENY, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
+
+/**
+ * dsh tools that only keep the agent's own books (its todo list, goals, background
+ * jobs, skills) or show it something. They pass the gate without a question.
+ */
+export const QUIET_TOOLS: ReadonlySet<string> = new Set([
+  'todo_write',
+  'present',
+  'create_goal',
+  'get_goal',
+  'update_goal',
+  'job_list',
+  'job_output',
+  'job_kill',
+  'skill',
+  'list_subagent_models',
+])
 
 /** Options for the service. */
 export interface BridgeOptions {
@@ -98,10 +115,12 @@ export class OpsApprovalsBridge {
    *
    * dsh asks only when a pre-execute listener answers `ask`; nothing else in the
    * pinned version does, so without this gate every command and write ran
-   * unasked. Commands and file writes of a project or task agent are sent to
-   * approval; reads, searches and the front desk's own tools pass. The call's
-   * own arguments are kept for {@link handle}, because dsh's approval request
-   * carries only the tool name and call id.
+   * unasked. A project or task agent passes without a question only for reads
+   * and searches inside its own folder and for the bookkeeping tools in
+   * {@link QUIET_TOOLS}; everything else asks: commands, writes, the web, reads
+   * elsewhere, and any tool a later dsh adds. The front desk's own tools pass.
+   * The call's own arguments are kept for {@link handle}, because dsh's approval
+   * request carries only the tool name and call id.
    *
    * @param exec the pending call.
    * @returns `ask`, or `undefined` to let the call through.
@@ -115,9 +134,21 @@ export class OpsApprovalsBridge {
     if (exec.agent === undefined) return undefined
     const owner = this.options.projects.ownerOf(exec.agent.id as string)
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
+    if (QUIET_TOOLS.has(exec.name)) return undefined
     const { argv, path } = argumentsOf(exec.arguments)
-    const action = parseAction(exec.name, argv, path)
-    if (action.kind !== 'command' && action.kind !== 'file-write') return undefined
+    const record = (typeof exec.arguments === 'object' && exec.arguments !== null ? exec.arguments : {}) as Record<string, unknown>
+    // What the question shows for a call with no path: a fetch's URL, a search's query.
+    const target = path ?? [record['url'], record['query']].find((value): value is string => typeof value === 'string')
+    const action = parseAction(exec.name, argv, target)
+    // A one-off task cannot be asked (`approvals_adhoc` is `deny`), and "what is X?"
+    // needs the web. It reads nothing outside its own folder, so it has little to leak.
+    if (action.kind === 'network' && owner.kind === 'adhoc') return undefined
+    if (action.kind === 'file-read') {
+      const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)
+      // A glob's pattern is a path too: `../../**` or `/data/**` searches outside.
+      const named = [path, exec.name === 'glob' ? record['pattern'] : undefined].filter((value): value is string => typeof value === 'string')
+      if (root !== undefined && named.every((value) => isInside(root, value))) return undefined
+    }
     this.gated.set(exec.callId, action)
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
   }

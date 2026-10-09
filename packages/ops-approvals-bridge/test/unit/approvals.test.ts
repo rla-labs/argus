@@ -6,9 +6,13 @@
  * runs without a human looking at it. Its tests are therefore mostly attacks.
  */
 import { describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   classifyAction,
   isCompound,
+  isInside,
   matchAllowList,
   matchesRule,
   parseAction,
@@ -232,6 +236,28 @@ describe('matchAllowList — the bypass attacks', () => {
 })
 
 // ── classification ─────────────────────────────────────────────────────────
+
+describe('isInside', () => {
+  it('keeps paths in the folder and refuses every way out of it', () => {
+    const base = mkdtempSync(join(tmpdir(), 'ops-inside-'))
+    try {
+      const root = join(base, 'project')
+      mkdirSync(join(root, 'src'), { recursive: true })
+      symlinkSync(base, join(root, 'escape'))
+      expect(isInside(root, 'notes.md')).toBe(true)
+      expect(isInside(root, 'src/../notes.md')).toBe(true)
+      expect(isInside(root, join(root, 'src'))).toBe(true)
+      expect(isInside(root, '.')).toBe(true)
+      expect(isInside(root, '../ops.sqlite')).toBe(false)
+      expect(isInside(root, '/etc/passwd')).toBe(false)
+      expect(isInside(root, '~/.ssh/id_ed25519')).toBe(false)
+      expect(isInside(root, 'escape/ops.sqlite')).toBe(false)
+      expect(isInside(`${root}-other`, join(root, 'x'))).toBe(false)
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('classifyAction', () => {
   it.each([

@@ -1412,7 +1412,8 @@ export function argumentsOf(args: unknown): { readonly argv: readonly string[]; 
 
   // A `command` may be a string a shell would split, or an already-split array.
   const command = record['command'] ?? record['cmd'] ?? record['script']
-  const path = typeof record['path'] === 'string' ? record['path'] : typeof record['file'] === 'string' ? (record['file'] as string) : undefined
+  // dsh's file tools name it `file_path`; its search tools, `path`.
+  const path = [record['file_path'], record['path'], record['file']].find((value): value is string => typeof value === 'string')
 
   if (Array.isArray(command)) {
     return { argv: command.filter((token): token is string => typeof token === 'string'), path }

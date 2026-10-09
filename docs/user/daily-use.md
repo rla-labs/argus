@@ -170,8 +170,17 @@ Every project has a daily and a monthly budget, `budgets.default_day_usd` and
 
 ## Approvals without the noise
 
-With `approvals.mode: ask` (the default), an action the agent's tools mark as needing
-approval, such as a shell command, becomes a question:
+With `approvals.mode: ask` (the default), a project asks before it:
+
+- runs a command;
+- writes or edits a file;
+- fetches a web page or searches the web;
+- reads or searches anything outside its own folder (the database and `config/`, with
+  your keys, are outside it);
+- uses any other tool, including one a later version of dsh adds.
+
+Reading and searching its own folder, and keeping its own to-do list, never ask. Each
+question becomes:
 
 | Button | Effect |
 |---|---|

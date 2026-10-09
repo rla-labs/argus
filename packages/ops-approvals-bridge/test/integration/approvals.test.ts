@@ -255,6 +255,63 @@ describe('the gate', () => {
     expect(consoleOf(booted).pendingCount).toBe(0)
     expect(booted.store.approvals.recent(1)[0]?.status).toBe('granted')
   }, 60_000)
+
+  it('asks for the web, for a read outside the folder and for an unknown tool; bookkeeping passes', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: projectDocument(dataDir, 'alpha') },
+      script: [
+        {
+          text: 'working',
+          toolCalls: [
+            { name: 'read', arguments: '{"file_path":"notes.md"}', id: 'c1' },
+            { name: 'read', arguments: '{"file_path":"../../ops.sqlite"}', id: 'c2' },
+            { name: 'web_fetch', arguments: '{"url":"https://news.ycombinator.com"}', id: 'c3' },
+            { name: 'todo_write', arguments: '{}', id: 'c4' },
+            { name: 'ralph', arguments: '{}', id: 'c5' },
+          ],
+        },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const name of ['read', 'web_fetch', 'todo_write', 'ralph']) {
+      agent.ctx.tools.register(
+        defineTool({
+          name,
+          description: name,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async () => {
+            ran.push(name)
+            return 'ok'
+          },
+        }),
+      )
+    }
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    // Refuse every question until the run ends.
+    await waitFor(
+      () => {
+        consoleOf(booted).answer(DENY, 'dev')
+        return booted.store.approvals.recent(10).length === 3 && booted.governor.status().running.length === 0
+      },
+      { timeoutMs: 30_000, label: 'three questions, run ended' },
+    )
+
+    const asked = booted.store.approvals.recent(10).map((row) => row.request_json).join('\n')
+    expect(asked).toContain('ops.sqlite')
+    expect(asked).toContain('news.ycombinator.com')
+    expect(asked).toContain('ralph')
+    expect(ran.sort()).toEqual(['read', 'todo_write'])
+  }, 60_000)
 })
 
 // ── mounting ───────────────────────────────────────────────────────────────

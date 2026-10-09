@@ -14,7 +14,7 @@ What this deployment defends against, and what it explicitly does not.
 | A leaked bot token | **Partly** | Revoke with BotFather. The token grants the bot's identity, not the host. |
 | A compromised provider | **No** | Every prompt and file the agent sends reaches the provider. |
 | A local attacker with root | **No** | Root reads `/data` and the secrets. Nothing here defends against root. |
-| A malicious project workspace | **Partly** | A project cannot read another's files or memory; code it runs is confined by the sandbox mode. |
+| A malicious project workspace | **Partly** | A project asks before it reads outside its own folder (another project's files, the database, the keys); code it runs is confined by the sandbox mode. |
 | Losing the host | **Partly** | Backups. **Copy them off the machine** — a backup on the same disk is not a backup. |
 
 **The honest summary: this system runs code a model asked for.** The controls bound the
