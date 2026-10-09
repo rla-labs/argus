@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/orchestrator",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The front-desk agent: a cheap model that answers questions about the system and routes work without rewriting it",
   "type": "module",
   "main": "lib/index.js",

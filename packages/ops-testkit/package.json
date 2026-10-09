@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/testkit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Test toolkit for Argus Agent: scripted fake LLM adapter, controllable clock, console channel adapter, boot harness and fixtures",
   "type": "module",
   "main": "lib/index.js",
