@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/types",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Shared types, branded primitives, and the OpsError hierarchy every Argus Agent plugin depends on",
   "type": "module",
   "main": "lib/index.js",

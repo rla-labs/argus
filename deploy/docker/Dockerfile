@@ -70,11 +70,11 @@ LABEL org.opencontainers.image.title="Argus Agent" \
       org.opencontainers.image.description="A self-hosted autonomous agent system on the DeepSeek Harness" \
       org.opencontainers.image.source="https://github.com/rla-labs/argus" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.version="${ARGUS_AGENT_VERSION:-0.2.2}" \
+      org.opencontainers.image.version="${ARGUS_AGENT_VERSION:-0.2.3}" \
       com.argus-agent.dsh-version="0.2.0-rc.2" \
       com.argus-agent.node="22"
 
-ARG ARGUS_AGENT_VERSION=0.2.2
+ARG ARGUS_AGENT_VERSION=0.2.3
 ENV ARGUS_AGENT_VERSION="$ARGUS_AGENT_VERSION"
 
 # `tini` is the init. Node does not reap orphaned children or forward signals to a

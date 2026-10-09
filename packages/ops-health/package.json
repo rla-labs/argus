@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/health",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Observability and recovery: a health endpoint, a daily report, alerts and backups",
   "type": "module",
   "main": "lib/index.js",
