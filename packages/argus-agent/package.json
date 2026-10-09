@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/argus-agent",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "The Argus Agent bundle: composes every ops-* plugin into one dsh bundle",
   "type": "module",
   "main": "lib/index.js",

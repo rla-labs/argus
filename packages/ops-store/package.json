@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/store",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "The only component that touches SQLite: schema, migrations, typed repositories, transactions and backups",
   "type": "module",
   "main": "lib/index.js",
