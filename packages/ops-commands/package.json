@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/commands",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "The deterministic command layer: every system action a human can trigger, with no model turn",
   "type": "module",
   "main": "lib/index.js",
