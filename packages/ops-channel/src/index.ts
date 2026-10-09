@@ -12,7 +12,7 @@ import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ChannelAddress, Owner } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
-import { OpsChannel, type ChannelOptions, type OrchestratorInput } from './service.js'
+import { OpsChannel, type ChannelOptions } from './service.js'
 import { accessOf, accessSchema, adminOf, allowedWithAdmin, channelOf, channelSchema, parseAddress } from './config.js'
 import { progressText, type OutputSubject } from './format.js'
 import './events.js'
@@ -80,8 +80,7 @@ export function apply(ctx: Context): void {
   // Resolved LIVE rather than captured: `ops-orchestrator` may be mounted after
   // this plugin, and a captured `undefined` would make the channel answer "I do
   // not know where that goes" for the rest of the process. `ctx.get` is cheap.
-  const orchestratorOf = (): { submit(input: OrchestratorInput): void } | undefined =>
-    ctx.get('opsOrchestrator' as never) as { submit(input: OrchestratorInput): void } | undefined
+  const orchestratorOf = (): unknown => ctx.get('opsOrchestrator' as never)
 
   const service = new OpsChannel({
     store: ctx.opsStore,
@@ -107,11 +106,10 @@ export function apply(ctx: Context): void {
     },
     now: () => Date.now(),
     orchestratorInput: (input) => {
-      // Prefer the service, and fall back to the event so the orchestrator can be
-      // wired either way. A deployment mounts exactly one.
-      const service = orchestratorOf()
-      if (service !== undefined) service.submit(input)
-      else ctx.emit('ops/orchestrator-input', input)
+      // Always the event: its handler in ops-orchestrator sends the reply and catches
+      // a failed turn. Calling the service here dropped both, and a failed turn
+      // became an unhandled rejection that stopped the process.
+      ctx.emit('ops/orchestrator-input', input)
     },
   } satisfies ChannelOptions)
 

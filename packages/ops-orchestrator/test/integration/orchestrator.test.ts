@@ -476,6 +476,27 @@ describe('routing a message to a project', () => {
     expect(booted.store.runs.recent(1)[0]).toMatchObject({ provider: 'fake', model: 'fake-model' })
   }, 90_000)
 
+  it('forwards a message once, however often the model asks', async () => {
+    const booted = await bootOrchestrator()
+    const ref = 'dev:204'
+    // What the front desk did in production: it cannot see the task's result, so it retried.
+    booted.boot.fake!.setScript(toolTurn([
+      { name: 'run_task', args: { messageRef: ref } },
+      { name: 'run_task', args: { messageRef: ref } },
+      { name: 'run_task', args: { messageRef: ref } },
+    ], 'Running.'))
+
+    await booted.orchestrator.submit({
+      messageRef: ref,
+      address: { channel: 'console', chatId: 'dev' },
+      userId: 'dev',
+      text: 'ultimele 10 știri despre AI de pe Substack',
+      attachments: [],
+    })
+    await waitIdle(booted)
+    expect(booted.store.runs.recent(10)).toHaveLength(1)
+  }, 90_000)
+
   it('gives a task the files sent with the message, in its own folder', async () => {
     const booted = await bootOrchestrator()
     const sent = join(mkdtempSync(join(tmpdir(), 'ops-orch-attach-')), 'sales.csv')

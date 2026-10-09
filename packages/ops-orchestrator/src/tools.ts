@@ -108,14 +108,24 @@ function table(rows: readonly (readonly string[])[]): string {
  * @param value the `messageRef` the model passed.
  * @returns the text to forward, or an error message.
  */
+/** How many forwarded messages are remembered, to refuse sending one twice. */
+const FORWARDED_CAP = 100
+
 function resolveForward(
   host: ToolHost,
+  forwarded: ReadonlyMap<string, string>,
   value: unknown,
 ): { readonly ok: true; readonly text: string; readonly messageRef: string } | { readonly ok: false; readonly error: string } {
   const problem = refProblem(value)
   if (problem !== undefined) return { ok: false, error: refProblemMessage(problem) }
 
   const ref = (value as string).trim()
+  const sent = forwarded.get(ref)
+  if (sent !== undefined) {
+    // A model waiting for a result it cannot see retries; each retry would start
+    // the same work again, so a message is forwarded once.
+    return { ok: false, error: `That message was already sent (request ${sent}); it runs once. Do not send it again: tell the person it is running and end your turn.` }
+  }
   const resolved = host.resolveRef(ref)
   if (resolved === undefined) {
     // A model that invented a reference gets told so, rather than having its
@@ -132,6 +142,12 @@ function resolveForward(
  * @returns the definitions, in a stable order.
  */
 export function buildTools(host: ToolHost): ToolDefinition[] {
+  // ponytail: in memory, lost on restart; a restart also forgets the message itself.
+  const forwarded = new Map<string, string>()
+  const remember = (ref: string, requestId: string): void => {
+    forwarded.set(ref, requestId)
+    if (forwarded.size > FORWARDED_CAP) forwarded.delete(forwarded.keys().next().value as string)
+  }
   return [
     defineTool({
       name: 'list_projects',
@@ -185,7 +201,7 @@ export function buildTools(host: ToolHost): ToolDefinition[] {
           return `No project "${projectId}". The projects are: ${ids.length === 0 ? '(none)' : ids.join(', ')}.`
         }
 
-        const resolved = resolveForward(host, input.messageRef)
+        const resolved = resolveForward(host, forwarded, input.messageRef)
         if (!resolved.ok) return resolved.error
 
         const note = typeof input.note === 'string' ? input.note : undefined
@@ -195,10 +211,11 @@ export function buildTools(host: ToolHost): ToolDefinition[] {
 
         const text = withNote(resolved.text, note)
         const { requestId } = host.sendToProject({ projectId, text, messageRef: resolved.messageRef })
+        remember(resolved.messageRef, requestId)
         if (host.config.switch_active_on_send && host.address !== undefined) {
           host.setActiveProject(projectId)
         }
-        return `Sent to ${projectId}. Request ${requestId}. Its answer will arrive in this chat.`
+        return `Sent to ${projectId}. Request ${requestId}. Its answer will arrive in this chat by itself; you will not see it. Tell the person it was sent, and end your turn.`
       },
     }),
 
@@ -221,7 +238,7 @@ export function buildTools(host: ToolHost): ToolDefinition[] {
       execute: async (args) => {
         const input = args as { messageRef?: unknown; model?: unknown }
 
-        const resolved = resolveForward(host, input.messageRef)
+        const resolved = resolveForward(host, forwarded, input.messageRef)
         if (!resolved.ok) return resolved.error
 
         const model = typeof input.model === 'string' && input.model.trim().length > 0 ? input.model.trim() : undefined
@@ -236,7 +253,8 @@ export function buildTools(host: ToolHost): ToolDefinition[] {
           messageRef: resolved.messageRef,
           ...(model === undefined ? {} : { model }),
         })
-        return `Task started. Request ${requestId}. Its result will arrive in this chat.`
+        remember(resolved.messageRef, requestId)
+        return `Task started. Request ${requestId}. Its result will arrive in this chat by itself; you will not see it. Tell the person it is running, and end your turn.`
       },
     }),
 

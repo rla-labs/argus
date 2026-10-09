@@ -255,15 +255,19 @@ describe('routing', () => {
     expect(text).toContain('/task')
   }, 30_000)
 
-  it('emits ops/orchestrator-input when an orchestrator is present', async () => {
+  it('hands free text to the orchestrator through the event, never by calling the service', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
-    // The service is not mounted, so the event path is exercised.
-    const seen: Array<{ text: string; address: unknown }> = []
-    booted.ctx.on('ops/orchestrator-input', (payload) => seen.push({ text: payload.text, address: payload.address }))
+    // The event's handler sends the reply and catches a failed turn; a direct call
+    // dropped both, and a failed turn stopped the process.
+    let called = 0
+    booted.ctx.provide('opsOrchestrator', { submit: () => { called++ } } as never)
+    const seen: string[] = []
+    booted.ctx.on('ops/orchestrator-input', (payload) => seen.push(payload.text))
 
-    const route = await booted.channel.handleIncoming(message('what is the status of everything'))
-    expect(route.kind).toBe('help')
-    void seen
+    await booted.channel.handleIncoming(message('what is the status of everything'))
+    await settle()
+    expect(seen).toEqual(['what is the status of everything'])
+    expect(called).toBe(0)
   }, 30_000)
 
   it('acknowledges only when the work did not start immediately', async () => {
@@ -521,18 +525,15 @@ describe('attachments', () => {
     // ONLY when one is mounted, so this test mounts one. It records what it
     // receives instead of doing any work.
     const forwarded: Array<{ text: string; attachments: readonly string[] }> = []
-    booted.ctx.provide('opsOrchestrator', {
-      submit: (input: { text: string; attachments: readonly string[] }) => {
-        forwarded.push({ text: input.text, attachments: input.attachments })
-      },
-    } as never)
+    booted.ctx.provide('opsOrchestrator', { submit: () => undefined } as never)
+    booted.ctx.on('ops/orchestrator-input', (input) => forwarded.push({ text: input.text, attachments: input.attachments ?? [] }))
 
     const route = await booted.channel.handleIncoming(
       message('look at this', {
         attachments: [{ kind: 'file', name: 'notes.txt', bytes: new TextEncoder().encode('hi') }],
       }),
     )
-    console.error('DIAGORCH route:', JSON.stringify(route))
+    void route
     await settle()
 
     expect(existsSync(join(scratch, 'inbox'))).toBe(true)
