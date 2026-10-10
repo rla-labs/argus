@@ -8,11 +8,13 @@
  * @module @argus-agent/channel/service
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { basename, join, resolve } from 'node:path'
 import {
   addressesEqual,
   encodeAddress,
+  isInside,
+  ownerKey,
   type AnswerOrTimeout,
   type ButtonAnswer,
   type Button,
@@ -24,6 +26,7 @@ import {
   type MessageRef,
   type OutgoingFile,
   type OutgoingMessage,
+  type Owner,
   type ServiceHealth,
 } from '@argus-agent/types'
 import type { OpsStore } from '@argus-agent/store'
@@ -663,6 +666,50 @@ export class OpsChannel {
     return this.defaultAddress()
   }
 
+  /**
+   * Send a file from an agent's own folder to the chat its run answers.
+   *
+   * The `send_file` tool's body. The owner comes from the calling agent, never from
+   * an argument, and the path must stay inside that owner's folder. The answer is
+   * for the model: what was sent, or why not.
+   *
+   * @param owner the calling agent's owner.
+   * @param path the file, relative to the owner's folder.
+   * @param caption optional text sent with it.
+   * @returns what happened, for the model.
+   */
+  async sendFile(owner: Owner, path: string, caption?: string): Promise<string> {
+    if (owner.kind === 'orchestrator') return 'send_file is for projects and tasks; the front desk has no folder.'
+    const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)
+    if (root === undefined) return 'This agent has no folder to send from.'
+    if (path.trim().length === 0) return 'path is required: the file, relative to your folder.'
+    if (!isInside(root, path)) return `${path} is outside your folder; only files inside ${root} can be sent.`
+    const full = resolve(root, path)
+    let size: number
+    try {
+      const stat = statSync(full)
+      if (!stat.isFile()) return `${path} is not a file. To send a folder, make an archive of it first (zip -r or tar -czf), then send that.`
+      size = stat.size
+    } catch {
+      return `${path} does not exist.`
+    }
+
+    const run = this.options.store.runs.active().find((row) => row.owner_key === ownerKey(owner))
+    const stored = run?.reply_chat
+    const address = (stored === null || stored === undefined ? undefined : decodeAddressSafe(stored)) ?? this.defaultAddress()
+    if (address === undefined) return 'There is no chat to send to.'
+    const adapter = this.registry.get(address.channel)
+    if (adapter === undefined) return `The ${address.channel} channel is not connected.`
+    if (size > adapter.limits.maxFileBytes) {
+      return `${path} is ${megabytes(size)}; ${address.channel} sends at most ${megabytes(adapter.limits.maxFileBytes)}. Split it, or compress it.`
+    }
+
+    const subject: OutputSubject = owner.kind === 'project' ? { kind: 'project', projectId: owner.projectId } : { kind: 'adhoc' }
+    const name = basename(full)
+    await adapter.send(address, { text: `${prefixFor(subject)}${caption?.trim() || name}`, files: [{ name, path: full }] })
+    return `Sent ${name} (${megabytes(size)}).`
+  }
+
   /** Remember where a run's output should go. */
   rememberReplyTo(runId: string, address: ChannelAddress): void {
     this.replyTo.set(runId, address)
@@ -826,3 +873,8 @@ function safeName(name: string): string {
 
 export { safeName, encodeAddress }
 export type { IncomingAttachment, OutgoingMessage }
+
+/** A size in megabytes, for a message. */
+function megabytes(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(1)} MB`
+}

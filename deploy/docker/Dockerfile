@@ -82,7 +82,7 @@ ENV ARGUS_AGENT_VERSION="$ARGUS_AGENT_VERSION"
 # `kill` that leaves the agent's subprocesses running is a leak, and a PID 1 that
 # does not reap is a slow failure.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tini ca-certificates curl \
+ && apt-get install -y --no-install-recommends tini ca-certificates curl zip \
  && rm -rf /var/lib/apt/lists/*
 
 # The dsh launcher itself: the entrypoint execs `dsh --profile ops`. Pinned exactly,

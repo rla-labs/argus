@@ -29,6 +29,7 @@
     "@argus-agent/governor": "workspace:*",
     "@argus-agent/commands": "workspace:*",
     "@deepseek-ai/schemastery": "3.18.4",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@argus-agent/argus-agent": "workspace:*"
   },
   "devDependencies": {

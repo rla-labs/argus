@@ -34,6 +34,7 @@ Step by step, from a fresh Linux server to a working bot on Telegram, with **no 
 | Disk | 5 GB | The checkout plus `node_modules` plus the database |
 | Access | `root`, or `sudo` | The install creates a system user and writes to `/opt`, `/srv`, `/etc` |
 | Network | Outbound HTTPS | `api.telegram.org`, your provider, npm |
+| `zip` | Any | So an agent can archive a folder before sending it: `sudo apt-get install -y zip` (`sudo dnf install -y zip` on RHEL/Rocky/Fedora). The Docker image has it. |
 
 Three things to collect before you start:
 

@@ -237,7 +237,7 @@ chat quiet on good days.
 |---|---|
 | What does the project know about itself? | `/memory site-firma` |
 | What did it produce? | `/files site-firma`, then `/files site-firma reports` |
-| Send me that file | `/get site-firma reports/week-41.md` |
+| Send me that file | `/get site-firma reports/week-41.md`, or ask: "send me reports/week-41.md" |
 | What did it do today, and what did it cost? | `/runs site-firma` |
 | What exactly did that run do? | `/log site-firma`, or `/log site-firma 3` for the third in `/runs` |
 | What did it ask permission for? | `/approvals` |
@@ -247,6 +247,12 @@ The agent writes to it as it learns: conventions, decisions, where things are. R
 from time to time. If it has written down something wrong, tell the project so in a
 message. The agent edits its memory itself. To remove a whole section yourself,
 `/forget site-firma` lists them and `/forget site-firma <section>` removes one.
+
+**An agent can send you a file itself** with its `send_file` tool: one file from its own
+folder, to the chat the work came from, as an attachment. For a folder, ask for an archive
+("zip the site and send it to me"): it makes one with `zip` or `tar` (a shell command, so in
+a project you approve it), then sends that. A one-off task has no shell, so it sends single
+files only. The size limit is the channel's: 50 MB on Telegram.
 
 **Ask for results as files** when you will want to keep them ("write it to
 `reports/…`"). A file in the project folder outlives the chat, and `/get` brings it back

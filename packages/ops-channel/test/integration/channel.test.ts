@@ -556,6 +556,49 @@ describe('delivery', () => {
     expect(booted.adapter.sent.map((entry) => entry.message.text).some((text) => text.startsWith('[alpha] '))).toBe(true)
   }, 40_000)
 
+  it('sends a file a project agent names with send_file, to the chat its work came from', async () => {
+    const booted = await bootChannel({
+      projects: { alpha: {} },
+      script: [
+        { toolCalls: [{ id: 'c1', name: 'send_file', arguments: JSON.stringify({ path: 'out/site.zip', caption: 'the site' }) }] },
+        { text: 'Sent.' },
+      ],
+    })
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    mkdirSync(join(cwd, 'out'), { recursive: true })
+    writeFileSync(join(cwd, 'out', 'site.zip'), 'zip bytes')
+    await booted.channel.handleIncoming(message('/p alpha'))
+    await booted.channel.handleIncoming(message('send me the site'))
+    await waitIdle(booted)
+    await settle()
+    const sent = booted.adapter.sent.find((entry) => (entry.message.files?.length ?? 0) > 0)
+    expect(sent?.message.text).toBe('[alpha] the site')
+    expect(sent?.message.files?.[0]).toMatchObject({ name: 'site.zip', path: join(cwd, 'out', 'site.zip') })
+  }, 40_000)
+
+  it('send_file refuses what is outside the folder, not a file, too large, or from the front desk', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} }, limits: { maxTextLength: 4000, maxFileBytes: 10 } })
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    mkdirSync(join(cwd, 'dir'), { recursive: true })
+    writeFileSync(join(cwd, 'big.txt'), 'more than ten bytes')
+    const alpha = { kind: 'project', projectId: 'alpha' } as const
+    expect(await booted.channel.sendFile(alpha, '../../ops.sqlite')).toContain('outside your folder')
+    expect(await booted.channel.sendFile(alpha, 'dir')).toContain('not a file')
+    expect(await booted.channel.sendFile(alpha, 'missing.txt')).toContain('does not exist')
+    expect(await booted.channel.sendFile(alpha, 'big.txt')).toContain('at most')
+    expect(await booted.channel.sendFile({ kind: 'orchestrator' }, 'x')).toContain('front desk')
+    expect(booted.adapter.sent.filter((entry) => (entry.message.files?.length ?? 0) > 0)).toHaveLength(0)
+  }, 40_000)
+
+  it('send_file sends from a task\'s own folder', async () => {
+    const booted = await bootChannel()
+    const dir = booted.projects.taskDirOf('task-1')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'report.md'), '# report')
+    expect(await booted.channel.sendFile({ kind: 'adhoc', runId: 'task-1' }, 'report.md')).toMatch(/^Sent report\.md/)
+    expect(booted.adapter.sent.at(-1)?.message).toMatchObject({ text: '[task] report.md', files: [{ name: 'report.md' }] })
+  }, 40_000)
+
   it('prefixes ad-hoc output with [task]', async () => {
     const booted = await bootChannel()
     await booted.channel.handleIncoming(message('/task do something'))

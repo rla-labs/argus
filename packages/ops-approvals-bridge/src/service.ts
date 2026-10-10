@@ -13,13 +13,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { randomUUID } from 'node:crypto'
-import { decodeAddress, encodeAddress, type ChannelAddress, type ServiceHealth } from '@argus-agent/types'
+import { decodeAddress, encodeAddress, isInside, type ChannelAddress, type ServiceHealth } from '@argus-agent/types'
 import type { ApprovalStatus, OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
-import { isInside, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
+import { parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
 import { APPROVE, APPROVE_ALL, DENY, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
 import type { ApprovalsSection } from './config.js'
@@ -27,7 +27,9 @@ import type { ApprovalEnding } from './events.js'
 
 /**
  * dsh tools that only keep the agent's own books (its todo list, goals, background
- * jobs, skills) or show it something. They pass the gate without a question.
+ * jobs, skills) or show it something, and `send_file`, which sends a file from the
+ * agent's own folder to the chat its run answers and refuses any other path itself.
+ * They pass the gate without a question.
  */
 export const QUIET_TOOLS: ReadonlySet<string> = new Set([
   'todo_write',
@@ -40,6 +42,7 @@ export const QUIET_TOOLS: ReadonlySet<string> = new Set([
   'job_kill',
   'skill',
   'list_subagent_models',
+  'send_file',
 ])
 
 /** Options for the service. */

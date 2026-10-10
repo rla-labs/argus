@@ -12,13 +12,13 @@ import { join } from 'node:path'
 import {
   classifyAction,
   isCompound,
-  isInside,
   matchAllowList,
   matchesRule,
   parseAction,
   renderAction,
   tokenizeCommand,
 } from '../../src/argv.js'
+import { isInside } from '@argus-agent/types'
 import { decideApproval, isGrant, policyOf } from '../../src/policy.js'
 import {
   APPROVE,

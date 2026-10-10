@@ -10,6 +10,7 @@
  */
 import { isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ChannelAddress, Owner } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { OpsChannel, type ChannelOptions } from './service.js'
@@ -33,7 +34,7 @@ export const name = 'ops-channel'
  * `opsCommands` is required: a channel that cannot run a command would deliver
  * free text and nothing else, which is not the contract.
  */
-export const inject = ['opsConfigRegistry', 'opsRawConfig', 'opsStore', 'opsProjects', 'opsMeter', 'opsGovernor', 'opsCommands']
+export const inject = ['opsConfigRegistry', 'opsRawConfig', 'opsStore', 'opsProjects', 'opsMeter', 'opsGovernor', 'opsCommands', 'tools']
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -184,6 +185,32 @@ export function apply(ctx: Context): void {
   // `ops/schedule-skipped` arrives with `ops-scheduler` (prompt 10), which
   // declares the event. The delivery method already exists, so wiring it is one
   // line at that point.
+  // ── send_file ────────────────────────────────────────────────────────────
+  // Global, so a task's agent has it too: tasks are never composed, so a scoped
+  // tool could not reach them. The owner comes from the calling agent (rule 6).
+  ctx.effect(() =>
+    ctx.tools.register(
+      defineTool({
+        name: 'send_file',
+        description:
+          'Send one file from your folder to the person, as an attachment in the chat this work came from. ' +
+          'For a folder or several files, make an archive first (zip -r out.zip dir, or tar -czf out.tar.gz dir), then send it.',
+        parameters: {
+          path: { type: 'string', description: 'The file, relative to your folder.', required: true },
+          caption: { type: 'string', description: 'Optional short text sent with the file.' },
+        },
+        output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }] },
+        execute: async (args, exec) => {
+          const input = args as { path?: unknown; caption?: unknown }
+          const owner = exec.agent === undefined ? undefined : ctx.opsProjects.ownerOf(exec.agent.id as string)
+          if (owner === undefined) return 'send_file works only for a project or a task.'
+          const path = typeof input.path === 'string' ? input.path : ''
+          return service.sendFile(owner, path, typeof input.caption === 'string' ? input.caption : undefined)
+        },
+      }),
+    ),
+  )
+
   // ── progress ─────────────────────────────────────────────────────────────
   // Driven from the meter's usage event rather than a timer: a progress update is
   // only interesting when something actually happened.
