@@ -202,14 +202,14 @@ gets noticed.
 
 | Key | Type | Meaning |
 |---|---|---|
-| `model` | `provider/model` | The model `/task` and an ad-hoc schedule use by default. |
+| `model` | `provider/model` | The model `/task` and an ad-hoc schedule use by default. `/defaults tasks` changes it from the chat. |
 
 ## `orchestrator`
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | boolean | `true` | Whether the front desk is mounted. |
-| `model` | `provider/model` | — | **Use a cheap one**: it runs on every free-text message. |
+| `model` | `provider/model` | — | **Use a cheap one**: it runs on every free-text message. `/defaults frontdesk` changes it from the chat. |
 | `preset` | string | `ops-orchestrator` | The preset mounted into the orchestrator's scope. Its own: no shell, files or web. |
 | `switch_active_on_send` | boolean | `true` | Whether routing to a project makes it active. |
 | `allowed_task_models` | list | `[]` | Models `run_task` may be asked for. **Empty permits none.** |

@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -768,6 +768,22 @@ describe('admin-only commands', () => {
     await run(booted, '/set alpha description The site: blog, fix #3', admin())
     expect(booted.projects.configOf('alpha')?.description).toBe('The site: blog, fix #3')
     expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
+  }, 30_000)
+
+  it('/defaults shows the task model, and the admin changes it in ops.yaml and at once', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const file = (booted.ctx as unknown as { opsConfig: { configPath: string } }).opsConfig.configPath
+    writeFileSync(file, `# kept\n${readFileSync(file, 'utf8')}`)
+    expect(await run(booted, '/defaults')).toContain('Tasks:      fake/fake-model')
+
+    const refused = await booted.commands.runCommand('/defaults tasks fake/other-model', contextFor({}))
+    expect(refused.text).toContain('Only the admin')
+    expect(await run(booted, '/defaults tasks fake/other-model', admin())).toContain('The next task runs on it')
+    expect(booted.governor.adhocModel()).toEqual({ provider: 'fake', model: 'other-model' })
+    expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
+    expect(readFileSync(file, 'utf8')).toContain('model: fake/other-model')
+    expect((await booted.commands.runCommand('/defaults tasks nowhere/x', admin())).error).toBe(true)
+    expect((await booted.commands.runCommand('/defaults frontdesk fake/other-model', admin())).text).toContain('no front desk')
   }, 30_000)
 
   it('/tools shows a project\'s tool groups, and /set changes one', async () => {

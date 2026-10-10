@@ -45,6 +45,10 @@ export interface CommandsOptions {
   readonly health?: HealthPort
   /** Delegate for `/memory`, looked up live because `ops-memory` may mount later. */
   readonly memory?: () => MemoryPort | undefined
+  /** Delegate for `/defaults frontdesk`: the front desk, looked up live. */
+  readonly frontDesk?: () => FrontDeskPort | undefined
+  /** The `ops.yaml` path `/defaults` writes to; looked up live. */
+  readonly configPath?: () => string | undefined
   /** Delegate for `/key`: the model providers, looked up live. */
   readonly keys?: () => KeysPort | undefined
   /** Whether free text has a destination without an active project; for `/start`. */
@@ -53,13 +57,6 @@ export interface CommandsOptions {
   readonly reloadProjects: () => ReloadReport
   /** Reads the current time; injected so tests control it. */
   readonly now: () => number
-  /**
-   * The model an ad-hoc task uses.
-   *
-   * `/task` must name one: the governor cannot price `unknown/unknown`, so a task
-   * with no model would be refused with `UNPRICED_MODEL` before it ran.
-   */
-  readonly adhocModel: { provider: string; model: string }
 }
 
 /** What `/cron` needs from `ops-scheduler`. */
@@ -77,6 +74,12 @@ export interface MemoryPort {
     section: string,
     actor: string,
   ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] }
+}
+
+/** What `/defaults` needs from `ops-orchestrator`. */
+export interface FrontDeskPort {
+  currentModel(): string
+  setModel(model: string): void
 }
 
 /** What `/key` needs from the providers row (`ctx.opsProviders`). */
@@ -140,14 +143,14 @@ export class OpsCommands {
    * @returns the finding.
    */
   async doctor(): Promise<DoctorFinding[]> {
-    const model = this.options.adhocModel
+    const model = this.options.governor.adhocModel()
     const name = `${model.provider}/${model.model}`
     await this.options.meter.ensurePriced(model)
     const problem = this.options.projects.checkModel(model)
     return [
       problem === undefined
         ? { ok: true, check: 'the /task model', detail: name }
-        : { ok: false, check: 'the /task model', detail: problem.message, fix: `set tasks.model in ops.yaml to a model you have a key for (now ${name}), then restart` },
+        : { ok: false, check: 'the /task model', detail: problem.message, fix: `send /defaults tasks <provider/model> with a model you have a key for (now ${name})` },
     ]
   }
 

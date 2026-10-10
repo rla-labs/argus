@@ -494,11 +494,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         const { requestId } = governor.submit({
           source: 'channel',
-          target: { adhoc: { runId: randomRunId(), model: options.adhocModel } },
+          target: { adhoc: { runId: randomRunId(), model: governor.adhocModel() } },
           content: [{ type: 'text', text }],
           priority: 0,
           replyTo: context.address,
-          model: options.adhocModel,
+          model: governor.adhocModel(),
         })
         return result(`Task queued (${truncate(requestId, 8)}). I will report when it finishes.`, {
           data: { requestId },
@@ -1097,7 +1097,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, `Project "${id}" already exists.`)
         }
 
-        const defaultModel = tokens[1] ?? `${options.adhocModel.provider}/${options.adhocModel.model}`
+        const adhoc = governor.adhocModel()
+        const defaultModel = tokens[1] ?? `${adhoc.provider}/${adhoc.model}`
         const parsed = parseModelRef(defaultModel)
         if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
         // Refused before any file is written: no route, no API key, no price.
@@ -1220,6 +1221,60 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           ? ' The running agent keeps the old one until /reset.'
           : ''
         return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${later}`)
+      },
+    },
+
+    // ── /defaults ──────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'defaults',
+        description: 'See or change the models for tasks and the front desk',
+        syntax: '/defaults [tasks|frontdesk <provider/model>]',
+        detail:
+          'With nothing, shows the model a /task runs on and the front desk’s model. ' +
+          'With a target and a model (admin), checks the model like /model (a key and a ' +
+          'price), writes it to ops.yaml (tasks.model or orchestrator.model, comments ' +
+          'kept), and applies it at once: the next task runs on it, and the front desk ' +
+          'starts a fresh conversation on it with the next message.',
+        examples: ['/defaults', '/defaults tasks deepseek/deepseek-flash', '/defaults frontdesk openrouter/z-ai/glm-5.3-flash'],
+        mutating: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const [target, modelText, ...extra] = tokenize(input)
+        const adhoc = governor.adhocModel()
+        const desk = options.frontDesk?.()
+        if (target === undefined) {
+          return result(
+            `Tasks:      ${adhoc.provider}/${adhoc.model}\n` +
+              `Front desk: ${desk === undefined ? 'not running' : desk.currentModel()}\n\n` +
+              'Change one: /defaults tasks <provider/model> or /defaults frontdesk <provider/model>',
+          )
+        }
+        if (context.isAdmin !== true) return errorResult('Only the admin can change the defaults.')
+        const keyPath = target === 'tasks' ? ['tasks', 'model'] : target === 'frontdesk' ? ['orchestrator', 'model'] : undefined
+        if (keyPath === undefined || modelText === undefined || extra.length > 0) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'defaults needs tasks or frontdesk, and one provider/model.')
+        }
+        if (target === 'frontdesk' && desk === undefined) return errorResult('There is no front desk in this deployment.')
+        const parsed = parseModelRef(modelText)
+        if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
+        const refusal = await modelRefusal(parsed.value)
+        if (refusal !== undefined) return errorResult(refusal)
+
+        // The file first: a value that cannot be kept is not applied either.
+        const file = options.configPath?.()
+        if (file === undefined) return errorResult('The configuration file is not known, so nothing was changed.')
+        try {
+          const doc = parseDocument(readFileSync(file, 'utf8'))
+          doc.setIn(keyPath, parsed.value.text)
+          writeFileSync(file, doc.toString())
+        } catch (err) {
+          return errorResult(`Could not write ${file}: ${(err as Error).message}. Nothing was changed.`)
+        }
+        if (target === 'tasks') governor.setAdhocModel(parsed.value)
+        else desk?.setModel(parsed.value.text)
+        const when = target === 'tasks' ? 'The next task runs on it.' : 'The front desk starts a fresh conversation on it with your next message.'
+        return result(`${target === 'tasks' ? 'Tasks' : 'Front desk'}: ${parsed.value.text}, written to ${file}. ${when}\n${priceLine(parsed.value)}`)
       },
     },
 

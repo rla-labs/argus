@@ -12,7 +12,7 @@
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { OpsCommands, type CommandsOptions, type HealthPort, type KeysPort, type MemoryPort, type SchedulerPort } from './service.js'
+import { OpsCommands, type CommandsOptions, type FrontDeskPort, type HealthPort, type KeysPort, type MemoryPort, type SchedulerPort } from './service.js'
 import type { CommandInvocation, CommandResult as DshCommandResult } from '@deepseek-ai/dsh-commands'
 import type { CommandContext, CommandResult } from './types.js'
 import { pathsOf } from '@argus-agent/argus-agent'
@@ -68,9 +68,6 @@ export function apply(ctx: Context): void {
     // request that was waiting for it.
     reloadProjects: () => reload(ctx),
     now: () => Date.now(),
-    // An ad-hoc task needs a priced model. The key is configuration so an
-    // operator can point tasks at a cheap model without editing code.
-    adhocModel: adhocModelOf(ctx.opsRawConfig),
   }
 
   // Optional delegates. Absent is a normal deployment, not a failure: `/cron`
@@ -84,6 +81,8 @@ export function apply(ctx: Context): void {
   options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
   options.memory = () => ctx.get('opsMemory' as never) as unknown as MemoryPort | undefined
   options.keys = () => ctx.get('opsProviders' as never) as unknown as KeysPort | undefined
+  options.frontDesk = () => ctx.get('opsOrchestrator' as never) as unknown as FrontDeskPort | undefined
+  options.configPath = () => (ctx.get('opsConfig' as never) as unknown as { configPath?: string } | undefined)?.configPath
 
   const commands = new OpsCommands(options)
   ctx.provide('opsCommands', commands)
@@ -185,25 +184,6 @@ export const tasksSchema = z
   .default({})
 
 /**
- * The model an ad-hoc task uses.
- *
- * Read from `tasks.model` in `ops.yaml`, with a flash-class default: a one-off
- * task is usually small, and defaulting to the strongest model would make every
- * `/task` the most expensive thing the system does.
- */
-function adhocModelOf(raw: Record<string, unknown>): { provider: string; model: string } {
-  const tasks = raw['tasks']
-  if (tasks !== null && typeof tasks === 'object') {
-    const configured = (tasks as Record<string, unknown>)['model']
-    if (typeof configured === 'string' && configured.includes('/')) {
-      const slash = configured.indexOf('/')
-      return { provider: configured.slice(0, slash), model: configured.slice(slash + 1) }
-    }
-  }
-  return { provider: 'deepseek', model: 'deepseek-flash' }
-}
-
-/**
  * Re-read the projects directory.
  *
  * The reload is `ops-projects`' own, imported through the bundle's public
@@ -218,4 +198,4 @@ function reload(ctx: Context): ReloadReport {
 }
 
 export { decodeAddress }
-export type { CommandContext, CommandResult, SchedulerPort, HealthPort, KeysPort, MemoryPort }
+export type { CommandContext, CommandResult, SchedulerPort, FrontDeskPort, HealthPort, KeysPort, MemoryPort }

@@ -71,6 +71,10 @@ export class OpsOrchestrator {
   private readonly received = new Map<string, string>()
   /** The reply a turn produced. */
   private reply: string | undefined
+  /** `/defaults frontdesk`, until a restart reads it from `ops.yaml`. */
+  private modelOverride: string | undefined
+  /** Whether the agent was created on a model `setModel` has since replaced. */
+  private modelChanged = false
   /** The day the session was last reset, for `reset_daily`. */
   private sessionDay: string | undefined
 
@@ -92,6 +96,10 @@ export class OpsOrchestrator {
    */
   async ensureAgent(): Promise<Agent> {
     await this.resetIfNewDay()
+    if (this.modelChanged && this.creating === undefined) {
+      this.modelChanged = false
+      await this.reset()
+    }
     if (this.agent !== undefined) return this.agent
     if (this.creating !== undefined) return this.creating
 
@@ -364,6 +372,24 @@ export class OpsOrchestrator {
     return true
   }
 
+  /** The front desk's model, as `provider/model`: `/defaults frontdesk`, else `orchestrator.model`. */
+  currentModel(): string {
+    return this.modelOverride ?? this.options.config.model
+  }
+
+  /**
+   * Change the front desk's model. dsh fixes a model when an agent is created, so
+   * the next message drops the current agent and starts a fresh one on the new
+   * model; a turn already running finishes on the old one. `/defaults` writes the
+   * same value to `ops.yaml`, so a restart keeps it.
+   *
+   * @param model the model, as `provider/model`.
+   */
+  setModel(model: string): void {
+    this.modelOverride = model
+    this.modelChanged = true
+  }
+
   /** Dispose the agent, so the next turn starts a fresh conversation. */
   async reset(): Promise<void> {
     const agent = this.agent
@@ -376,7 +402,7 @@ export class OpsOrchestrator {
 
   /** The orchestrator's model. */
   private modelRef(): ModelRef {
-    return splitModelRef(this.options.config.model) ?? { provider: 'deepseek', model: 'deepseek-flash' }
+    return splitModelRef(this.currentModel()) ?? { provider: 'deepseek', model: 'deepseek-flash' }
   }
 
   /**
@@ -420,8 +446,8 @@ export class OpsOrchestrator {
     const problem = this.options.projects.checkModel(model)
     return [
       problem === undefined
-        ? { ok: true, check: 'the orchestrator model', detail: this.options.config.model }
-        : { ok: false, check: 'the orchestrator model', detail: problem.message, fix: `set orchestrator.model in ops.yaml to a model you have a key for (now ${this.options.config.model}), then restart` },
+        ? { ok: true, check: 'the orchestrator model', detail: this.currentModel() }
+        : { ok: false, check: 'the orchestrator model', detail: problem.message, fix: `set orchestrator.model in ops.yaml to a model you have a key for (now ${this.currentModel()}), or send /defaults frontdesk <provider/model>` },
     ]
   }
 
@@ -430,7 +456,7 @@ export class OpsOrchestrator {
     const details: Record<string, unknown> = {
       agent: live,
       allowedTools: this.allowedTools().length,
-      model: this.options.config.model,
+      model: this.currentModel(),
     }
     if (live) {
       const visible = this.visibleTools()

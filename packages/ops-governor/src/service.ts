@@ -171,6 +171,9 @@ export class OpsGovernor {
   private ticker: ReturnType<typeof setInterval> | undefined
   private disposed = false
 
+  /** `/defaults tasks`, until a restart reads it from `ops.yaml`. */
+  private adhocOverride: { provider: string; model: string } | undefined
+
   constructor(
     private readonly ctx: Context,
     private readonly options: GovernorOptions,
@@ -497,6 +500,21 @@ export class OpsGovernor {
   }
 
   /** Convert an `inbound` row into a request. */
+  /** The model a task runs on when it names none: `/defaults tasks`, else `tasks.model`. */
+  adhocModel(): { readonly provider: string; readonly model: string } {
+    return this.adhocOverride ?? this.options.config.adhoc_model
+  }
+
+  /**
+   * Change the model tasks run on, from the next one. `/defaults` writes the same
+   * value to `ops.yaml`, so a restart keeps it.
+   *
+   * @param model the model.
+   */
+  setAdhocModel(model: { readonly provider: string; readonly model: string }): void {
+    this.adhocOverride = { provider: model.provider, model: model.model }
+  }
+
   private toRequest(row: InboundRow): PendingRequest {
     const isAdhoc = row.project_id === null
     const envelope = parseEnvelope(row)
@@ -504,7 +522,7 @@ export class OpsGovernor {
     if (isAdhoc) {
       const runId = envelope?.adhoc?.runId ?? row.id
       const requested = envelope?.adhoc?.model
-      const model = requested ?? this.options.config.adhoc_model
+      const model = requested ?? this.adhocModel()
       return {
         id: row.id,
         priority: row.priority as Priority,

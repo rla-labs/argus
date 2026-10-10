@@ -18,7 +18,7 @@ For which command fits which moment, read
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
-| Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
+| Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only | [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--remove-provider--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
@@ -186,7 +186,8 @@ back to this chat.
 Task queued (a1b2c3d4). I will report when it finishes.
 ```
 
-The model is `tasks.model` from `ops.yaml`. An empty text shows the syntax.
+The model is `tasks.model` from `ops.yaml`; [`/defaults`](#defaults-tasksfrontdesk-providermodel)
+shows and changes it. An empty text shows the syntax.
 
 ---
 
@@ -569,6 +570,24 @@ changed: they are the project's identity and its folder. A number, `true`/`false
 
 A change of `model`, `preset` or `fallback_model` reaches a running agent only after
 `/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+## `/defaults [tasks|frontdesk <provider/model>]`
+
+Shows, and changes, the two models no project names: the one a `/task` runs on
+(`tasks.model`) and the front desk's (`orchestrator.model`).
+
+```
+/defaults
+/defaults tasks deepseek/deepseek-flash
+/defaults frontdesk openrouter/z-ai/glm-5.3-flash
+```
+
+Changing one is the admin's. The model is checked like `/model` (a provider with a key,
+a price), written to `ops.yaml` with its comments kept, and applied at once, with no
+restart: the next task runs on it, and the front desk starts a fresh conversation on
+it with your next message (a reply already being written finishes on the old one).
 
 ---
 

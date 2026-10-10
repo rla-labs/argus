@@ -677,6 +677,19 @@ describe('context hygiene', () => {
     expect(booted.orchestrator.isLive).toBe(false)
   }, 60_000)
 
+  it('moves to a new model with the next message after setModel', async () => {
+    const booted = await bootOrchestrator()
+    const before = await booted.orchestrator.ensureAgent()
+    booted.orchestrator.setModel('fake/other-model')
+    expect(booted.orchestrator.currentModel()).toBe('fake/other-model')
+    // The running agent is not touched until the next message asks for one.
+    expect(booted.orchestrator.isLive).toBe(true)
+    const after = await booted.orchestrator.ensureAgent()
+    expect(after).not.toBe(before)
+    expect(after.options.model).toBe('other-model')
+    expect(await booted.orchestrator.ensureAgent()).toBe(after)
+  }, 60_000)
+
   it('does not reset when reset_daily is false', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-orch-noday-'))
     dirs.push(dataDir)
