@@ -1223,6 +1223,54 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /key ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'key',
+        description: 'See, save or remove a model provider’s API key (admin)',
+        syntax: '/key [provider [key] | remove <provider>]',
+        detail:
+          'With nothing, lists the providers and which have a key. With a provider and a ' +
+          'key, deletes your message at once, checks the key with the provider (a free ' +
+          'request), and saves it only if accepted; the next request uses it, no restart. ' +
+          'The reply names the key by its last four characters. A key set in the server’s ' +
+          '.env wins and cannot be changed from here. Only the admin can run it.',
+        examples: ['/key', '/key openrouter sk-or-v1-…', '/key remove groq'],
+        mutating: true,
+        adminOnly: true,
+        secret: true,
+      },
+      async run(input): Promise<CommandResult> {
+        const keys = options.keys?.()
+        if (keys === undefined) return errorResult('Keys cannot be managed here: the providers are not loaded.')
+        const [first, second, ...rest] = tokenize(input)
+        if (first === undefined) {
+          const all = keys.keyStatus()
+          const set = all.filter((entry) => entry.configured)
+          const lines = set.map((entry) => `${entry.provider.padEnd(12)} ${entry.writable ? 'saved here' : 'from the server’s environment'}`)
+          const without = all.filter((entry) => !entry.configured).map((entry) => entry.provider)
+          return result(
+            `${set.length === 0 ? 'No provider has a key yet.' : `API keys:\n${lines.join('\n')}`}\n\n` +
+              `Without a key: ${without.join(', ')}.\n` +
+              'Save one: /key <provider> <key>. Your message is deleted at once.',
+          )
+        }
+        const change =
+          first === 'remove'
+            ? second === undefined
+              ? undefined
+              : await keys.removeKey(second)
+            : second === undefined || rest.length > 0
+              ? undefined
+              : await keys.setKey(first, second)
+        if (change === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'key needs a provider and one key, or remove and a provider.')
+        if (!change.ok) return errorResult(change.message)
+        // A project whose provider had no key was invalid; now it may load.
+        options.reloadProjects()
+        return result(change.message)
+      },
+    },
+
     // ── /tools ─────────────────────────────────────────────────────────────
     {
       spec: {

@@ -1,7 +1,7 @@
 // == ARGUS AGENT PROJECT ==
 /** Unit tests for the provider routes and the configuration-time model check. */
 import { describe, expect, it } from 'vitest'
-import { OpsProviders, buildRoutes, probeRequest } from '../../src/providers-row.js'
+import { OpsProviders, buildRoutes, envKeys, probeRequest, type KeyStore } from '../../src/providers-row.js'
 
 const shipped = new Map([
   ['zai', ['glm-5.3-flash']],
@@ -10,7 +10,7 @@ const shipped = new Map([
 
 function providers(declared: Parameters<typeof buildRoutes>[0], env: Record<string, string> = {}) {
   const { routes, profiles } = buildRoutes(declared, shipped)
-  return { service: new OpsProviders(routes, (name) => env[name]), profiles }
+  return { service: new OpsProviders(routes, envKeys((name) => env[name])), profiles }
 }
 
 describe('provider routes', () => {
@@ -49,10 +49,10 @@ describe('provider routes', () => {
 })
 
 describe('OpsProviders.check', () => {
-  it('names the variable to set when the key is missing', () => {
+  it('says how to give a missing key', () => {
     expect(providers({}).service.check({ provider: 'zai', model: 'glm-5.3-flash' })).toEqual({
       code: 'PROVIDER_KEY_MISSING',
-      message: 'zai/glm-5.3-flash needs an API key: set ZAI_API_KEY in the environment (.env), then restart',
+      message: 'zai/glm-5.3-flash needs an API key: send /key zai <key>',
     })
   })
 
@@ -86,12 +86,12 @@ describe('argus doctor: the provider keys', () => {
       urls.push(url)
       return answer(url)
     }) as unknown as typeof globalThis.fetch
-    return { urls, run: () => new OpsProviders(routes, (name) => env[name], fetch).doctor() }
+    return { urls, run: () => new OpsProviders(routes, envKeys((name) => env[name]), fetch).doctor() }
   }
 
   it('fails, with the fix, when no provider has a key', async () => {
     const [finding] = await doctor({}, () => new Response('{}')).run()
-    expect(finding).toMatchObject({ ok: false, fix: expect.stringContaining('_API_KEY') })
+    expect(finding).toMatchObject({ ok: false, fix: expect.stringContaining('/key') })
   })
 
   it('asks each provider with a key, for free, and reports what it said', async () => {
@@ -102,7 +102,7 @@ describe('argus doctor: the provider keys', () => {
     expect(urls.sort()).toEqual(['https://api.deepinfra.com/v1/openai/models', 'https://openrouter.ai/api/v1/key'])
     expect(findings).toContainEqual({ ok: true, check: 'openrouter: the API key', detail: 'accepted' })
     expect(findings).toContainEqual(
-      expect.objectContaining({ ok: false, check: 'deepinfra: the API key', detail: 'refused (HTTP 401)', fix: expect.stringContaining('DEEPINFRA_API_KEY') }),
+      expect.objectContaining({ ok: false, check: 'deepinfra: the API key', detail: 'refused (HTTP 401)', fix: expect.stringContaining('/key deepinfra') }),
     )
   })
 
@@ -122,5 +122,60 @@ describe('argus doctor: the provider keys', () => {
     expect(probeRequest('google', 'https://g/v1beta', 'google-generative-ai', 'k')).toEqual({ url: 'https://g/v1beta/models', headers: { 'x-goog-api-key': 'k' } })
     expect(probeRequest('local', 'http://ollama:11434/v1', 'openai-completions', undefined)).toEqual({ url: 'http://ollama:11434/v1/models', headers: {} })
     expect(probeRequest('x', 'https://x', 'bedrock-converse', 'k')).toBeUndefined()
+  })
+})
+
+describe('saving and removing a key', () => {
+  /** A writable store in memory, with an optional variable the environment pins. */
+  function memoryKeys(initial: Record<string, string> = {}, pinned: Record<string, string> = {}): KeyStore & { saved: Record<string, string> } {
+    const saved: Record<string, string> = { ...initial }
+    const value = (name: string): string | undefined => pinned[name] ?? saved[name]
+    return {
+      saved,
+      has: (name) => value(name) !== undefined,
+      info: (name) =>
+        pinned[name] !== undefined
+          ? { configured: true, source: 'environment', writable: false }
+          : { configured: saved[name] !== undefined, writable: true, ...(saved[name] === undefined ? {} : { source: 'stored' }) },
+      value: async (name) => value(name),
+      set: async (name, v) => {
+        saved[name] = v
+      },
+      unset: async (name) => {
+        delete saved[name]
+      },
+    }
+  }
+  const answer = (status: number): typeof globalThis.fetch => (async () => new Response('{}', { status })) as unknown as typeof globalThis.fetch
+
+  it('saves a key the provider accepts, and names it only by its last four characters', async () => {
+    const keys = memoryKeys()
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, keys, answer(200))
+    const change = await service.setKey('openrouter', '  sk-or-v1-abcdefghijklmnop1234  ')
+    expect(change.ok).toBe(true)
+    expect(change.message).toContain('…1234')
+    expect(change.message).not.toContain('abcdefghijklmnop')
+    expect(keys.saved['OPENROUTER_API_KEY']).toBe('sk-or-v1-abcdefghijklmnop1234')
+    expect(service.check({ provider: 'openrouter', model: 'm' })).toBeUndefined()
+    expect(service.keyStatus()[0]).toMatchObject({ provider: 'openrouter', configured: true, writable: true })
+
+    expect((await service.removeKey('openrouter')).ok).toBe(true)
+    expect(keys.saved['OPENROUTER_API_KEY']).toBeUndefined()
+  })
+
+  it('saves nothing the provider refuses, nor a key the environment pins, nor for an unknown provider', async () => {
+    const refused = memoryKeys()
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, refused, answer(401))
+    const change = await service.setKey('openrouter', 'sk-or-v1-wrongwrongwrong9999')
+    expect(change).toMatchObject({ ok: false })
+    expect(change.message).toContain('Nothing was saved')
+    expect(change.message).not.toContain('wrongwrong')
+    expect(refused.saved).toEqual({})
+
+    const pinned = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, memoryKeys({}, { OPENROUTER_API_KEY: 'x' }), answer(200))
+    expect((await pinned.setKey('openrouter', 'sk-new')).message).toContain('environment')
+    expect((await pinned.removeKey('openrouter')).message).toContain('environment')
+    expect((await service.setKey('nowhere', 'k')).message).toContain('No provider')
+    expect((await service.setKey('openrouter', 'two words')).ok).toBe(false)
   })
 })

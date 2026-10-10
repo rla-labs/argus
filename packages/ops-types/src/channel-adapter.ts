@@ -190,6 +190,14 @@ export interface ChannelAdapter {
   edit(ref: MessageRef, message: OutgoingMessage): Promise<void>
 
   /**
+   * Delete a message, the user's or the adapter's own, when the platform allows it.
+   * Optional: `ops-channel` uses it to take a pasted secret out of the chat, and
+   * says so when the adapter cannot.
+   * @param ref the message.
+   */
+  delete?(ref: MessageRef): Promise<void>
+
+  /**
    * Ask a question with buttons.
    *
    * The adapter presents the buttons and resolves when one is pressed or the

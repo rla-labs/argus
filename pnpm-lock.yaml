@@ -196,6 +196,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 4.0.4
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/dsh-credentials':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2)
       '@deepseek-ai/dsh-llm-pi-ai':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis-plugin-loader@1.0.5)(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-attachment@0.2.0-rc.2)(@deepseek-ai/dsh-authorization@0.2.0-rc.2)(@deepseek-ai/dsh-credentials@0.2.0-rc.2)(@deepseek-ai/dsh-fs@0.2.0-rc.2)(@deepseek-ai/dsh-launch-environment@0.2.0-rc.2)(@deepseek-ai/dsh-llm@0.2.0-rc.2)(@deepseek-ai/dsh-timeout@0.2.0-rc.2)
@@ -211,6 +214,10 @@ importers:
       yaml:
         specifier: 2.6.1
         version: 2.6.1
+    devDependencies:
+      '@deepseek-ai/dsh-credentials-local':
+        specifier: 0.2.0-rc.2
+        version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-atomic-write@0.2.0-rc.2)(@deepseek-ai/dsh-credentials@0.2.0-rc.2)(@deepseek-ai/dsh-home-paths@0.2.0-rc.2)(@deepseek-ai/dsh-launch-environment@0.2.0-rc.2)
 
   packages/ops-approvals-bridge:
     dependencies:
@@ -1356,7 +1363,6 @@ packages:
       '@deepseek-ai/cordis': ~4.0.4
     dependencies:
       '@deepseek-ai/cordis': 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
-    dev: false
 
   /@deepseek-ai/dsh-attachment-local@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-attachment@0.2.0-rc.2)(@deepseek-ai/dsh-home-paths@0.2.0-rc.2)(@types/node@22.9.0):
     resolution: {integrity: sha512-VDyHGvKoN59D+3t3rwkZYNFJJJ1PbCV/6z9ngL5lErd1H98NqmFqFzGgGypGPvBGdmi42ckhVldBPq8ZJWzKcA==}
@@ -1811,7 +1817,6 @@ packages:
       '@deepseek-ai/schemastery': 3.18.4
       chokidar: 4.0.3
       yaml: 2.9.1
-    dev: false
 
   /@deepseek-ai/dsh-credentials@0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-invariants@0.2.0-rc.2):
     resolution: {integrity: sha512-TQlvP0jxXYGy1ZNzh4nVsiCzb8FR9iGarD6BfIZ3LwJC8lDtjSxQHWE8//NYjpn10TIMxmaR4s6niHuJ3JkTOw==}
@@ -2027,7 +2032,6 @@ packages:
       '@deepseek-ai/cordis': ~4.0.4
     dependencies:
       '@deepseek-ai/cordis': 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
-    dev: false
 
   /@deepseek-ai/dsh-host-plugin-inventory@0.2.0-rc.2(@deepseek-ai/cordis-plugin-loader@1.0.5)(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-agent-preset-registry@0.2.0-rc.2)(@deepseek-ai/dsh-brand@0.2.0-rc.2)(@deepseek-ai/dsh-typert-protocol@0.2.0-rc.2):
     resolution: {integrity: sha512-l/ESrOGxkk0aemM4t2b8yV3AvMZQ9oxSmgo4b1FSK3CYeaDoPJHC6iKW41DhmnJ0igdLpVIw+rg7R3KN0DREdg==}
@@ -5656,7 +5660,6 @@ packages:
     engines: {node: '>= 14.16.0'}
     dependencies:
       readdirp: 4.1.2
-    dev: false
 
   /chokidar@5.0.0:
     resolution: {integrity: sha512-TQMmc3w+5AxjpL8iIiwebF73dRDF4fBIieAqGn9RGCWaEVwQ6Fb2cGe31Yns0RRIzii5goJ1Y7xbMwo1TxMplw==}
@@ -6580,7 +6583,6 @@ packages:
   /readdirp@4.1.2:
     resolution: {integrity: sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==}
     engines: {node: '>= 14.18.0'}
-    dev: false
 
   /readdirp@5.1.1:
     resolution: {integrity: sha512-Kko+Y5XQ6fM+Ce3dq3m9YGxnacYZYl9cA1wZjaF3Vbry2L3i1qVg8+CAgNPsXRArPMUMCaOR7oa9Nqntc43JKA==}
@@ -7035,7 +7037,6 @@ packages:
     resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
     engines: {node: '>= 14.6'}
     hasBin: true
-    dev: false
 
   /yoctocolors@2.2.0:
     resolution: {integrity: sha512-xYqdZFUK/VYazNl/oCDYN+3WloWQwMfZxBoiNt6qNyk+xfOdi598muWE42rNZFp1kNOiqW936q5RhUdnpqElSg==}

@@ -663,6 +663,41 @@ describe('delivery', () => {
     expect(big?.text).toContain(`Too large to send here: ${join(cwd, 'big.txt')}`)
   }, 30_000)
 
+  it('never routes text that looks like a key: it is deleted and the person is told', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    const forwarded: string[] = []
+    booted.ctx.on('ops/orchestrator-input', (input) => forwarded.push(input.text))
+    await booted.channel.handleIncoming(message('/p alpha'))
+    const route = await booted.channel.handleIncoming(message('here it is sk-or-v1-0123456789abcdef0123456789'))
+    expect(route).toMatchObject({ kind: 'rejected', reason: 'secret' })
+    expect(forwarded).toEqual([])
+    expect(booted.governor.status().running).toHaveLength(0)
+    expect(booted.adapter.deleted).toHaveLength(1)
+    expect(booted.adapter.sent.at(-1)?.message.text).toContain('/key <provider> <key>')
+  }, 30_000)
+
+  it('/key deletes the message, saves through the providers, and audits only the provider', async () => {
+    const booted = await bootChannel()
+    const saved: string[] = []
+    const fake = {
+      keyStatus: () => [{ provider: 'openrouter', name: 'OPENROUTER_API_KEY', configured: saved.length > 0, writable: true }],
+      setKey: async (provider: string, key: string) => {
+        saved.push(`${provider}=${key}`)
+        return { ok: true, message: `${provider}: key …${key.slice(-4)} accepted by the provider.` }
+      },
+      removeKey: async () => ({ ok: true, message: 'removed' }),
+    }
+    await booted.ctx.plugin({ name: 'fake-providers', apply: (ctx: { provide(name: string, value: unknown): void }) => ctx.provide('opsProviders', fake) } as never, {} as never)
+    const admin = { address: { channel: 'console', chatId: 'admin-chat' }, userId: 'admin-chat' }
+    await booted.channel.handleIncoming(message('/key openrouter sk-or-v1-secretsecretsecret9876', admin))
+    expect(saved).toEqual(['openrouter=sk-or-v1-secretsecretsecret9876'])
+    expect(booted.adapter.deleted.map((ref) => ref.chatId)).toEqual(['admin-chat'])
+    expect(booted.adapter.sent.at(-1)?.message.text).toContain('…9876')
+    const audit = booted.store.audit.byAction('command.key')
+    expect(audit.map((row) => row.target)).toEqual(['openrouter'])
+    expect(JSON.stringify(booted.store.audit.recent(50))).not.toContain('secretsecret')
+  }, 30_000)
+
   it('/allow is the admin’s, and lets a user in or out on the next message', async () => {
     const booted = await bootChannel({ projects: { alpha: {} } })
     const admin = (text: string): IncomingMessage =>

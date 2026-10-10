@@ -12,7 +12,7 @@
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { OpsCommands, type CommandsOptions, type HealthPort, type MemoryPort, type SchedulerPort } from './service.js'
+import { OpsCommands, type CommandsOptions, type HealthPort, type KeysPort, type MemoryPort, type SchedulerPort } from './service.js'
 import type { CommandInvocation, CommandResult as DshCommandResult } from '@deepseek-ai/dsh-commands'
 import type { CommandContext, CommandResult } from './types.js'
 import { pathsOf } from '@argus-agent/argus-agent'
@@ -83,6 +83,7 @@ export function apply(ctx: Context): void {
   // Live, like ops-channel's: the orchestrator may mount after this plugin.
   options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
   options.memory = () => ctx.get('opsMemory' as never) as unknown as MemoryPort | undefined
+  options.keys = () => ctx.get('opsProviders' as never) as unknown as KeysPort | undefined
 
   const commands = new OpsCommands(options)
   ctx.provide('opsCommands', commands)
@@ -217,4 +218,4 @@ function reload(ctx: Context): ReloadReport {
 }
 
 export { decodeAddress }
-export type { CommandContext, CommandResult, SchedulerPort, HealthPort, MemoryPort }
+export type { CommandContext, CommandResult, SchedulerPort, HealthPort, KeysPort, MemoryPort }

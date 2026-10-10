@@ -64,6 +64,7 @@ class FakeBotApi implements TelegramApi {
       sendDocument: async (chatId: string, document: unknown, options: Record<string, unknown> = {}) =>
         (await this.call('sendDocument', { chat_id: chatId, document, ...options })) as { message_id: number },
       setMyCommands: async (commands) => this.call('setMyCommands', { commands }),
+      deleteMessage: async (chatId: string, messageId: number) => this.call('deleteMessage', { chat_id: chatId, message_id: messageId }),
     }
   }
 
@@ -348,6 +349,13 @@ describe('incoming messages', () => {
 // ── outgoing ───────────────────────────────────────────────────────────────
 
 describe('outgoing messages', () => {
+  it('deletes an incoming message by the message part of its id', async () => {
+    const booted = await bootTelegram()
+    await booted.telegram.delete({ channel: 'telegram', chatId: '99887766', messageId: '99887766:42' })
+    await settle()
+    expect(api.sent.find((call) => call.method === 'deleteMessage')?.payload).toEqual({ chat_id: '99887766', message_id: 42 })
+  }, 30_000)
+
   it('sends with HTML parse mode', async () => {
     const booted = await bootTelegram()
     await booted.channel.send({ channel: 'telegram', chatId: '99887766' }, { text: 'hello' })

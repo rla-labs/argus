@@ -20,7 +20,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only | [`/set`](#set-project-id-key-value--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only | [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--remove-provider--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
 
@@ -569,6 +569,36 @@ changed: they are the project's identity and its folder. A number, `true`/`false
 
 A change of `model`, `preset` or `fallback_model` reaches a running agent only after
 `/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+## `/key [provider [key] | remove <provider>]`  *(admin)*
+
+Manages the model providers' API keys from the chat.
+
+```
+/key
+/key openrouter sk-or-v1-…
+/key remove groq
+```
+
+- **`/key`** lists the providers that have a key, and where it comes from: saved here,
+  or the server's environment (`.env`, `secrets.env` on a native install).
+- **`/key <provider> <key>`** deletes your message at once, checks the key with the
+  provider (the same free request `argus doctor` makes) and saves it only if it is
+  accepted. The next request uses it, with no restart, and a project that was refused
+  for want of a key loads. The reply names the key by its last four characters.
+- **`/key remove <provider>`** removes a saved key.
+
+Keys are saved in dsh's credentials store (`.credentials.yaml` under the dsh home,
+`0600`), never in `ops.yaml` or the database, and the audit log keeps only the
+provider's name. **A key in the server's environment wins** over a saved one and cannot
+be changed from here: delete its line from `.env` and restart once, then `/key`
+manages it.
+
+**A key sent as ordinary text is never passed to an agent.** Anything that looks like a
+key (`sk-…`, `AIza…`, `gsk_…`, a bot token) is deleted from the chat and answered with
+a pointer to `/key`.
 
 ---
 

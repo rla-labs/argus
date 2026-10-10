@@ -14,8 +14,9 @@ Configuration lives in two files:
 | `deploy/compose/.env` | Secrets and deployment settings | **600** |
 
 **Secrets are never in `ops.yaml`.** The bot token (`TELEGRAM_BOT_TOKEN`) and the provider
-keys (`<PROVIDER>_API_KEY`) are read from the environment, so the file can be copied,
-committed or shown without leaking anything.
+keys (`<PROVIDER>_API_KEY`) are read from the environment or from dsh's credentials
+store, where [`/key`](commands.md#key-provider-key--remove-provider--admin) saves them,
+so the file can be copied, committed or shown without leaking anything.
 
 ## Top level
 

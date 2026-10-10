@@ -14,8 +14,8 @@ that validate, and a connected bot. Each failure comes with the step that fixes 
 
 ```
  err deepinfra: the API key: refused (HTTP 401)
-     fix: check DEEPINFRA_API_KEY in .env (secrets.env on a native install): the whole key, then restart
- err project site: model: zai/glm-5.3-flash needs an API key: set ZAI_API_KEY in the environment (.env), then restart
+     fix: send the whole key again with /key deepinfra <key>
+ err project site: model: zai/glm-5.3-flash needs an API key: send /key zai <key>
      fix: edit /data/config/projects/site.yaml, then send /reload
 ```
 

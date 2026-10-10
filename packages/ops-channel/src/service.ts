@@ -17,6 +17,7 @@ import {
   addressesEqual,
   encodeAddress,
   isInside,
+  looksLikeSecret,
   ownerKey,
   type AnswerOrTimeout,
   type ButtonAnswer,
@@ -270,6 +271,26 @@ export class OpsChannel {
       return { kind: 'rejected', reason: access.reason ?? 'not_listed' }
     }
 
+    // A key never reaches a model, and is taken out of the chat. `/key` is the way
+    // to send one; anything else that looks like a key is not routed at all.
+    const keyCommand = KEY_COMMAND.test(message.text.trim())
+    if (keyCommand || looksLikeSecret(message.text)) {
+      const deleted = await this.deleteIncoming(message)
+      if (!keyCommand) {
+        await this.reply(
+          message.address,
+          `That looked like an API key, so it was not passed to any agent${deleted ? ' and the message was deleted' : ''}. ` +
+            `To save a key: /key <provider> <key>.${deleted ? '' : ' Delete the message yourself.'}`,
+        )
+        return { kind: 'rejected', reason: 'secret' }
+      }
+      if (!deleted) {
+        await this.runCommand(message.text, message)
+        await this.reply(message.address, 'Delete your message yourself: it holds the key, and this chat could not delete it.')
+        return { kind: 'command' }
+      }
+    }
+
     const activeProject = this.activeProjectOf(message.address)
     const route = decideRoute(message.text, {
       access,
@@ -293,6 +314,18 @@ export class OpsChannel {
         return route
       default:
         return route
+    }
+  }
+
+  /** Delete a message the user sent, when the adapter can; whether it did. */
+  private async deleteIncoming(message: IncomingMessage): Promise<boolean> {
+    const adapter = this.registry.get(message.address.channel)
+    if (adapter?.delete === undefined) return false
+    try {
+      await adapter.delete({ channel: message.address.channel, chatId: message.address.chatId, messageId: message.id })
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -900,6 +933,9 @@ export { safeName, encodeAddress }
 export type { IncomingAttachment, OutgoingMessage }
 
 const execFileAsync = promisify(execFile)
+
+/** `/key <provider> <key>`: the form that carries a key (not `/key remove <provider>`). */
+const KEY_COMMAND = /^\/key(@\S+)?\s+(?!remove\s)\S+\s+\S+/i
 
 /** A size in megabytes, for a message. */
 function megabytes(bytes: number): string {

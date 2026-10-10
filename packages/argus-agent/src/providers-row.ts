@@ -25,12 +25,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels, getBuiltinProviders, type BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
-import { apiKeyEnvOf, type DoctorFinding, type ModelProblem, type ModelRef } from '@argus-agent/types'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { apiKeyEnvOf, keyTail, type DoctorFinding, type ModelProblem, type ModelRef } from '@argus-agent/types'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-providers'
 
-export const inject = ['opsConfigRegistry', 'opsRawConfig', 'llm']
+export const inject = ['opsConfigRegistry', 'opsRawConfig', 'llm', 'credentials']
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -118,11 +119,73 @@ export function probeRequest(
   return undefined
 }
 
+/** Where a key came from, and whether it can be changed from here. */
+export interface KeyInfo {
+  readonly configured: boolean
+  /** The credentials store's layer name: the launch environment, the stored file, a `.env`. */
+  readonly source?: string
+  readonly writable: boolean
+}
+
+/**
+ * The keys, as the providers see them.
+ *
+ * `has` and `info` are synchronous because a project's model is checked while
+ * projects load; they read a snapshot the row keeps current. `value`, `set` and
+ * `unset` go to dsh's credentials store, where pi-ai resolves a key on every request,
+ * so a saved key is used by the next request without a restart.
+ */
+export interface KeyStore {
+  has(name: string): boolean
+  info(name: string): KeyInfo
+  value(name: string): Promise<string | undefined>
+  set(name: string, value: string): Promise<void>
+  unset(name: string): Promise<void>
+}
+
+/**
+ * A read-only key store over an environment, for a composition without dsh's
+ * credentials store (and for tests).
+ *
+ * @param env reads a variable.
+ * @returns the store.
+ */
+export function envKeys(env: (name: string) => string | undefined = (name) => process.env[name]): KeyStore {
+  const has = (name: string): boolean => (env(name) ?? '').length > 0
+  return {
+    has,
+    info: (name) => (has(name) ? { configured: true, source: 'environment', writable: false } : { configured: false, writable: false }),
+    value: async (name) => env(name),
+    set: async () => {
+      throw new Error('keys cannot be saved here: there is no credentials store')
+    },
+    unset: async () => {
+      throw new Error('keys cannot be removed here: there is no credentials store')
+    },
+  }
+}
+
+/** A key's status, for `/key` and `argus key list`. */
+export interface KeyStatus {
+  readonly provider: string
+  /** The variable the key is stored under. */
+  readonly name: string
+  readonly configured: boolean
+  readonly source?: string
+  readonly writable: boolean
+}
+
+/** The outcome of saving or removing a key, as one sentence for a person. */
+export interface KeyChange {
+  readonly ok: boolean
+  readonly message: string
+}
+
 /** The providers service, `ctx.opsProviders`. */
 export class OpsProviders {
   constructor(
     private readonly routes: ReadonlyMap<string, ProviderRoute>,
-    private readonly env: (name: string) => string | undefined = (name) => process.env[name],
+    private readonly keys: KeyStore = envKeys(),
     private readonly fetch: typeof globalThis.fetch = globalThis.fetch,
   ) {}
 
@@ -134,23 +197,22 @@ export class OpsProviders {
    */
   async doctor(): Promise<DoctorFinding[]> {
     const usable = [...this.routes.values()].filter(
-      (route) => route.error === undefined && (route.keyEnv === null ? route.declared : (this.env(route.keyEnv) ?? '').length > 0),
+      (route) => route.error === undefined && (route.keyEnv === null ? route.declared : this.keys.has(route.keyEnv)),
     )
     if (usable.length === 0) {
-      return [{ ok: false, check: 'the model providers', detail: 'no provider has an API key', fix: 'set one in .env (secrets.env on a native install), e.g. DEEPSEEK_API_KEY or OPENROUTER_API_KEY, then restart' }]
+      return [{ ok: false, check: 'the model providers', detail: 'no provider has an API key', fix: 'send /key <provider> <key> in the chat, or set <PROVIDER>_API_KEY in .env (secrets.env on a native install) and restart' }]
     }
-    return Promise.all(usable.map((route) => this.probe(route)))
+    return Promise.all(usable.map(async (route) => this.probe(route, route.keyEnv === null ? undefined : await this.keys.value(route.keyEnv))))
   }
 
-  private async probe(route: ProviderRoute): Promise<DoctorFinding> {
+  private async probe(route: ProviderRoute, key: string | undefined): Promise<DoctorFinding> {
     const check = route.keyEnv === null ? `${route.provider}: the endpoint` : `${route.provider}: the API key`
     const shipped = route.declared ? undefined : getBuiltinModels(route.provider as BuiltinProvider)[0]
     const baseUrl = route.baseUrl ?? shipped?.baseUrl
     const api = route.api ?? shipped?.api
-    const key = route.keyEnv === null ? undefined : this.env(route.keyEnv)
     const request = baseUrl === undefined || api === undefined ? undefined : probeRequest(route.provider, baseUrl, api, key)
     if (request === undefined) return { ok: true, check, detail: 'set; not verified (this provider has no free check)' }
-    const fixKey = `check ${route.keyEnv ?? 'the key'} in .env (secrets.env on a native install): the whole key, then restart`
+    const fixKey = `send the whole key again with /key ${route.provider} <key>`
     try {
       const response = await this.fetch(request.url, { headers: request.headers, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
       // Google answers a bad key with 400 (API_KEY_INVALID) rather than 401.
@@ -195,8 +257,8 @@ export class OpsProviders {
       }
     }
     if (route.error !== undefined) return { code: 'PROVIDER_UNKNOWN', message: `providers.${ref.provider} in ops.yaml: ${route.error}` }
-    if (route.keyEnv !== null && (this.env(route.keyEnv) ?? '').length === 0) {
-      return { code: 'PROVIDER_KEY_MISSING', message: `${name} needs an API key: set ${route.keyEnv} in the environment (.env), then restart` }
+    if (route.keyEnv !== null && !this.keys.has(route.keyEnv)) {
+      return { code: 'PROVIDER_KEY_MISSING', message: `${name} needs an API key: send /key ${ref.provider} <key>` }
     }
     if (!route.models.has(ref.model)) {
       return {
@@ -213,10 +275,98 @@ export class OpsProviders {
       .map((route) => ({
         provider: route.provider,
         declared: route.declared,
-        hasKey: route.keyEnv === null || (this.env(route.keyEnv) ?? '').length > 0,
+        hasKey: route.keyEnv === null || this.keys.has(route.keyEnv),
       }))
       .sort((a, b) => a.provider.localeCompare(b.provider))
   }
+
+  /**
+   * Every provider that takes a key, with whether it has one and where it is from.
+   *
+   * @returns the keyed providers first, then the rest, each sorted.
+   */
+  keyStatus(): KeyStatus[] {
+    return [...this.routes.values()]
+      .filter((route) => route.keyEnv !== null && route.error === undefined)
+      .map((route) => ({ provider: route.provider, name: route.keyEnv as string, ...this.keys.info(route.keyEnv as string) }))
+      .sort((a, b) => Number(b.configured) - Number(a.configured) || a.provider.localeCompare(b.provider))
+  }
+
+  /**
+   * Save a provider's key, after the provider accepts it.
+   *
+   * The key is tried with the same free request `argus doctor` makes; a key the
+   * provider refuses is not saved. A provider with no such request is saved
+   * unverified, and the answer says so. The key itself never appears in an answer,
+   * a log or an error: only its last four characters.
+   *
+   * @param provider the provider, as in `provider/model`.
+   * @param key the key.
+   * @returns what happened.
+   */
+  async setKey(provider: string, key: string): Promise<KeyChange> {
+    const value = key.trim()
+    const route = this.routes.get(provider)
+    const refusal = this.keyRefusal(provider, route)
+    if (refusal !== undefined) return { ok: false, message: refusal }
+    const name = (route as ProviderRoute).keyEnv as string
+    if (value.length === 0 || /\s/.test(value)) return { ok: false, message: 'A key is one word with no spaces.' }
+    const fixed = this.envRefusal(name)
+    if (fixed !== undefined) return { ok: false, message: fixed }
+
+    const finding = await this.probe(route as ProviderRoute, value)
+    if (!finding.ok) return { ok: false, message: `${provider} did not accept the key ${keyTail(value)}: ${finding.detail}. Nothing was saved.` }
+    try {
+      await this.keys.set(name, value)
+    } catch (error) {
+      return { ok: false, message: `The key could not be saved: ${errorText(error)}` }
+    }
+    const verified = finding.detail === 'accepted' ? 'accepted by the provider' : 'saved without a check (this provider has none)'
+    return { ok: true, message: `${provider}: key ${keyTail(value)} ${verified}. The next request uses it.` }
+  }
+
+  /**
+   * Remove a provider's stored key.
+   *
+   * @param provider the provider.
+   * @returns what happened.
+   */
+  async removeKey(provider: string): Promise<KeyChange> {
+    const route = this.routes.get(provider)
+    const refusal = this.keyRefusal(provider, route)
+    if (refusal !== undefined) return { ok: false, message: refusal }
+    const name = (route as ProviderRoute).keyEnv as string
+    if (!this.keys.has(name)) return { ok: false, message: `${provider} has no key.` }
+    const fixed = this.envRefusal(name)
+    if (fixed !== undefined) return { ok: false, message: fixed }
+    try {
+      await this.keys.unset(name)
+    } catch (error) {
+      return { ok: false, message: `The key could not be removed: ${errorText(error)}` }
+    }
+    return { ok: true, message: `${provider}: key removed.${this.keys.has(name) ? ` A key from ${this.keys.info(name).source ?? 'another place'} still applies.` : ''}` }
+  }
+
+  /** Why a provider's key cannot be managed at all, or `undefined`. */
+  private keyRefusal(provider: string, route: ProviderRoute | undefined): string | undefined {
+    if (SIGN_IN_PROVIDERS.has(provider)) return `${provider} authenticates by sign-in, which Argus does not support.`
+    if (route === undefined) return `No provider "${provider}". Send /key to see them.`
+    if (route.error !== undefined) return `providers.${provider} in ops.yaml: ${route.error}`
+    if (route.keyEnv === null) return `${provider} takes no key (key: none in ops.yaml).`
+    return undefined
+  }
+
+  /** A refusal for a key the launch environment supplies, which wins over a saved one. */
+  private envRefusal(name: string): string | undefined {
+    const info = this.keys.info(name)
+    if (!info.configured || info.writable) return undefined
+    return `${name} is set in the server's environment (.env, or secrets.env on a native install), which wins over a key saved here. Delete that line on the server and restart once; after that the key is managed from here.`
+  }
+}
+
+/** An error's message, never its stack. */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /** pi-ai's catalog: model ids by provider, sign-in providers left out. */
@@ -290,7 +440,7 @@ export function buildRoutes(
  *
  * @param ctx the row's context.
  */
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context): Promise<void> {
   const section = ctx.opsConfigRegistry.extend('providers', providersSchema)
   ctx.effect(() => section)
 
@@ -307,7 +457,11 @@ export function apply(ctx: Context): void {
   const { routes, profiles } = buildRoutes(declared)
   ctx.plugin(piAi, { providers: profiles } as never)
 
-  const service = new OpsProviders(routes)
+  // The snapshot is taken BEFORE the service is published, so the first project
+  // load already sees a key saved in the store, not only one in the environment.
+  const names = [...new Set([...routes.values()].flatMap((route) => (route.keyEnv === null ? [] : [route.keyEnv])))]
+  const keys = await credentialKeys(ctx, names)
+  const service = new OpsProviders(routes, keys)
   ctx.provide('opsProviders', service)
 
   const keyed = service.list().filter((entry) => entry.hasKey)
@@ -319,5 +473,46 @@ export function apply(ctx: Context): void {
   )
   for (const route of routes.values()) {
     if (route.error !== undefined) logger.warn('providers.%s in ops.yaml: %s', route.provider, route.error)
+  }
+}
+
+/**
+ * A key store over dsh's credentials service, with the synchronous snapshot the
+ * model check needs. The snapshot follows `credentials/reference-updated`, which
+ * fires for a save, a removal and an edit of the file on disk.
+ *
+ * @param ctx the row's context.
+ * @param names every variable a route reads its key from.
+ * @returns the store.
+ */
+async function credentialKeys(ctx: Context, names: readonly string[]): Promise<KeyStore> {
+  const credentials = ctx.credentials
+  const snapshot = new Map<string, KeyInfo>()
+  const refresh = async (name: string): Promise<void> => {
+    try {
+      const info = await credentials.describe(credentialRef(name))
+      snapshot.set(name, { configured: info.configured, writable: info.writable, ...(info.source === undefined ? {} : { source: info.source }) })
+    } catch {
+      // A name the store cannot address is simply not configured.
+      snapshot.set(name, { configured: false, writable: false })
+    }
+  }
+  await Promise.all(names.map(refresh))
+  ctx.on('credentials/reference-updated', (ref) => {
+    const name = String(ref)
+    if (snapshot.has(name)) void refresh(name)
+  })
+  return {
+    has: (name) => snapshot.get(name)?.configured === true,
+    info: (name) => snapshot.get(name) ?? { configured: false, writable: false },
+    value: async (name) => (await credentials.resolve(credentialRef(name)))?.value,
+    set: async (name, value) => {
+      await credentials.set(credentialRef(name), value)
+      await refresh(name)
+    },
+    unset: async (name) => {
+      await credentials.unset(credentialRef(name))
+      await refresh(name)
+    },
   }
 }

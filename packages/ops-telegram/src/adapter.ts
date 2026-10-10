@@ -91,6 +91,7 @@ export interface TelegramApi {
       options?: Record<string, unknown>,
     ): Promise<unknown>
     sendDocument(chatId: string, document: unknown, options?: Record<string, unknown>): Promise<{ message_id: number }>
+    deleteMessage(chatId: string, messageId: number): Promise<unknown>
     setMyCommands(commands: Array<{ command: string; description: string }>): Promise<unknown>
   }
 }
@@ -440,6 +441,15 @@ export class TelegramChannelAdapter implements ChannelAdapter {
         parse_mode: 'HTML',
       }),
     )
+  }
+
+  /**
+   * Delete a message; in a private chat a bot may delete the user's messages too.
+   * An incoming message's id is `<chat>:<message>`, a sent one's the message alone.
+   */
+  async delete(ref: MessageRef): Promise<void> {
+    const messageId = Number(ref.messageId.split(':').pop())
+    await this.queue.enqueue(ref.chatId, async () => this.api.deleteMessage(ref.chatId, messageId))
   }
 
   /**

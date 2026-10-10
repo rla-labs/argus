@@ -45,6 +45,8 @@ export interface CommandsOptions {
   readonly health?: HealthPort
   /** Delegate for `/memory`, looked up live because `ops-memory` may mount later. */
   readonly memory?: () => MemoryPort | undefined
+  /** Delegate for `/key`: the model providers, looked up live. */
+  readonly keys?: () => KeysPort | undefined
   /** Whether free text has a destination without an active project; for `/start`. */
   readonly hasOrchestrator?: () => boolean
   /** Re-read the project directory after a change; returns what the load did. */
@@ -75,6 +77,13 @@ export interface MemoryPort {
     section: string,
     actor: string,
   ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] }
+}
+
+/** What `/key` needs from the providers row (`ctx.opsProviders`). */
+export interface KeysPort {
+  keyStatus(): ReadonlyArray<{ provider: string; name: string; configured: boolean; source?: string; writable: boolean }>
+  setKey(provider: string, key: string): Promise<{ ok: boolean; message: string }>
+  removeKey(provider: string): Promise<{ ok: boolean; message: string }>
 }
 
 /** What `/health` needs from `ops-health`. */
@@ -198,7 +207,9 @@ export class OpsCommands {
     try {
       const out = await handler.run(parsed.input, context)
       if (handler.spec.mutating && out.error !== true && out.confirm === undefined) {
-        this.audit(context, `command.${parsed.name}`, parsed.input.trim())
+        // A secret's command keeps only its first argument (`/key openrouter`).
+        const target = handler.spec.secret === true ? (parsed.input.trim().split(/\s+/)[0] ?? '') : parsed.input.trim()
+        this.audit(context, `command.${parsed.name}`, target)
       }
       return out
     } catch (err) {

@@ -72,6 +72,8 @@ export class ConsoleChannelAdapter implements ChannelAdapter {
 
   /** Every message sent, in order. Edits appear as entries with `edited: true`. */
   readonly sent: SentMessage[] = []
+  /** Every message deleted, by ref. */
+  readonly deleted: MessageRef[] = []
 
   private onMessage: ((message: IncomingMessage) => void) | undefined
   private onButton: ((answer: ButtonAnswer) => void) | undefined
@@ -130,6 +132,10 @@ export class ConsoleChannelAdapter implements ChannelAdapter {
       sequence: this.sequence++,
       edited: true,
     })
+  }
+
+  async delete(ref: MessageRef): Promise<void> {
+    this.deleted.push(ref)
   }
 
   async ask(to: ChannelAddress, question: Question): Promise<AnswerOrTimeout> {

@@ -99,6 +99,23 @@ TELEGRAM_BOT_TOKEN=123456789:AAH…
   asserts that no part of the value appears in any output.
 - Revoke with BotFather's `/revoke` if it leaks.
 
+### Model provider keys
+
+- In the server's environment (`.env`, `secrets.env` natively), or in dsh's credentials
+  store (`<dsh home>/.credentials.yaml`, `0600`), where `/key` saves them. The
+  environment wins.
+- `/key <provider> <key>` deletes the message that carried the key, checks the key
+  before saving it, and confirms with its last four characters. The audit log keeps
+  the provider's name only.
+- **A key pasted as ordinary text never reaches a model.** `ops-channel` checks every
+  message for key shapes before routing it; a match is deleted and not routed.
+- Telegram keeps a message on its servers until it is deleted, and chats with bots
+  are not end-to-end encrypted. Deleting at once shortens that window; it does not
+  close it. If that matters, set the key in `.env` on the server instead.
+- **Not a boundary against the agents.** Their commands run as the same user, so a
+  command could read the credentials file, just as it could read the environment.
+  The approvals on shell commands are what stand in the way.
+
 ### Per-project secrets
 
 ```

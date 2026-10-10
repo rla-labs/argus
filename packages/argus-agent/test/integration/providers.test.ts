@@ -33,6 +33,10 @@ describe('the providers row', () => {
       )
     project('keyed', 'zai', 'glm-5.3-flash')
     project('keyless', 'groq', 'llama-3.3-70b-versatile')
+    project('stored', 'deepseek', 'deepseek-flash')
+    // A key saved in dsh's credentials store counts as much as one in the environment.
+    const credentials = join(dataDir, '.credentials.yaml')
+    writeFileSync(credentials, 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: stored-key\n', { mode: 0o600 })
 
     const boot = await bootOps({
       dataDir,
@@ -46,6 +50,7 @@ describe('the providers row', () => {
       replaceEntries: [
         ...BASE_ENTRIES,
         persistenceEntry(join(dataDir, 'sessions')),
+        { id: 'credentials', name: '@deepseek-ai/dsh-credentials-local', config: { path: credentials, watch: false } },
         OPTIONAL_ENTRIES.agentPresets,
         { id: 'ops-config-registry', name: '@argus-agent/argus-agent/registry-row' },
         { id: 'ops-providers', name: '@argus-agent/argus-agent/providers-row' },
@@ -65,9 +70,11 @@ describe('the providers row', () => {
     for (const provider of ['zai', 'openrouter', 'anthropic', 'deepseek', 'deepinfra']) expect(routes).toContain(`"${provider}"`)
     expect(routes).not.toContain('"amazon-bedrock"')
 
-    expect(ctx.opsProjects.configuredIds()).toEqual(['keyed'])
+    expect(ctx.opsProjects.configuredIds().sort()).toEqual(['keyed', 'stored'])
     expect(ctx.opsProjects.invalidOf('keyless')?.reason).toBe(
-      'model: groq/llama-3.3-70b-versatile needs an API key: set GROQ_API_KEY in the environment (.env), then restart',
+      'model: groq/llama-3.3-70b-versatile needs an API key: send /key groq <key>',
     )
+    expect(ctx.opsProviders.keyStatus().find((entry) => entry.provider === 'deepseek')).toMatchObject({ configured: true, writable: true })
+    expect(ctx.opsProviders.keyStatus().find((entry) => entry.provider === 'zai')).toMatchObject({ configured: true, writable: false })
   }, 60_000)
 })

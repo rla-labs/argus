@@ -116,6 +116,11 @@ export interface CommandSpec {
   readonly adminOnly?: boolean
   /** Whether it needs another plugin's service. */
   readonly requires?: string
+  /**
+   * Whether its arguments carry a secret. The audit row then keeps only the first
+   * argument, and the channel deletes the message that carried it.
+   */
+  readonly secret?: boolean
 }
 
 /** A command implementation: its help text and its behavior. */
