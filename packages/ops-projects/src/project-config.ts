@@ -12,7 +12,7 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
-import { OpsError, parseModelRef, type ModelRef } from '@argus-agent/types'
+import { OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 
 /**
  * A project slug.
@@ -77,10 +77,20 @@ export interface ProjectConfig {
   readonly budget: ProjectBudget
   readonly approvals: ProjectApprovals
   readonly memory: ProjectMemory
+  /** Which tools the agent sees, and which run unasked. */
+  readonly tools: ToolPolicy
   readonly progress: boolean
   /** The file this was read from. */
   readonly sourcePath: string
 }
+
+/** One group's access, with its default. */
+function toolAccess(fallback: string) {
+  return z.union([z.const('off'), z.const('deny'), z.const('ask'), z.const('allow')]).default(fallback as 'ask')
+}
+
+/** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
+const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_hosts']
 
 /** The schemastery schema for one project file. */
 export const projectConfigSchema = z.object({
@@ -120,6 +130,17 @@ export const projectConfigSchema = z.object({
   memory: z
     .object({
       user_profile: z.boolean().default(true),
+    })
+    .default({}),
+  tools: z
+    .object({
+      read: toolAccess(PROJECT_TOOL_DEFAULTS.read),
+      write: toolAccess(PROJECT_TOOL_DEFAULTS.write),
+      shell: toolAccess(PROJECT_TOOL_DEFAULTS.shell),
+      web: toolAccess(PROJECT_TOOL_DEFAULTS.web),
+      agents: toolAccess(PROJECT_TOOL_DEFAULTS.agents),
+      other: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default(PROJECT_TOOL_DEFAULTS.other),
+      web_hosts: z.array(z.string()).default([]),
     })
     .default({}),
   progress: z.boolean().default(false),
@@ -271,6 +292,13 @@ export function parseProjectConfig(
     }
   }
 
+  const tools = document['tools']
+  if (tools !== null && typeof tools === 'object' && !Array.isArray(tools)) {
+    for (const key of Object.keys(tools)) {
+      if (!TOOL_KEYS.includes(key)) issues.push({ path: `tools.${key}`, message: `not a tool group; use one of ${TOOL_KEYS.join(', ')}` })
+    }
+  }
+
   if (issues.length > 0) {
     throw new ProjectConfigError(`${options.sourcePath} is not a valid project`, issues, {
       sourcePath: options.sourcePath,
@@ -308,6 +336,7 @@ export function parseProjectConfig(
     budget: validated['budget'] as ProjectBudget,
     approvals: validated['approvals'] as ProjectApprovals,
     memory: validated['memory'] as ProjectMemory,
+    tools: validated['tools'] as ToolPolicy,
     progress: validated['progress'] as boolean,
     sourcePath: options.sourcePath,
   }

@@ -765,3 +765,33 @@ describe('project files on disk', () => {
     expect(existsSync(join(dataDir, 'projects', 'lazy'))).toBe(true)
   }, 30_000)
 })
+
+describe('tool visibility', () => {
+  it('hides the tools of a group set to off, and only those', async () => {
+    const { projects, boot } = await bootProjects({
+      projects: { site: {}, open: { tools: { agents: 'allow', web: 'off' } } },
+    })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const { scopeOf } = await import('@deepseek-ai/dsh-scope')
+    for (const name of ['ralph', 'web_fetch']) {
+      boot.ctx.effect(() =>
+        boot.ctx.tools.register(
+          defineTool({
+            name,
+            description: name,
+            parameters: {},
+            output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text' as const, text: v }] },
+            execute: async () => 'ok',
+          }),
+        ),
+      )
+    }
+    const sees = async (id: string): Promise<string[]> => {
+      const agent = await projects.ensureAgent(id)
+      return ['ralph', 'web_fetch'].filter((name) => agent.ctx.tools.get(name, scopeOf(agent.ctx)) !== undefined)
+    }
+    // Delegation is off by default.
+    expect(await sees('site')).toEqual(['web_fetch'])
+    expect(await sees('open')).toEqual(['ralph'])
+  })
+})

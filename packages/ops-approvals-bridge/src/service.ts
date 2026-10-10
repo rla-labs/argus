@@ -13,7 +13,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { randomUUID } from 'node:crypto'
-import { decodeAddress, encodeAddress, isInside, type ChannelAddress, type ServiceHealth } from '@argus-agent/types'
+import {
+  PROJECT_TOOL_DEFAULTS,
+  decodeAddress,
+  encodeAddress,
+  hostAllowed,
+  isInside,
+  taskToolPolicy,
+  toolGroupOf,
+  type ChannelAddress,
+  type ServiceHealth,
+} from '@argus-agent/types'
 import type { ApprovalStatus, OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsGovernor } from '@argus-agent/governor'
@@ -24,26 +34,6 @@ import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './poli
 import { APPROVE, APPROVE_ALL, DENY, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
-
-/**
- * dsh tools that only keep the agent's own books (its todo list, goals, background
- * jobs, skills) or show it something, and `send_file`, which sends a file from the
- * agent's own folder to the chat its run answers and refuses any other path itself.
- * They pass the gate without a question.
- */
-export const QUIET_TOOLS: ReadonlySet<string> = new Set([
-  'todo_write',
-  'present',
-  'create_goal',
-  'get_goal',
-  'update_goal',
-  'job_list',
-  'job_output',
-  'job_kill',
-  'skill',
-  'list_subagent_models',
-  'send_file',
-])
 
 /** Options for the service. */
 export interface BridgeOptions {
@@ -101,6 +91,8 @@ export class OpsApprovalsBridge {
    * stays; clear by age if a long-lived process ever shows it growing.
    */
   private readonly gated = new Map<string, ParsedAction>()
+  /** Tool names in no group, each warned about once. */
+  private readonly unclassified = new Set<string>()
   /** The decision for each request, for diagnostics. */
   readonly history: BridgeOutcome[] = []
   /** Counts by ending. */
@@ -114,44 +106,63 @@ export class OpsApprovalsBridge {
   // ── the gate ─────────────────────────────────────────────────────────────
 
   /**
-   * Decide whether a tool call needs approval, before it runs (`tools/pre-execute`).
+   * Decide what a tool call may do, before it runs (`tools/pre-execute`).
    *
    * dsh asks only when a pre-execute listener answers `ask`; nothing else in the
-   * pinned version does, so without this gate every command and write ran
-   * unasked. A project or task agent passes without a question only for reads
-   * and searches inside its own folder and for the bookkeeping tools in
-   * {@link QUIET_TOOLS}; everything else asks: commands, writes, the web, reads
-   * elsewhere, and any tool a later dsh adds. The front desk's own tools pass.
-   * The call's own arguments are kept for {@link handle}, because dsh's approval
-   * request carries only the tool name and call id.
+   * pinned version does. The answer comes from the owner's tool policy: a
+   * project's `tools:` block, or the fixed policy of a one-off task. A group set to
+   * `deny` (or `off`, whose tools the model should not even see) is refused here,
+   * without a question; `allow` runs unasked, except a read or write outside the
+   * agent's own folder, which always asks; `ask` asks, except a `web_fetch` to a
+   * host in `web_hosts`. The bookkeeping tools always pass, and so do the front
+   * desk's own. The call's own arguments are kept for {@link handle}, because
+   * dsh's approval request carries only the tool name and call id.
    *
    * @param exec the pending call.
-   * @returns `ask`, or `undefined` to let the call through.
+   * @returns `ask` or `deny`, or `undefined` to let the call through.
    */
   gate(exec: {
     readonly name: string
     readonly arguments: unknown
     readonly callId: string
     readonly agent?: Agent
-  }): { kind: 'ask'; reason: string } | undefined {
+  }): { kind: 'ask'; reason: string } | { kind: 'deny'; reason: string } | undefined {
     if (exec.agent === undefined) return undefined
     const owner = this.options.projects.ownerOf(exec.agent.id as string)
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
-    if (QUIET_TOOLS.has(exec.name)) return undefined
+    const group = toolGroupOf(exec.name)
+    if (group === 'quiet') return undefined
+    if (group === 'other' && !this.unclassified.has(exec.name)) {
+      this.unclassified.add(exec.name)
+      this.ctx.logger('ops-approvals').warn('tool %s is in no group; it follows tools.other', exec.name)
+    }
+    const policy =
+      owner.kind === 'project'
+        ? (this.options.projects.configOf(owner.projectId)?.tools ?? PROJECT_TOOL_DEFAULTS)
+        : taskToolPolicy(this.options.config.approvals_adhoc)
+    const access = policy[group]
+    if (access === 'deny' || access === 'off') {
+      const where = owner.kind === 'project' ? `in project ${owner.projectId}` : 'in a one-off task'
+      return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (tools.${group}: ${access}). Do not look for another way to do the same thing.` }
+    }
+
     const { argv, path } = argumentsOf(exec.arguments)
     const record = (typeof exec.arguments === 'object' && exec.arguments !== null ? exec.arguments : {}) as Record<string, unknown>
-    // What the question shows for a call with no path: a fetch's URL, a search's query.
-    const target = path ?? [record['url'], record['query']].find((value): value is string => typeof value === 'string')
-    const action = parseAction(exec.name, argv, target)
-    // A one-off task cannot be asked (`approvals_adhoc` is `deny`), and "what is X?"
-    // needs the web. It reads nothing outside its own folder, so it has little to leak.
-    if (action.kind === 'network' && owner.kind === 'adhoc') return undefined
-    if (action.kind === 'file-read') {
+    if (group === 'read' || group === 'write') {
       const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)
       // A glob's pattern is a path too: `../../**` or `/data/**` searches outside.
       const named = [path, exec.name === 'glob' ? record['pattern'] : undefined].filter((value): value is string => typeof value === 'string')
-      if (root !== undefined && named.every((value) => isInside(root, value))) return undefined
+      const inside = root !== undefined && named.every((value) => isInside(root, value))
+      if (inside && access === 'allow') return undefined
+    } else if (access === 'allow') {
+      return undefined
+    } else if (exec.name === 'web_fetch' && typeof record['url'] === 'string' && hostAllowed(record['url'], policy.web_hosts)) {
+      return undefined
     }
+
+    // What the question shows for a call with no path: a fetch's URL, a search's query.
+    const target = path ?? [record['url'], record['query']].find((value): value is string => typeof value === 'string')
+    const action = parseAction(exec.name, argv, target)
     this.gated.set(exec.callId, action)
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
   }

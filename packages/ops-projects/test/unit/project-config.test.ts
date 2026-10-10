@@ -246,6 +246,27 @@ describe('parseProjectConfig', () => {
   })
 })
 
+describe('the tools block', () => {
+  it('defaults to today\'s behaviour with delegation hidden', () => {
+    expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', other: 'ask', web_hosts: [] })
+  })
+
+  it('takes a group\'s access and the web hosts', () => {
+    expect(parse({ tools: { web: 'allow', shell: 'deny', web_hosts: ['ycombinator.com'] } }).tools).toMatchObject({
+      web: 'allow',
+      shell: 'deny',
+      read: 'allow',
+      web_hosts: ['ycombinator.com'],
+    })
+  })
+
+  it('refuses a misspelt group, a value it does not know, and off for other', () => {
+    expect(parseFails({ tools: { webb: 'allow' } }).issues.map((issue) => issue.path)).toContain('tools.webb')
+    expect(() => parse({ tools: { web: 'sometimes' } })).toThrow()
+    expect(() => parse({ tools: { other: 'off' } })).toThrow()
+  })
+})
+
 describe('parseProjectYaml', () => {
   it('parses valid YAML', () => {
     const config = parseProjectYaml(

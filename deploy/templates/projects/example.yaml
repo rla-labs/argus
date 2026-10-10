@@ -83,6 +83,27 @@ approvals:
   # outcome for an operator who is asleep.
   timeout_minutes: 30
 
+# ── tools ───────────────────────────────────────────────────────────────────────
+#
+# What the agent may use, by group:
+#   off    the agent does not see the tools at all
+#   deny   refused, without asking
+#   ask    a Telegram question each time (shell still honours approvals.auto_allow)
+#   allow  runs unasked
+# A read or write OUTSIDE this project's folder asks even under `allow`.
+# Change one from the chat: /set <project> tools.web allow. See it: /tools <project>.
+
+tools:
+  read: allow       # read, read_image, glob, grep
+  write: ask        # write, edit
+  shell: ask        # bash, pwsh, run_code
+  web: ask          # web_fetch, web_search
+  agents: off       # subagent, workflow, ralph, send_message, ...: delegating to other agents
+  other: ask        # any tool not listed (a newer dsh's, an integration's); never off
+  # Sites web_fetch reaches without asking under `web: ask`. A host covers its subdomains.
+  web_hosts: []
+  #   - news.ycombinator.com
+
 # ── memory ──────────────────────────────────────────────────────────────────────
 
 memory:

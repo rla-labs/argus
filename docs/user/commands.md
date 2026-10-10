@@ -16,7 +16,7 @@ For which command fits which moment, read
 |---|---|
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
-| A project's results | [`/memory`](#memory-project-id) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) |
+| A project's results | [`/memory`](#memory-project-id) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
@@ -546,6 +546,8 @@ the file stays as it was and the reply says why.
 /set site-firma limits.max_steps_per_run 100
 /set site-firma approvals.mode auto
 /set site-firma approvals.auto_allow [git status, npm test]
+/set site-firma tools.web allow
+/set site-firma tools.web_hosts [news.ycombinator.com]
 /set site-firma description The company website and its blog
 /set site-firma model openrouter/deepseek/deepseek-v4-flash
 ```
@@ -558,6 +560,7 @@ the file stays as it was and the reply says why.
 | `budget.day_usd`, `budget.month_usd`, `budget.soft_action`, ... | The project's budget |
 | `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
+| `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
 | `memory.user_profile`, `progress`, `preset` | The rest |
 
 A misspelt key is refused with the list of the real ones. `id` and `cwd` cannot be
@@ -566,6 +569,21 @@ changed: they are the project's identity and its folder. A number, `true`/`false
 
 A change of `model`, `preset` or `fallback_model` reaches a running agent only after
 `/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+## `/tools [project-id]`
+
+Shows which tools a project may use, by group, with its setting: `off` (the agent does
+not see them), `deny` (refused), `ask` (you are asked) or `allow` (runs unasked), and
+the sites `web_fetch` reaches unasked. A read or write outside the project's folder asks
+even under `allow`. Change a group with `/set <project> tools.<group> <value>`; the
+groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
+
+```
+/tools
+/tools site-firma
+```
 
 ---
 

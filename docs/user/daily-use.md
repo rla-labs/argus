@@ -170,7 +170,7 @@ Every project has a daily and a monthly budget, `budgets.default_day_usd` and
 
 ## Approvals without the noise
 
-With `approvals.mode: ask` (the default), a project asks before it:
+By default, a project asks before it:
 
 - runs a command;
 - writes or edits a file;
@@ -179,7 +179,9 @@ With `approvals.mode: ask` (the default), a project asks before it:
   your keys, are outside it);
 - uses any other tool, including one a later version of dsh adds.
 
-Reading and searching its own folder, and keeping its own to-do list, never ask. Each
+Reading and searching its own folder, and keeping its own to-do list, never ask.
+Delegating to other agents is off: the project does not see those tools. Each project
+can change this per group; see [what a project may use](#what-a-project-may-use). Each
 question becomes:
 
 | Button | Effect |
@@ -203,6 +205,26 @@ test commands. Anything that deletes, pushes or deploys is worth one tap.
 
 `/approvals` shows what is waiting and the last decisions, including those the
 allowlist took for you (`policy`).
+
+### What a project may use
+
+`/tools site-firma` shows the groups (`read`, `write`, `shell`, `web`, `agents`,
+`other`) and what each is set to: `off` (not even offered to the agent), `deny`,
+`ask` or `allow`. A news project that only reads a few sites, for example:
+
+```
+/set news tools.web_hosts [news.ycombinator.com, substack.com]
+```
+
+Those sites are fetched without asking; any other still asks. Or, for a project you
+trust on the web:
+
+```
+/set news tools.web allow
+```
+
+A read or write outside the project's folder asks whatever the setting. The full
+table is in [configuration](configuration.md#tools--what-the-agent-may-use).
 
 ---
 

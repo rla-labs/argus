@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -768,6 +768,20 @@ describe('admin-only commands', () => {
     await run(booted, '/set alpha description The site: blog, fix #3', admin())
     expect(booted.projects.configOf('alpha')?.description).toBe('The site: blog, fix #3')
     expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
+  }, 30_000)
+
+  it('/tools shows a project\'s tool groups, and /set changes one', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const before = await run(booted, '/tools alpha')
+    expect(before).toMatch(/agents\s+off\s+subagent/)
+    expect(before).toMatch(/web\s+ask\s+web_fetch/)
+    await run(booted, '/set alpha tools.web allow', admin())
+    await run(booted, '/set alpha tools.web_hosts [ycombinator.com]', admin())
+    expect(booted.projects.configOf('alpha')?.tools).toMatchObject({ web: 'allow', web_hosts: ['ycombinator.com'] })
+    const after = await run(booted, '/tools alpha')
+    expect(after).toMatch(/web\s+allow/)
+    expect(after).toContain('web_fetch unasked: ycombinator.com')
+    expect((await booted.commands.runCommand('/set alpha tools.web sometimes', admin())).text).toContain('does not validate')
   }, 30_000)
 
   it('/set leaves the file as it was when the result does not validate', async () => {

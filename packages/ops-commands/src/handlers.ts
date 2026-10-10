@@ -11,7 +11,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
-import type { ModelRef, Scope } from '@argus-agent/types'
+import { TOOL_GROUPS, type ModelRef, type Scope } from '@argus-agent/types'
 import { RUN_TRAIL_ACTION, type RunTrail } from '@argus-agent/projects'
 import {
   formatAge,
@@ -1220,6 +1220,40 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           ? ' The running agent keeps the old one until /reset.'
           : ''
         return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${later}`)
+      },
+    },
+
+    // ── /tools ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'tools',
+        description: 'Show which tools a project may use',
+        syntax: '/tools [project-id]',
+        detail:
+          'Shows each tool group with its setting: off (the agent does not see it), deny ' +
+          '(refused), ask (you are asked) or allow (runs unasked). A read or write outside ' +
+          'the project’s folder asks even under allow. Change one with /set <project> ' +
+          'tools.<group> <value>; web_hosts lists the sites web_fetch reaches unasked. ' +
+          'With no project, uses this chat’s active one.',
+        examples: ['/tools', '/tools site-firma'],
+        mutating: false,
+      },
+      run(input, context): CommandResult {
+        const projectId = projectOf(tokenize(input)[0], context)
+        if (projectId === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        }
+        const tools = projects.configOf(projectId)?.tools
+        if (tools === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
+        const rows = (Object.keys(TOOL_GROUPS) as Array<keyof typeof TOOL_GROUPS>).map(
+          (group) => `${group.padEnd(7)} ${tools[group].padEnd(6)} ${TOOL_GROUPS[group].join(', ')}`,
+        )
+        rows.push(`${'other'.padEnd(7)} ${tools.other.padEnd(6)} any tool not listed above`)
+        const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}` : ''
+        return result(
+          `${projectId}: tools\n${rows.join('\n')}${hosts}\n\n` +
+            `Change one: /set ${projectId} tools.web allow`,
+        )
       },
     },
 

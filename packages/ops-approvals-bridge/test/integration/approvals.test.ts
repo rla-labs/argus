@@ -256,6 +256,70 @@ describe('the gate', () => {
     expect(booted.store.approvals.recent(1)[0]?.status).toBe('granted')
   }, 60_000)
 
+  it('follows the project\'s tools block: allow runs, deny refuses unasked, web_hosts pass, outside the folder still asks', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: {
+        alpha: `${projectDocument(dataDir, 'alpha')}\ntools:\n  shell: allow\n  write: allow\n  web: ask\n  web_hosts: [ycombinator.com]\n  other: deny`,
+      },
+      script: [
+        {
+          text: 'working',
+          toolCalls: [
+            { name: 'bash', arguments: '{"command":"rm -rf build"}', id: 'c1' },
+            { name: 'write', arguments: '{"file_path":"out.md","content":"x"}', id: 'c2' },
+            { name: 'write', arguments: '{"file_path":"/etc/out.md","content":"x"}', id: 'c3' },
+            { name: 'web_fetch', arguments: '{"url":"https://news.ycombinator.com/item?id=1"}', id: 'c4' },
+            { name: 'web_fetch', arguments: '{"url":"https://example.com"}', id: 'c5' },
+            { name: 'mystery_tool', arguments: '{}', id: 'c6' },
+          ],
+        },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const name of ['bash', 'write', 'web_fetch', 'mystery_tool']) {
+      agent.ctx.tools.register(
+        defineTool({
+          name,
+          description: name,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async (args) => {
+            ran.push(`${name} ${JSON.stringify(args)}`)
+            return 'ok'
+          },
+        }),
+      )
+    }
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(
+      () => {
+        consoleOf(booted).answer(DENY, 'dev')
+        return booted.store.approvals.recent(10).length === 2 && booted.governor.status().running.length === 0
+      },
+      { timeoutMs: 30_000, label: 'two questions, run ended' },
+    )
+
+    const asked = booted.store.approvals.recent(10).map((row) => row.request_json).join('\n')
+    expect(asked).toContain('/etc/out.md')
+    expect(asked).toContain('example.com')
+    const done = ran.join('\n')
+    expect(done).toContain('rm -rf build')
+    expect(done).toContain('out.md')
+    expect(done).not.toContain('/etc/out.md')
+    expect(done).toContain('news.ycombinator.com')
+    expect(done).not.toContain('example.com')
+    expect(done).not.toContain('mystery_tool')
+  }, 60_000)
+
   it('asks for the web, for a read outside the folder and for an unknown tool; bookkeeping passes', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
     dirs.push(dataDir)
@@ -270,7 +334,8 @@ describe('the gate', () => {
             { name: 'read', arguments: '{"file_path":"../../ops.sqlite"}', id: 'c2' },
             { name: 'web_fetch', arguments: '{"url":"https://news.ycombinator.com"}', id: 'c3' },
             { name: 'todo_write', arguments: '{}', id: 'c4' },
-            { name: 'ralph', arguments: '{}', id: 'c5' },
+            { name: 'mystery_tool', arguments: '{}', id: 'c5' },
+            { name: 'ralph', arguments: '{}', id: 'c6' },
           ],
         },
         { text: 'done' },
@@ -281,7 +346,7 @@ describe('the gate', () => {
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
     const agent = await booted.projects.ensureAgent('alpha')
     const ran: string[] = []
-    for (const name of ['read', 'web_fetch', 'todo_write', 'ralph']) {
+    for (const name of ['read', 'web_fetch', 'todo_write', 'mystery_tool', 'ralph']) {
       agent.ctx.tools.register(
         defineTool({
           name,
@@ -309,7 +374,9 @@ describe('the gate', () => {
     const asked = booted.store.approvals.recent(10).map((row) => row.request_json).join('\n')
     expect(asked).toContain('ops.sqlite')
     expect(asked).toContain('news.ycombinator.com')
-    expect(asked).toContain('ralph')
+    expect(asked).toContain('mystery_tool')
+    // `agents` is off by default: refused without a question.
+    expect(asked).not.toContain('ralph')
     expect(ran.sort()).toEqual(['read', 'todo_write'])
   }, 60_000)
 })

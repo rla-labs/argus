@@ -12,10 +12,11 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { DoctorFinding, ModelCheck, ModelProblem, ModelRef, ServiceHealth } from '@argus-agent/types'
+import { hiddenTools, taskToolPolicy, type DoctorFinding, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
 import { RUN_TRAIL_ACTION, runAnswer, runTrail } from './run-trail.js'
@@ -345,6 +346,7 @@ export class OpsProjects {
         // is published, or its first turn would run without its tools.
         await this.ctx.agentPresets.mount(agentCtx, config.preset)
       }
+      hideTools(agentCtx, hiddenTools(config.tools))
       // The agent's context goes with the event: a listener that must register a
       // scoped tool needs it, and the session id alone is not enough to reach the
       // scope. Emitted here because this callback is the last moment before the
@@ -440,6 +442,7 @@ export class OpsProjects {
         if (options.preset !== null && options.preset !== undefined) {
           await this.ctx.agentPresets.mount(agentCtx, options.preset)
         }
+        if (options.kind === 'adhoc') hideTools(agentCtx, hiddenTools(taskToolPolicy('deny')))
         await options.setup?.(agentCtx, agent)
       },
     })
@@ -825,4 +828,21 @@ export function invalidMessage(project: InvalidProject): string {
     `${project.reason}\n` +
     'Fix the file, then send /reload.'
   )
+}
+
+/**
+ * Take tools out of what an agent's model is offered.
+ *
+ * Only names registered globally are passed: `restrict()` throws on a name it does
+ * not know, and a composition without, say, the web plugin has no `web_fetch` to
+ * hide. A scope's own registrations are exempt, which no group names.
+ *
+ * @param agentCtx the agent's context, inside its `setup`.
+ * @param names the tools to hide.
+ */
+function hideTools(agentCtx: Context, names: readonly string[]): void {
+  const present = names.filter((name) => agentCtx.tools.get(name) !== undefined)
+  if (present.length === 0) return
+  const lift = agentCtx.tools.restrict({ deny: present })
+  agentCtx.effect(() => lift)
 }

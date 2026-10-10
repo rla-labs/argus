@@ -340,6 +340,15 @@ approvals:
     - npm test
   timeout_minutes: 30
 
+tools:
+  read: allow                # off | deny | ask | allow
+  write: ask
+  shell: ask
+  web: ask
+  agents: off
+  other: ask                 # deny | ask | allow
+  web_hosts: [news.ycombinator.com]
+
 memory:
   user_profile: true
 
@@ -375,11 +384,49 @@ match is on the whole parsed command rather than on a string prefix.
 Write the rule as you would type the command, and extend it with a flag rather than
 relying on a prefix.
 
+### `tools` — what the agent may use
+
+Each group takes one of four values:
+
+| Value | Effect |
+|---|---|
+| `off` | The agent does not see the tools: they are not offered to the model at all |
+| `deny` | A call is refused at once, without a question |
+| `ask` | A call becomes an approval question (for `shell`, `approvals.auto_allow` still runs unasked) |
+| `allow` | A call runs unasked |
+
+| Group | Tools | Default |
+|---|---|---|
+| `read` | `read`, `read_image`, `glob`, `grep` | `allow` |
+| `write` | `write`, `edit` | `ask` |
+| `shell` | `bash`, `pwsh`, `run_code` | `ask` |
+| `web` | `web_fetch`, `web_search` | `ask` |
+| `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models` | `off` |
+| `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
+
+**A read or write outside the project's folder asks even under `allow`**, and is
+refused under `deny`. `web_hosts` lists sites `web_fetch` reaches unasked when `web` is
+`ask`; an entry covers its subdomains, so `ycombinator.com` covers
+`news.ycombinator.com`. A search has no site, so it still asks.
+
+The bookkeeping tools (the agent's todo list, goals, background jobs, skills,
+`present`) and `send_file` are always allowed. A misspelt group is refused when the
+project loads. A one-off task (`/task`) has no file: it reads, searches the web, and
+nothing else; what would ask is refused while `approvals_adhoc` is `deny`.
+
+**These are rules for tools, not a sandbox.** With `shell: allow`, or `curl` in
+`auto_allow`, the agent reaches the network whatever `web` says. Allowing both `web` and
+`shell` in one project also lets a page the agent read steer the commands it runs; do it
+only for a project you trust with both.
+
+`/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it.
+
 ### Precedence
 
 ```
 project budget   ▸  deployment default       (budget, limits)
 project approvals ▸  deployment approvals    (mode, auto_allow)
+project tools     ▸  built-in defaults       (read, write, shell, web, agents, other)
 project memory    ▸  deployment memory       (user_profile)
 ```
 
