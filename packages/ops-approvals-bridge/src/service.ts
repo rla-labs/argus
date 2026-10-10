@@ -20,6 +20,7 @@ import {
   hostAllowed,
   isInside,
   taskToolPolicy,
+  mcpServerOf,
   toolGroupOf,
   type ChannelAddress,
   type ServiceHealth,
@@ -132,18 +133,20 @@ export class OpsApprovalsBridge {
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
     const group = toolGroupOf(exec.name)
     if (group === 'quiet') return undefined
-    if (group === 'other' && !this.unclassified.has(exec.name)) {
+    const project = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId) : undefined
+    // A tool of one of the project's MCP servers follows that server's `access`.
+    const serverName = mcpServerOf(exec.name)
+    const server = serverName === undefined ? undefined : project?.mcp[serverName]
+    if (group === 'other' && server === undefined && !this.unclassified.has(exec.name)) {
       this.unclassified.add(exec.name)
       this.ctx.logger('ops-approvals').warn('tool %s is in no group; it follows tools.other', exec.name)
     }
-    const policy =
-      owner.kind === 'project'
-        ? (this.options.projects.configOf(owner.projectId)?.tools ?? PROJECT_TOOL_DEFAULTS)
-        : taskToolPolicy(this.options.config.approvals_adhoc)
-    const access = policy[group]
+    const policy = owner.kind === 'project' ? (project?.tools ?? PROJECT_TOOL_DEFAULTS) : taskToolPolicy(this.options.config.approvals_adhoc)
+    const access = server?.access ?? policy[group]
     if (access === 'deny' || access === 'off') {
       const where = owner.kind === 'project' ? `in project ${owner.projectId}` : 'in a one-off task'
-      return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (tools.${group}: ${access}). Do not look for another way to do the same thing.` }
+      const rule = server === undefined ? `tools.${group}` : `mcp.${serverName}.access`
+      return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (${rule}: ${access}). Do not look for another way to do the same thing.` }
     }
 
     const { argv, path } = argumentsOf(exec.arguments)
@@ -161,7 +164,11 @@ export class OpsApprovalsBridge {
     }
 
     // What the question shows for a call with no path: a fetch's URL, a search's query.
-    const target = path ?? [record['url'], record['query']].find((value): value is string => typeof value === 'string')
+    // An MCP call has no fixed shape: the person sees its arguments.
+    const target =
+      path ??
+      [record['url'], record['query']].find((value): value is string => typeof value === 'string') ??
+      (server === undefined ? undefined : JSON.stringify(exec.arguments ?? {}))
     const action = parseAction(exec.name, argv, target)
     this.gated.set(exec.callId, action)
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }

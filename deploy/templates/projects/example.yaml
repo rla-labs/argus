@@ -104,6 +104,24 @@ tools:
   web_hosts: []
   #   - news.ycombinator.com
 
+# ── MCP servers ─────────────────────────────────────────────────────────────────
+# Tools from other systems, as mcp__<server>__<tool>. A local program (command) or a
+# remote server (url). Never write a secret here: write ${NAME} and send
+# /key NAME <value> in the chat. After adding one, /reset <project>.
+# access: deny | ask (default) | allow, for every tool of the server.
+
+mcp: {}
+#  github:
+#    command: npx
+#    args: ["-y", "@modelcontextprotocol/server-github"]
+#    env:
+#      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+#    access: ask
+#  docs:
+#    url: https://mcp.example.com/mcp
+#    headers:
+#      Authorization: "Bearer ${DOCS_TOKEN}"
+
 # ── memory ──────────────────────────────────────────────────────────────────────
 
 memory:

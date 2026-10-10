@@ -20,7 +20,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--remove-provider--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
 
@@ -562,6 +562,7 @@ the file stays as it was and the reply says why.
 | `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
 | `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
+| `mcp.<server>.access`, `mcp.<server>.timeout_s`, ... | An MCP server's settings; `access` applies to the next call, the rest after `/reset` |
 | `memory.user_profile`, `progress`, `preset` | The rest |
 
 A misspelt key is refused with the list of the real ones. `id` and `cwd` cannot be
@@ -599,13 +600,14 @@ it with your next message (a reply already being written finishes on the old one
 
 ---
 
-## `/key [provider [key] | remove <provider>]`  *(admin)*
+## `/key [provider [key] | NAME value | remove <provider|NAME>]`  *(admin)*
 
-Manages the model providers' API keys from the chat.
+Manages the model providers' API keys, and the secrets of MCP servers, from the chat.
 
 ```
 /key
 /key openrouter sk-or-v1-…
+/key GITHUB_TOKEN ghp_…
 /key remove groq
 ```
 
@@ -615,7 +617,11 @@ Manages the model providers' API keys from the chat.
   provider (the same free request `argus doctor` makes) and saves it only if it is
   accepted. The next request uses it, with no restart, and a project that was refused
   for want of a key loads. The reply names the key by its last four characters.
-- **`/key remove <provider>`** removes a saved key.
+- **`/key NAME value`**, a name in capitals, saves a secret that a project's
+  [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) reads as
+  `${NAME}`. Nothing can check it, so it is saved as given; the project's agent reads it
+  when it next starts (`/reset <project>`).
+- **`/key remove <provider>`** (or `NAME`) removes a saved key.
 
 Keys are saved in dsh's credentials store (`.credentials.yaml` under the dsh home,
 `0600`), never in `ops.yaml` or the database, and the audit log keeps only the
@@ -636,6 +642,8 @@ not see them), `deny` (refused), `ask` (you are asked) or `allow` (runs unasked)
 the sites `web_fetch` reaches unasked. A read or write outside the project's folder asks
 even under `allow`. Change a group with `/set <project> tools.<group> <value>`; the
 groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
+The project's MCP servers follow, each with its `access`; change one with
+`/set <project> mcp.<server>.access allow`.
 
 ```
 /tools

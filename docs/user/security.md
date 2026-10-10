@@ -136,6 +136,26 @@ only into the processes that need them.
 | Never in `ops.yaml` | The composition file is committed and shared. |
 | Never at info level | A secret in a log is a leaked secret. |
 
+### MCP servers' secrets
+
+A project's `mcp` block names a secret as `${NAME}`; the value comes from `/key NAME
+value` (dsh's credentials store, like the provider keys) or the server's `.env`, and is
+filled in only when the project's agent starts its servers. It is never in the project
+file, which the agent can read, nor in the log or the audit (which keeps the name).
+
+## MCP servers
+
+A project's [MCP servers](configuration.md#mcp--external-tools-through-mcp-servers) are
+tools from other systems, and as trusted as the programs behind them:
+
+| What | Why it matters |
+|---|---|
+| A local server runs as Argus's user, **outside the shell sandbox** | It reaches what Argus reaches. Install only servers you would run on the host yourself. |
+| It gets only the variables in its `env` | dsh drops every inherited variable that looks like a key, token or password. |
+| Its tools follow `access` (default `ask`) | Every call is a question until you allow the server. |
+| What it returns goes to the model | A server that reads e-mail or web pages can carry instructions in its answers; keep `access: ask` for such a server unless the project's other tools are harmless. |
+| It belongs to one project | Another project, a `/task` and the front desk never see it. |
+
 ## The web interface
 
 Argus's own interface (the dashboard, approvals, settings and chat) is for a

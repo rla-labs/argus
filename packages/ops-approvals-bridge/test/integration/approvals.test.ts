@@ -8,6 +8,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   bootOps,
@@ -378,6 +379,61 @@ describe('the gate', () => {
     // `agents` is off by default: refused without a question.
     expect(asked).not.toContain('ralph')
     expect(ran.sort()).toEqual(['read', 'todo_write'])
+  }, 60_000)
+
+  it('follows an MCP server\'s access, and shows the call\'s arguments when it asks', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const echo = JSON.stringify(fileURLToPath(new URL('../../../ops-projects/test/fixtures/echo-mcp.mjs', import.meta.url)))
+    const server = (access: string): string => `\n  ${access}-srv:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${echo}]\n    access: ${access}`
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nmcp:${server('allow')}${server('ask')}${server('deny')}` },
+      script: [
+        {
+          text: 'working',
+          toolCalls: [
+            { name: 'mcp__allow-srv__go', arguments: '{}', id: 'c1' },
+            { name: 'mcp__ask-srv__go', arguments: '{"issue":"#42"}', id: 'c2' },
+            { name: 'mcp__deny-srv__go', arguments: '{}', id: 'c3' },
+          ],
+        },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const name of ['mcp__allow-srv__go', 'mcp__ask-srv__go', 'mcp__deny-srv__go']) {
+      agent.ctx.tools.register(
+        defineTool({
+          name,
+          description: name,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async () => {
+            ran.push(name)
+            return 'ok'
+          },
+        }),
+      )
+    }
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(
+      () => {
+        consoleOf(booted).answer(DENY, 'dev')
+        return booted.store.approvals.recent(10).length === 1 && booted.governor.status().running.length === 0
+      },
+      { timeoutMs: 30_000, label: 'one question, run ended' },
+    )
+
+    const asked = booted.store.approvals.recent(10).map((row) => row.request_json).join('\n')
+    expect(asked).toContain('mcp__ask-srv__go')
+    expect(asked).toContain('#42')
+    expect(ran).toEqual(['mcp__allow-srv__go'])
   }, 60_000)
 })
 

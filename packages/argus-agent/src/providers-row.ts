@@ -306,6 +306,7 @@ export class OpsProviders {
    */
   async setKey(provider: string, key: string): Promise<KeyChange> {
     const value = key.trim()
+    if (SECRET_NAME.test(provider)) return this.setSecret(provider, value)
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
     if (refusal !== undefined) return { ok: false, message: refusal }
@@ -332,6 +333,7 @@ export class OpsProviders {
    * @returns what happened.
    */
   async removeKey(provider: string): Promise<KeyChange> {
+    if (SECRET_NAME.test(provider)) return this.removeSecret(provider)
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
     if (refusal !== undefined) return { ok: false, message: refusal }
@@ -345,6 +347,36 @@ export class OpsProviders {
       return { ok: false, message: `The key could not be removed: ${errorText(error)}` }
     }
     return { ok: true, message: `${provider}: key removed.${this.keys.has(name) ? ` A key from ${this.keys.info(name).source ?? 'another place'} still applies.` : ''}` }
+  }
+
+  /**
+   * Save a secret that is not a provider's key: an MCP server's token, which a
+   * project names as `${NAME}`. Nothing can check it, so it is saved as given.
+   */
+  private async setSecret(name: string, value: string): Promise<KeyChange> {
+    if (value.length === 0 || /\s/.test(value)) return { ok: false, message: 'A secret is one word with no spaces.' }
+    try {
+      await this.keys.set(name, value)
+      // Only now does the store know the name, and so whether the environment pins it.
+      const fixed = this.envRefusal(name)
+      if (fixed !== undefined) {
+        await this.keys.unset(name)
+        return { ok: false, message: fixed }
+      }
+    } catch (error) {
+      return { ok: false, message: `${name} could not be saved: ${errorText(error)}` }
+    }
+    return { ok: true, message: `${name}: ${keyTail(value)} saved. A project's MCP servers read it when its agent next starts (/reload).` }
+  }
+
+  /** Remove a secret saved with {@link setSecret}. */
+  private async removeSecret(name: string): Promise<KeyChange> {
+    try {
+      await this.keys.unset(name)
+    } catch (error) {
+      return { ok: false, message: `${name} could not be removed: ${errorText(error)}` }
+    }
+    return { ok: true, message: `${name} removed.` }
   }
 
   /** Why a provider's key cannot be managed at all, or `undefined`. */
@@ -363,6 +395,9 @@ export class OpsProviders {
     return `${name} is set in the server's environment (.env, or secrets.env on a native install), which wins over a key saved here. Delete that line on the server and restart once; after that the key is managed from here.`
   }
 }
+
+/** A name in capitals is a secret for an MCP server, not a provider (provider names are lower case). */
+const SECRET_NAME = /^[A-Z][A-Z0-9_]{1,63}$/
 
 /** An error's message, never its stack. */
 function errorText(error: unknown): string {

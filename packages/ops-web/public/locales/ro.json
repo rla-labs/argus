@@ -84,5 +84,6 @@
   "tools.agents": "agenți",
   "tools.other": "altele",
   "common.loading": "Se încarcă…",
-  "common.error": "Ceva n-a mers: {message}"
+  "common.error": "Ceva n-a mers: {message}",
+  "settings.mcp": "MCP {name}"
 }

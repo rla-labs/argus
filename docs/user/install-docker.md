@@ -73,7 +73,7 @@ Every `*_API_KEY` in the installer's environment is copied into `.env`. A projec
 whose provider has no key is refused at once, naming the provider — the rest
 of the system keeps running. Later keys are easier from the chat: `/key zai <key>`
 checks the key with the provider, saves it, and the next request uses it, with no
-restart (see [`/key`](commands.md#key-provider-key--remove-provider--admin)). A key in
+restart (see [`/key`](commands.md#key-provider-key--name-value--remove-providername--admin)). A key in
 `.env` wins over one saved from the chat, so to manage a provider's key from the chat,
 delete its line from `.env` and restart once. A provider dsh does not ship (any OpenAI-compatible
 endpoint, a local Ollama) is declared under `providers:` in `ops.yaml`; see the

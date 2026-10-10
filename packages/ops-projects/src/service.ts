@@ -19,6 +19,8 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
+import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
+import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import { RUN_TRAIL_ACTION, runAnswer, runTrail } from './run-trail.js'
 import {
   OpsError,
@@ -347,6 +349,7 @@ export class OpsProjects {
         await this.ctx.agentPresets.mount(agentCtx, config.preset)
       }
       hideTools(agentCtx, hiddenTools(config.tools))
+      await this.mountMcp(agentCtx, config)
       // The agent's context goes with the event: a listener that must register a
       // scoped tool needs it, and the session id alone is not enough to reach the
       // scope. Emitted here because this callback is the last moment before the
@@ -358,6 +361,61 @@ export class OpsProjects {
         agent,
       })
     }
+  }
+
+  /**
+   * Connect a project's agent to its MCP servers, inside the agent's scope: the
+   * servers' processes and tools are this agent's alone, and go with it.
+   *
+   * A server that cannot start (a secret not set, a program missing, a remote
+   * down) is logged and left out; the project runs without it.
+   *
+   * @param agentCtx the agent's context, inside its `setup`.
+   * @param config the project.
+   */
+  private async mountMcp(agentCtx: Context, config: ProjectConfig): Promise<void> {
+    const logger = this.ctx.logger('ops-projects')
+    for (const [name, server] of Object.entries(config.mcp)) {
+      try {
+        const common = { serverName: name, toolCallTimeoutMs: server.timeout_s * 1000 }
+        const options =
+          server.command !== null
+            ? { ...common, transport: 'stdio' as const, command: server.command, args: [...server.args], env: await this.expand(server.env), cwd: config.cwd }
+            : { ...common, transport: 'streamable-http' as const, url: server.url ?? '', headers: await this.expand(server.headers) }
+        await agentCtx.plugin(mcpClient, options)
+      } catch (error) {
+        logger.warn('project %s: MCP server %s is left out: %s', config.id, name, (error as Error).message)
+      }
+    }
+  }
+
+  /**
+   * Replace each `${NAME}` in the values with the credential of that name: the
+   * environment, a key saved with `/key NAME value`, or a `.env` file.
+   *
+   * @param values the values as configured.
+   * @returns the values with every reference filled in.
+   * @throws {Error} naming a reference that is not set, so no server starts with half a secret.
+   */
+  private async expand(values: Readonly<Record<string, string>>): Promise<Record<string, string>> {
+    const credentials = this.ctx.get('credentials' as never) as unknown as { resolve(ref: unknown): Promise<{ value: string } | undefined> } | undefined
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(values)) {
+      let filled = value
+      for (const [reference, name] of value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+        // Without the credentials service (a bare composition) only the environment is read.
+        const secret =
+          credentials === undefined
+            ? process.env[name as string]
+            : isCredentialRefName(name as string)
+              ? (await credentials.resolve(credentialRef(name as string)))?.value
+              : undefined
+        if (secret === undefined) throw new Error(`\${${name}} is not set (send /key ${name} <value>, or set it in the environment)`)
+        filled = filled.replace(reference, () => secret)
+      }
+      out[key] = filled
+    }
+    return out
   }
 
   /** The agent options a project runs with. */

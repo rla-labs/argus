@@ -84,5 +84,6 @@
   "tools.agents": "agents",
   "tools.other": "other",
   "common.loading": "Loading…",
-  "common.error": "Something went wrong: {message}"
+  "common.error": "Something went wrong: {message}",
+  "settings.mcp": "MCP {name}"
 }

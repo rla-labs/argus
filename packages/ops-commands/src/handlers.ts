@@ -1217,7 +1217,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         const invalid = projects.invalidOf(projectId)
         if (invalid !== undefined) return restore(`With ${key} = ${shown} the project does not validate:\n${invalid.reason}`)
-        const later = ['model', 'provider', 'preset', 'fallback_model'].includes(path[0] ?? '')
+        // A server's access is read on every call; how to reach it, when the agent starts.
+        const later = ['model', 'provider', 'preset', 'fallback_model'].includes(path[0] ?? '') || (path[0] === 'mcp' && path[2] !== 'access')
           ? ' The running agent keeps the old one until /reset.'
           : ''
         return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${later}`)
@@ -1304,14 +1305,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'key',
         description: 'See, save or remove a model provider’s API key (admin)',
-        syntax: '/key [provider [key] | remove <provider>]',
+        syntax: '/key [provider [key] | NAME value | remove <provider|NAME>]',
         detail:
           'With nothing, lists the providers and which have a key. With a provider and a ' +
           'key, deletes your message at once, checks the key with the provider (a free ' +
           'request), and saves it only if accepted; the next request uses it, no restart. ' +
           'The reply names the key by its last four characters. A key set in the server’s ' +
-          '.env wins and cannot be changed from here. Only the admin can run it.',
-        examples: ['/key', '/key openrouter sk-or-v1-…', '/key remove groq'],
+          '.env wins and cannot be changed from here. A NAME in capitals saves a secret ' +
+          'for an MCP server instead (a project’s mcp block reads it as ${NAME}); it is ' +
+          'not checked. Only the admin can run it.',
+        examples: ['/key', '/key openrouter sk-or-v1-…', '/key GITHUB_TOKEN ghp_…', '/key remove groq'],
         mutating: true,
         adminOnly: true,
         secret: true,
@@ -1358,6 +1361,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           '(refused), ask (you are asked) or allow (runs unasked). A read or write outside ' +
           'the project’s folder asks even under allow. Change one with /set <project> ' +
           'tools.<group> <value>; web_hosts lists the sites web_fetch reaches unasked. ' +
+          'MCP servers are listed with their access; change one with /set <project> ' +
+          'mcp.<server>.access <value>. ' +
           'With no project, uses this chat’s active one.',
         examples: ['/tools', '/tools site-firma'],
         mutating: false,
@@ -1374,8 +1379,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         rows.push(`${'other'.padEnd(7)} ${tools.other.padEnd(6)} any tool not listed above`)
         const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}` : ''
+        const servers = Object.entries(projects.configOf(projectId)?.mcp ?? {}).map(
+          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.command ?? server.url ?? ''}`,
+        )
+        const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${mcp}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
         )
       },

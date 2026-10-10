@@ -178,4 +178,18 @@ describe('saving and removing a key', () => {
     expect((await service.setKey('nowhere', 'k')).message).toContain('No provider')
     expect((await service.setKey('openrouter', 'two words')).ok).toBe(false)
   })
+
+  it('saves a NAME in capitals as an MCP server\'s secret, unchecked, unless the environment pins it', async () => {
+    const keys = memoryKeys({}, { PINNED_TOKEN: 'x' })
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, keys, answer(500))
+    const change = await service.setKey('GITHUB_TOKEN', 'ghp_abcdefghijklmnop1234')
+    expect(change.ok).toBe(true)
+    expect(change.message).not.toContain('abcdefghijklmnop')
+    expect(keys.saved['GITHUB_TOKEN']).toBe('ghp_abcdefghijklmnop1234')
+    expect((await service.removeKey('GITHUB_TOKEN')).ok).toBe(true)
+    expect(keys.saved['GITHUB_TOKEN']).toBeUndefined()
+
+    expect((await service.setKey('PINNED_TOKEN', 'y')).message).toContain('environment')
+    expect(keys.saved['PINNED_TOKEN']).toBeUndefined()
+  })
 })

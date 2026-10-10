@@ -40,7 +40,8 @@ export interface ToolPolicy {
  * shell. A name in no group follows `other`.
  */
 export const TOOL_GROUPS: Readonly<Record<Exclude<ToolGroup, 'other'>, readonly string[]>> = {
-  read: ['read', 'read_image', 'glob', 'grep'],
+  // The MCP resource tools only list and read what a configured server offers.
+  read: ['read', 'read_image', 'glob', 'grep', 'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource'],
   write: ['write', 'edit'],
   shell: ['bash', 'pwsh', 'run_code'],
   web: ['web_fetch', 'web_search'],
@@ -131,4 +132,32 @@ export function hostAllowed(url: string, hosts: readonly string[]): boolean {
     const allowed = entry.trim().toLowerCase().replace(/^\*\./, '')
     return allowed.length > 0 && (host === allowed || host.endsWith(`.${allowed}`))
   })
+}
+
+/** An MCP server a project connects to (its `mcp:` block). */
+export interface McpServer {
+  /** A local program, spoken to over stdio. */
+  readonly command: string | null
+  readonly args: readonly string[]
+  /** Values may hold `${NAME}`, resolved from the credentials store when the agent starts. */
+  readonly env: Readonly<Record<string, string>>
+  /** A remote server, over Streamable HTTP. */
+  readonly url: string | null
+  readonly headers: Readonly<Record<string, string>>
+  /** Whether its tools run unasked, ask, or are refused. */
+  readonly access: Exclude<ToolAccess, 'off'>
+  readonly timeout_s: number
+}
+
+/** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */
+export const MCP_SERVER_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+/**
+ * The server an MCP tool comes from.
+ *
+ * @param name the tool's name, `mcp__<server>__<tool>`.
+ * @returns the server's name, or `undefined` for any other tool.
+ */
+export function mcpServerOf(name: string): string | undefined {
+  return /^mcp__([a-z0-9][a-z0-9-]{0,31})__/.exec(name)?.[1]
 }

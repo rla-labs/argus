@@ -28,7 +28,7 @@ interface Overview {
 interface Settings {
   defaults: { tasks: string; frontDesk: string | null }
   keys: Array<{ provider: string; configured: boolean; writable: boolean }>
-  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; dayUsd: number; monthUsd: number }>
+  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string }>; dayUsd: number; monthUsd: number }>
 }
 
 interface ChatEntry {
@@ -248,7 +248,13 @@ function SettingsView({ data, run, outcome }: { data: Settings; run: (line: stri
         <thead><tr><th scope="col" class="lbl">${t('settings.project')}</th>${GROUPS.map((group) => html`<th scope="col" class="lbl">${t(`tools.${group}`)}</th>`)}<th scope="col" class="lbl">${t('settings.budget')}</th></tr></thead>
         <tbody>${data.projects.map(
           (project) => html`<tr>
-            <td>${project.id}<br /><span class="faint">${project.model}</span></td>
+            <td>${project.id}<br /><span class="faint">${project.model}</span>
+              ${project.mcp.map(
+                (server) => html`<br /><label class="faint" for=${`m-${project.id}-${server.name}`}>${t('settings.mcp', { name: server.name })}</label>
+                  <select id=${`m-${project.id}-${server.name}`} value=${server.access} onChange=${(e: Event) => run(`/set ${project.id} mcp.${server.name}.access ${(e.target as HTMLSelectElement).value}`)}>
+                    ${['deny', 'ask', 'allow'].map((value) => html`<option value=${value}>${value}</option>`)}
+                  </select>`,
+              )}</td>
             ${GROUPS.map(
               (group) => html`<td><label class="sr" for=${`t-${project.id}-${group}`}>${project.id} ${group}</label>
                 <select id=${`t-${project.id}-${group}`} value=${project.tools[group]} onChange=${(e: Event) => run(`/set ${project.id} tools.${group} ${(e.target as HTMLSelectElement).value}`)}>

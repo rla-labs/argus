@@ -15,7 +15,7 @@ Configuration lives in two files:
 
 **Secrets are never in `ops.yaml`.** The bot token (`TELEGRAM_BOT_TOKEN`) and the provider
 keys (`<PROVIDER>_API_KEY`) are read from the environment or from dsh's credentials
-store, where [`/key`](commands.md#key-provider-key--remove-provider--admin) saves them,
+store, where [`/key`](commands.md#key-provider-key--name-value--remove-providername--admin) saves them,
 so the file can be copied, committed or shown without leaking anything.
 
 ## Top level
@@ -409,7 +409,7 @@ Each group takes one of four values:
 
 | Group | Tools | Default |
 |---|---|---|
-| `read` | `read`, `read_image`, `glob`, `grep` | `allow` |
+| `read` | `read`, `read_image`, `glob`, `grep`, and the MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) | `allow` |
 | `write` | `write`, `edit` | `ask` |
 | `shell` | `bash`, `pwsh`, `run_code` | `ask` |
 | `web` | `web_fetch`, `web_search` | `ask` |
@@ -433,12 +433,58 @@ only for a project you trust with both.
 
 `/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it.
 
+### `mcp` — external tools through MCP servers
+
+An [MCP](https://modelcontextprotocol.io) server gives the agent tools from another
+system: GitHub issues, a database, a calendar, a browser. A project lists its servers by
+name; each is a local program (`command`) or a remote one (`url`):
+
+```yaml
+mcp:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    access: ask
+  docs:
+    url: https://mcp.example.com/mcp
+    headers:
+      Authorization: "Bearer ${DOCS_TOKEN}"
+    access: allow
+    timeout_s: 120
+```
+
+| Field | Meaning | Default |
+|---|---|---|
+| name (the key) | lowercase letters, digits and dashes, up to 32; the tools appear as `mcp__<name>__<tool>` | — |
+| `command`, `args`, `env` | a local program, started in the project's folder | — |
+| `url`, `headers` | a remote server (Streamable HTTP) | — |
+| `access` | `deny`, `ask` or `allow` for every tool of the server | `ask` |
+| `timeout_s` | how long one call may take | `60` |
+
+**Secrets are never written in the file.** Write `${NAME}` and save the value with
+`/key NAME value` in the chat (your message is deleted at once), or set `NAME` in the
+server's `.env`. A server whose secret is not set is left out, with a warning in the log;
+the project runs without it.
+
+The agent connects when it starts: after adding a server or changing how to reach it,
+send `/reset <project>`. A change of `access` (`/set <project> mcp.github.access allow`)
+applies to the next call. `/tools <project>` lists the servers. One-off tasks and the
+front desk have no MCP servers.
+
+A local server runs as Argus's own user, outside the shell sandbox, and is given only
+the variables in its `env` (dsh removes every inherited variable that looks like a key,
+token or password). Install only servers you would install on the machine yourself.
+In the Docker image `npx` is available; Python servers (`uvx`) are not.
+
 ### Precedence
 
 ```
 project budget   ▸  deployment default       (budget, limits)
 project approvals ▸  deployment approvals    (mode, auto_allow)
 project tools     ▸  built-in defaults       (read, write, shell, web, agents, other)
+project mcp       ▸  (none)                  (only a project has MCP servers)
 project memory    ▸  deployment memory       (user_profile)
 ```
 

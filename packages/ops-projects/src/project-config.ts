@@ -12,7 +12,7 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
-import { OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type ModelRef, type ToolPolicy } from '@argus-agent/types'
+import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 
 /**
  * A project slug.
@@ -79,6 +79,8 @@ export interface ProjectConfig {
   readonly memory: ProjectMemory
   /** Which tools the agent sees, and which run unasked. */
   readonly tools: ToolPolicy
+  /** The MCP servers its agent connects to, by name. */
+  readonly mcp: Readonly<Record<string, McpServer>>
   readonly progress: boolean
   /** The file this was read from. */
   readonly sourcePath: string
@@ -91,6 +93,47 @@ function toolAccess(fallback: string) {
 
 /** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
 const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_hosts']
+
+/** The keys one `mcp:` server may hold. */
+const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'timeout_s']
+
+/** The `mcp:` block: server names to servers, each a local program (`command`) or a remote one (`url`). */
+const mcpSchema = z.dict(z.object({
+  command: z.string(),
+  args: z.array(z.string()).default([]),
+  env: z.dict(z.string()).default({}),
+  url: z.string(),
+  headers: z.dict(z.string()).default({}),
+  access: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default('ask'),
+  timeout_s: z.number().min(1).default(60),
+}))
+
+/**
+ * Problems in an `mcp:` block that the schema cannot word well.
+ *
+ * @param mcp the block as written.
+ * @returns one issue per problem.
+ */
+function mcpIssues(mcp: unknown): ProjectConfigIssue[] {
+  if (mcp === undefined || mcp === null) return []
+  if (typeof mcp !== 'object' || Array.isArray(mcp)) return [{ path: 'mcp', message: 'must map server names to servers' }]
+  const issues: ProjectConfigIssue[] = []
+  for (const [name, server] of Object.entries(mcp)) {
+    if (!MCP_SERVER_PATTERN.test(name)) issues.push({ path: `mcp.${name}`, message: `server names must match ${MCP_SERVER_PATTERN}` })
+    if (server === null || typeof server !== 'object' || Array.isArray(server)) {
+      issues.push({ path: `mcp.${name}`, message: 'must be a mapping with command or url' })
+      continue
+    }
+    const fields = server as Record<string, unknown>
+    for (const key of Object.keys(fields)) {
+      if (!MCP_KEYS.includes(key)) issues.push({ path: `mcp.${name}.${key}`, message: `unknown; use one of ${MCP_KEYS.join(', ')}` })
+    }
+    if ((typeof fields['command'] === 'string') === (typeof fields['url'] === 'string')) {
+      issues.push({ path: `mcp.${name}`, message: 'needs exactly one of command (a local program) or url (a remote server)' })
+    }
+  }
+  return issues
+}
 
 /** The schemastery schema for one project file. */
 export const projectConfigSchema = z.object({
@@ -299,6 +342,8 @@ export function parseProjectConfig(
     }
   }
 
+  issues.push(...mcpIssues(document['mcp']))
+
   if (issues.length > 0) {
     throw new ProjectConfigError(`${options.sourcePath} is not a valid project`, issues, {
       sourcePath: options.sourcePath,
@@ -314,8 +359,10 @@ export function parseProjectConfig(
       : { ...document, budget: { ...options.budgetDefaults, ...(budget as Record<string, unknown> | undefined) } }
 
   let validated: Record<string, unknown>
+  let mcp: Record<string, Record<string, unknown>>
   try {
     validated = projectConfigSchema(withDefaults) as unknown as Record<string, unknown>
+    mcp = mcpSchema((document['mcp'] ?? {}) as never) as Record<string, Record<string, unknown>>
   } catch (error) {
     throw new ProjectConfigError(`${options.sourcePath} failed validation`, [
       { path: '(root)', message: (error as Error).message },
@@ -337,6 +384,12 @@ export function parseProjectConfig(
     approvals: validated['approvals'] as ProjectApprovals,
     memory: validated['memory'] as ProjectMemory,
     tools: validated['tools'] as ToolPolicy,
+    mcp: Object.fromEntries(
+      Object.entries(mcp).map(([name, server]) => [
+        name,
+        { ...server, command: nonEmpty(server['command']), url: nonEmpty(server['url']) } as McpServer,
+      ]),
+    ),
     progress: validated['progress'] as boolean,
     sourcePath: options.sourcePath,
   }

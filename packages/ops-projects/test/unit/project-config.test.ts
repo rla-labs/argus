@@ -267,6 +267,25 @@ describe('the tools block', () => {
   })
 })
 
+describe('mcp', () => {
+  it('has no servers by default, and fills a server\'s defaults', () => {
+    expect(parse().mcp).toEqual({})
+    expect(parse({ mcp: { github: { command: 'npx', args: ['-y', 'gh'] }, docs: { url: 'https://x.test/mcp' } } }).mcp).toEqual({
+      github: { command: 'npx', args: ['-y', 'gh'], env: {}, url: null, headers: {}, access: 'ask', timeout_s: 60 },
+      docs: { command: null, args: [], env: {}, url: 'https://x.test/mcp', headers: {}, access: 'ask', timeout_s: 60 },
+    })
+  })
+
+  it('refuses a bad name, both or neither of command and url, an unknown key, and a bad access', () => {
+    const paths = (mcp: unknown): string[] => parseFails({ mcp }).issues.map((issue) => issue.path)
+    expect(paths({ my_server: { command: 'x' } })).toContain('mcp.my_server')
+    expect(paths({ both: { command: 'x', url: 'https://x.test' } })).toContain('mcp.both')
+    expect(paths({ neither: {} })).toContain('mcp.neither')
+    expect(paths({ gh: { command: 'x', enviroment: {} } })).toContain('mcp.gh.enviroment')
+    expect(() => parse({ mcp: { gh: { command: 'x', access: 'off' } } })).toThrow()
+  })
+})
+
 describe('parseProjectYaml', () => {
   it('parses valid YAML', () => {
     const config = parseProjectYaml(
