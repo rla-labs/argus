@@ -587,14 +587,14 @@ describe('delivery', () => {
     const listed: string[] = []
     const send = booted.adapter.send.bind(booted.adapter)
     booted.adapter.send = async (to, message) => {
-      for (const file of message.files ?? []) listed.push(execFileSync('unzip', ['-Z1', file.path], { encoding: 'utf8' }))
+      for (const file of message.files ?? []) listed.push(execFileSync('unzip', ['-Z1', file.path ?? ''], { encoding: 'utf8' }))
       return send(to, message)
     }
     const alpha = { kind: 'project', projectId: 'alpha' } as const
     expect(await booted.channel.sendFile(alpha, ['site', 'notes.md'])).toMatch(/^Sent alpha\.zip/)
     expect(listed[0]?.trim().split('\n').sort()).toEqual(['notes.md', 'site/', 'site/css/', 'site/css/style.css', 'site/index.html'])
     expect(await booted.channel.sendFile(alpha, ['site'])).toMatch(/^Sent site\.zip/)
-    expect(existsSync(booted.adapter.sent.at(-1)!.message.files![0]!.path)).toBe(false)
+    expect(existsSync(booted.adapter.sent.at(-1)!.message.files![0]!.path!)).toBe(false)
   }, 40_000)
 
   it('send_file refuses what is outside the folder, missing, too large, or from the front desk', async () => {
