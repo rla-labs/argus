@@ -26,7 +26,7 @@ import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import type { ConsoleChannelAdapter } from '@argus-agent/testkit'
 import type { OpsApprovalsBridge } from '../../src/service.js'
-import { APPROVE, APPROVE_ALL, DENY } from '../../src/question.js'
+import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '../../src/question.js'
 
 interface Booted {
   readonly boot: OpsBoot
@@ -379,6 +379,56 @@ describe('the gate', () => {
     // `agents` is off by default: refused without a question.
     expect(asked).not.toContain('ralph')
     expect(ran.sort()).toEqual(['read', 'todo_write'])
+  }, 60_000)
+
+  it('saves "Always allow" for the admin: the same command then runs unasked', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const command = { name: 'bash', arguments: '{"command":"git push origin main --quiet"}' }
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: projectDocument(dataDir, 'alpha') },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  admin: console:dev\n` +
+        `channel:\n  default_address: console:dev\n`,
+      script: [
+        { text: 'working', toolCalls: [{ ...command, id: 'c1' }] },
+        { text: 'done' },
+        { text: 'again', toolCalls: [{ ...command, id: 'c2' }] },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    let ran = 0
+    agent.ctx.tools.register(
+      defineTool({
+        name: 'bash',
+        description: 'bash',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        execute: async () => {
+          ran += 1
+          return 'ok'
+        },
+      }),
+    )
+    const go = (): void => void booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    go()
+    await waitFor(() => consoleOf(booted).answer(ALWAYS, 'dev'), { timeoutMs: 30_000, label: 'the question' })
+    await waitFor(() => ran === 1 && booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'first run' })
+    // A whole command, its trailing option aside, never a prefix.
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['git push origin main'])
+    expect(booted.store.approvals.recent(1)[0]).toMatchObject({ status: 'granted', decided_by: 'dev' })
+    // Saved through /set, so audited like any change.
+    expect(booted.store.audit.recent(20).some((row) => row.action === 'command.set')).toBe(true)
+
+    go()
+    await waitFor(() => ran === 2 && booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'second run, unasked' })
+    expect(booted.store.approvals.recent(5).filter((row) => row.status === 'pending')).toHaveLength(0)
   }, 60_000)
 
   it('follows a tool\'s exception over its group, the always-allowed ones included', async () => {

@@ -32,7 +32,7 @@ import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
 import { parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
-import { APPROVE, APPROVE_ALL, DENY, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
+import { ALWAYS, APPROVE, APPROVE_ALL, DENY, alwaysButton, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
 
@@ -323,12 +323,15 @@ export class OpsApprovalsBridge {
     // pressed the button: the channel correlates by id, and two pending questions
     // can offer the same button value.
     const questionId = `approval:${id}`
+    // Offered only where the rule can be named exactly, and only in a project: a task has no file.
+    const always = projectId === null ? undefined : alwaysRuleOf(base.toolName, parsed)
+    const buttons = this.options.config.allow_run_grant ? approvalButtons() : approvalButtons().slice(0, 2)
     let answer
     try {
       answer = await this.options.channel.ask(
         address,
         question,
-        this.options.config.allow_run_grant ? approvalButtons() : approvalButtons().slice(0, 2),
+        always === undefined ? buttons : [...buttons, alwaysButton(always, projectId as string)],
         timeoutMinutes * 60_000,
         questionId,
       )
@@ -358,6 +361,13 @@ export class OpsApprovalsBridge {
     if (value === APPROVE) {
       return toOutcome(this.finish(id, base, 'approved', 'granted', undefined, by))
     }
+    if (value === ALWAYS && always !== undefined) {
+      // Changing the project file is the admin's; anyone else's press approves this once.
+      const note = this.options.channel.answeredByAdmin(questionId)
+        ? await this.remember(projectId as string, always, by ?? 'unknown', address)
+        : 'only the admin can always-allow; approved this once'
+      return toOutcome(this.finish(id, base, 'approved', 'granted', note, by))
+    }
     if (value === DENY) {
       return toOutcome(this.finish(id, base, 'denied', 'denied', decisionText(value, parsed), by))
     }
@@ -369,6 +379,22 @@ export class OpsApprovalsBridge {
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  /**
+   * Add an "Always allow" rule to a project's file, through `/set` like any change,
+   * so it is validated, reloaded and audited the same way.
+   *
+   * @returns what happened, for the decision's note.
+   */
+  private async remember(projectId: string, rule: { key: string; entry: string }, userId: string, address: ChannelAddress): Promise<string> {
+    const commands = this.ctx.get('opsCommands' as never) as unknown as { runCommand(line: string, context: unknown): Promise<{ text: string; error?: boolean }> } | undefined
+    const config = this.options.projects.configOf(projectId)
+    if (commands === undefined || config === undefined) return 'approved once; the rule could not be saved here'
+    const current = rule.key === 'approvals.auto_allow' ? config.approvals.auto_allow : config.tools.web_hosts
+    if (current.includes(rule.entry)) return `already always allowed: ${rule.entry}`
+    const out = await commands.runCommand(`/set ${projectId} ${rule.key} ${JSON.stringify([...current, rule.entry])}`, { address, userId, isAdmin: true, now: this.options.now() })
+    return out.error === true ? `approved once; the rule was not saved: ${out.text}` : `always allowed from now on in ${projectId}: ${rule.entry}`
+  }
 
   /**
    * The action a request is about.

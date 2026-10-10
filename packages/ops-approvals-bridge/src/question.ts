@@ -6,7 +6,7 @@
  * @module @argus-agent/approvals-bridge/question
  */
 import type { Button } from '@argus-agent/types'
-import { renderAction, type ParsedAction } from './argv.js'
+import { isCompound, renderAction, type ParsedAction } from './argv.js'
 
 /**
  * The button values.
@@ -17,6 +17,53 @@ import { renderAction, type ParsedAction } from './argv.js'
 export const APPROVE = 'approve'
 export const DENY = 'deny'
 export const APPROVE_ALL = 'approve-all'
+export const ALWAYS = 'always'
+
+/** What "Always allow" would write into the project file. */
+export interface AlwaysRule {
+  /** The project setting it extends. */
+  readonly key: 'approvals.auto_allow' | 'tools.web_hosts'
+  /** The entry it adds: a whole command, or a host. */
+  readonly entry: string
+}
+
+/**
+ * What "Always allow" would allow from now on, when it can be named exactly.
+ *
+ * A command is allowed whole (its trailing options aside), never by a prefix: the
+ * allowlist matches a rule against the entire command, so `git push origin main`
+ * allows exactly that. A compound command has no single rule. A page fetch allows
+ * its host.
+ *
+ * @param toolName the tool.
+ * @param action the parsed call.
+ * @returns the rule, or `undefined` when there is none to offer.
+ */
+export function alwaysRuleOf(toolName: string, action: ParsedAction | undefined): AlwaysRule | undefined {
+  if (action === undefined) return undefined
+  if (action.kind === 'command' && action.argv.length > 0 && !isCompound(action.argv)) {
+    const tokens = [...action.argv]
+    while (tokens.length > 1 && (tokens.at(-1) as string).startsWith('-')) tokens.pop()
+    const entry = tokens.join(' ')
+    // A rule is written to YAML and read back as tokens: keep it to plain words.
+    return /^[\w./:=@+-]+( [\w./:=@+-]+)*$/.test(entry) && entry.length <= 120 ? { key: 'approvals.auto_allow', entry } : undefined
+  }
+  if (toolName === 'web_fetch' && action.path !== undefined) {
+    try {
+      const host = new URL(action.path).hostname.toLowerCase()
+      return host.length > 0 ? { key: 'tools.web_hosts', entry: host } : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return undefined
+}
+
+/** The "Always allow" button for a rule. */
+export function alwaysButton(rule: AlwaysRule, projectId: string): Button {
+  const what = rule.entry.length > 40 ? `${rule.entry.slice(0, 39)}…` : rule.entry
+  return { value: ALWAYS, label: `Always allow “${what}” in ${projectId}` }
+}
 
 /** The buttons every approval question carries. */
 export function approvalButtons(): Button[] {

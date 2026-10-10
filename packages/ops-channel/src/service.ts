@@ -657,6 +657,18 @@ export class OpsChannel {
     return this.lastAnswer?.questionId === questionId ? this.lastAnswer.userId : undefined
   }
 
+  /**
+   * Whether the person who answered a question is the admin.
+   *
+   * @param questionId the question id passed to {@link ask}.
+   * @returns whether its last answer came from the admin.
+   */
+  answeredByAdmin(questionId: string): boolean {
+    const answer = this.lastAnswer
+    if (answer?.questionId !== questionId) return false
+    return this.policy.isAdmin({ ...answer.address, channel: this.identityOf(answer.address.channel) }, answer.userId)
+  }
+
   /** How many questions are outstanding. For diagnostics. */
   get pendingQuestions(): number {
     return this.outstanding.size

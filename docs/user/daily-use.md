@@ -192,11 +192,12 @@ question becomes:
 | **Approve** | This one action runs |
 | **Deny** | It does not; the agent is told and continues without it |
 | **Approve all of this kind for this run** | Every action of the same kind runs until this run ends |
+| **Always allow “…” in <project>** | This runs, and so will this exact command (its trailing options aside), or any page of this site, from now on: it is added to the project's `approvals.auto_allow` or `tools.web_hosts`. Offered only for a single command or a page fetch; saving it is the admin's, anyone else's press approves once |
 
 No answer before `approvals.timeout_minutes` means **no**.
 
-If the same harmless command keeps asking, put it on the project's allowlist instead
-of approving it every time:
+If the same harmless command keeps asking, press **Always allow**, or put it on the
+project's allowlist yourself:
 
 ```
 /set site-firma approvals.auto_allow [git status, git diff, npm test]

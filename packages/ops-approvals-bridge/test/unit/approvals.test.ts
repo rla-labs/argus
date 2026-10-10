@@ -23,6 +23,7 @@ import { decideApproval, isGrant, policyOf } from '../../src/policy.js'
 import {
   APPROVE,
   APPROVE_ALL,
+  alwaysRuleOf,
   DENY,
   approvalButtons,
   approvalQuestion,
@@ -614,5 +615,21 @@ describe('approvalsOf', () => {
     // A zero timeout would deny every request instantly, which is `deny` with more
     // steps. The schema refuses it rather than tolerating a confusing config.
     expect(() => approvalsOf({ approvals: { timeout_minutes: 0 } })).toThrow()
+  })
+})
+
+describe('alwaysRuleOf', () => {
+  const command = (line: string) => parseAction('bash', line.split(' '))
+  it('names a whole command without its trailing options, or a fetched host', () => {
+    expect(alwaysRuleOf('bash', command('git push origin main --force'))).toEqual({ key: 'approvals.auto_allow', entry: 'git push origin main' })
+    expect(alwaysRuleOf('web_fetch', parseAction('web_fetch', [], 'https://news.ycombinator.com/item?id=1'))).toEqual({ key: 'tools.web_hosts', entry: 'news.ycombinator.com' })
+  })
+
+  it('offers nothing for a compound command, an odd token, a write, or no action', () => {
+    expect(alwaysRuleOf('bash', command('git pull && rm -rf build'))).toBeUndefined()
+    expect(alwaysRuleOf('bash', command('echo $(whoami)'))).toBeUndefined()
+    expect(alwaysRuleOf('bash', command('echo "a,b"'))).toBeUndefined()
+    expect(alwaysRuleOf('write', parseAction('write', [], 'a.md'))).toBeUndefined()
+    expect(alwaysRuleOf('bash', undefined)).toBeUndefined()
   })
 })
