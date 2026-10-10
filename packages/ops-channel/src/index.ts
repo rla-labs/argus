@@ -132,6 +132,7 @@ export function apply(ctx: Context): void {
 
   // ── a run's output, delivered ────────────────────────────────────────────
   ctx.on('ops/run-output', ({ owner, runId, content }) => {
+    if (askedByProject(ctx, runId)) return
     const subject = subjectOf(owner)
     // The request's address is the durable record; the event has no address of
     // its own, so the inbound row is read for it.
@@ -143,6 +144,7 @@ export function apply(ctx: Context): void {
 
   // ── run lifecycle notices ────────────────────────────────────────────────
   ctx.on('ops/run-stopped', ({ owner, runId, reason, detail }) => {
+    if (askedByProject(ctx, runId)) return
     fire(service.deliverStopped(runId, subjectOf(owner), reason, detail))
   })
 
@@ -215,7 +217,7 @@ export function apply(ctx: Context): void {
   // Driven from the meter's usage event rather than a timer: a progress update is
   // only interesting when something actually happened.
   ctx.on('ops/usage', ({ owner, runId, deltaMicros }) => {
-    if (runId === undefined) return
+    if (runId === undefined || askedByProject(ctx, runId)) return
     const status = ctx.opsGovernor.status()
     const run = status.running.find((entry) => entry.runId === runId)
     if (run === undefined) return
@@ -267,6 +269,11 @@ function subjectOf(owner: Owner): OutputSubject {
 }
 
 /** The reply address stored on a run's inbound row. */
+function askedByProject(ctx: Context, runId: string): boolean {
+  // Another project asked (`ask_project`): the answer is that project's, not a chat's.
+  return ctx.opsStore.inbound.get(runId)?.source === 'project'
+}
+
 function addressForRun(ctx: Context, runId: string): ChannelAddress | undefined {
   const stored = ctx.opsStore.inbound.get(runId)?.reply_chat
   if (stored === null || stored === undefined) return undefined

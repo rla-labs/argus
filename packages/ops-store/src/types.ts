@@ -29,7 +29,7 @@ export interface ProjectRow {
 }
 
 /** What a request's producer is. */
-export type InboundSource = 'channel' | 'scheduler' | 'orchestrator'
+export type InboundSource = 'channel' | 'scheduler' | 'orchestrator' | 'project'
 
 /** A request's lifecycle state. */
 export type InboundStatus = 'pending' | 'admitted' | 'rejected' | 'done'

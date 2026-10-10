@@ -45,7 +45,7 @@ export const TOOL_GROUPS: Readonly<Record<Exclude<ToolGroup, 'other'>, readonly 
   write: ['write', 'edit'],
   shell: ['bash', 'pwsh', 'run_code'],
   web: ['web_fetch', 'web_search'],
-  agents: ['subagent', 'workflow', 'ralph', 'send_message', 'interrupt_agent', 'list_agents', 'list_subagent_models'],
+  agents: ['subagent', 'workflow', 'ralph', 'send_message', 'interrupt_agent', 'list_agents', 'list_subagent_models', 'ask_project'],
 }
 
 /**

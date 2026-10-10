@@ -54,7 +54,8 @@ import type { GovernorConfig } from './config.js'
 
 /** What `submit` accepts. */
 export interface SubmitRequest {
-  readonly source: 'channel' | 'scheduler' | 'orchestrator'
+  /** `project`: one project asking another (`ask_project`); the answer goes back to it, not to a chat. */
+  readonly source: 'channel' | 'scheduler' | 'orchestrator' | 'project'
   readonly target:
     | { readonly projectId: string }
     | { readonly adhoc: { readonly runId: string; readonly model?: ModelRef } }
@@ -462,7 +463,8 @@ export class OpsGovernor {
       this.options.capability as never,
       targetOfOwner(track.owner),
       content,
-      { runId: track.runId, source: request.source },
+      // dsh's message source has no kind for another project; it reads as the front desk's.
+      { runId: track.runId, source: request.source === 'project' ? 'orchestrator' : request.source },
     )
   }
 

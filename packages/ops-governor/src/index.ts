@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { OpsGovernor, type GovernorOptions } from './service.js'
 import { governorConfigOf, budgetsSchema, concurrencySchema, limitsSchema, queuesSchema, pausedPolicySchema } from './config.js'
 import './events.js'
+import { registerAskProject } from './ask-project.js'
 
 export * from './config.js'
 export * from './state.js'
@@ -28,7 +29,7 @@ export const name = 'ops-governor'
  * governor cannot tell a priced model from an unpriced one, and admitting an
  * unpriced model is exactly the leak `block` exists to prevent.
  */
-export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'opsProjects', 'opsMeter', 'agents']
+export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'opsProjects', 'opsMeter', 'agents', 'tools']
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -71,6 +72,7 @@ export function apply(ctx: Context): void {
   } satisfies GovernorOptions)
 
   ctx.provide('opsGovernor', governor)
+  registerAskProject(ctx, governor)
   ctx.effect(() => () => {
     governor.dispose()
   })

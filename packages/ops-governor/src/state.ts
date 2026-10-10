@@ -61,7 +61,7 @@ export interface BudgetState {
 export interface PendingRequest {
   readonly id: string
   readonly priority: Priority
-  readonly source: 'channel' | 'scheduler' | 'orchestrator'
+  readonly source: 'channel' | 'scheduler' | 'orchestrator' | 'project'
   readonly target:
     | { readonly kind: 'project'; readonly projectId: string }
     | { readonly kind: 'adhoc'; readonly runId: string; readonly model?: ModelRef }

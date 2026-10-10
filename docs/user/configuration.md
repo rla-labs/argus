@@ -425,7 +425,7 @@ Each group takes one of four values:
 | `write` | `write`, `edit` | `ask` |
 | `shell` | `bash`, `pwsh`, `run_code` | `ask` |
 | `web` | `web_fetch`, `web_search` | `ask` |
-| `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models` | `off` |
+| `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
 
 **A read or write outside the project's folder asks even under `allow`**, and is
@@ -444,6 +444,23 @@ nothing else; what would ask is refused while `approvals_adhoc` is `deny`.
 only for a project you trust with both.
 
 `/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it.
+
+### `ask_project` — one project asks another
+
+With `tools.agents` set to `ask` or `allow`, a project's agent can ask another project a
+question and wait for the answer (`ask_project`): the research project asks the site
+project which pages exist, the reports project asks devops for last night's disk usage.
+
+- The question is an ordinary request to the other project: it waits for a slot, runs
+  in that project's folder with its memory, and is paid from **that project's** budget.
+  It is refused when the asking project's own budget is used up.
+- The answer goes back to the asking agent, not to the chat; `/runs` and `/log` of the
+  other project show it.
+- A project that is answering a question cannot ask one, so two projects cannot keep
+  each other busy.
+- It waits at most the other project's `limits.max_wallclock_min` plus five minutes.
+
+With `agents: ask`, every question is an approval first.
 
 ### `mcp` — external tools through MCP servers
 

@@ -1010,3 +1010,43 @@ describe('ADR 0002: no execution path bypasses submit', () => {
     expect(violations).toEqual([])
   })
 })
+
+// ── ask_project ────────────────────────────────────────────────────────────
+
+describe('ask_project', () => {
+  it('runs the other project through the governor and hands its answer back; the answerer cannot ask back', async () => {
+    const usage = { inputTokens: 100, outputTokens: 0 }
+    const booted = await bootGovernor({
+      projects: { alpha: { tools: { agents: 'allow' } }, beta: { tools: { agents: 'allow' } } },
+      script: [
+        // alpha asks beta
+        { text: 'asking', toolCalls: [{ name: 'ask_project', arguments: '{"project":"beta","question":"What is the build command?"}', id: 'a1' }], usage },
+        // beta tries to ask alpha back, is refused, then answers
+        { text: 'checking', toolCalls: [{ name: 'ask_project', arguments: '{"project":"alpha","question":"loop?"}', id: 'b1' }], usage },
+        { text: 'npm run build', usage },
+        // alpha finishes with the answer in hand
+        { text: 'done', usage },
+      ],
+      repeatLast: true,
+    })
+    const outputs: string[] = []
+    const results: string[] = []
+    booted.ctx.on('tools/result' as never, ((exec: { name: string }, result: unknown) => void results.push(`${exec.name} ${JSON.stringify(result)}`)) as never)
+    booted.ctx.on('ops/run-output', ({ owner }) => void outputs.push(owner.kind === 'project' ? owner.projectId : owner.kind))
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(() => booted.store.runs.recent(5).length === 2 && booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'both runs ended' })
+
+    const beta = booted.store.runs.byOwner('project:beta', 5)[0]
+    expect(beta?.status).toBe('completed')
+    expect(booted.store.inbound.get(beta?.id as string)?.source).toBe('project')
+    const toolResults = JSON.stringify(booted.store.audit.byTarget('beta'))
+    expect(toolResults).toContain('project.asked')
+    // What the tools returned: beta's refusal to ask back, then beta's answer to alpha.
+    expect(results).toHaveLength(2)
+    expect(results[0]).toContain('cannot ask one yourself')
+    expect(results[1]).toContain('beta answers')
+    expect(results[1]).toContain('npm run build')
+    expect(JSON.stringify(booted.boot.fake?.requests)).toContain('Project alpha asks')
+    expect(outputs.sort()).toEqual(['alpha', 'beta'])
+  }, 40_000)
+})
