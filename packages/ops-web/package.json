@@ -1,0 +1,46 @@
+{
+  "name": "@argus-agent/web",
+  "version": "0.2.7",
+  "description": "The web interface: a dashboard, approvals, settings and a chat channel, on a private network",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "lib/**/*.d.ts",
+    "public/**"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.client.json",
+    "typecheck": "tsc -p tsconfig.test.json && tsc -p tsconfig.client.json --noEmit"
+  },
+  "dependencies": {
+    "@argus-agent/approvals-bridge": "workspace:*",
+    "@argus-agent/channel": "workspace:*",
+    "@argus-agent/commands": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
+    "@argus-agent/projects": "workspace:*",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/types": "workspace:*",
+    "@deepseek-ai/schemastery": "3.18.4",
+    "htm": "3.1.1",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@argus-agent/web": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/testkit": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.0.4"
+  }
+}

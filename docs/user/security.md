@@ -136,9 +136,26 @@ only into the processes that need them.
 | Never in `ops.yaml` | The composition file is committed and shared. |
 | Never at info level | A secret in a log is a leaked secret. |
 
-## The web UI
+## The web interface
 
-The dsh web UI must listen on **`127.0.0.1` only**. Access is through an SSH tunnel:
+Argus's own interface (the dashboard, approvals, settings and chat) is for a
+**private network**:
+
+- It listens on the server's `127.0.0.1:3091` (in Docker, the container publishes it
+  on the host's loopback only). Reach it with `tailscale serve`, a VPN or an SSH
+  tunnel; see [the web interface](web.md). Public exposure is not supported before 0.4.0.
+- **It has its own sign-in even so.** `/web` (admin only) gives a link that works
+  once, for ten minutes. It becomes a session cookie that scripts cannot read
+  (`HttpOnly`), that another site cannot send (`SameSite=Strict`), and that travels
+  only over HTTPS when `web.public_url` is `https://`. Five failed sign-ins from one
+  address lock it out for 15 minutes.
+- Every change it makes is a command run as you, with the same checks and audit as
+  in Telegram. Every POST needs a header a cross-site form cannot send, and the page
+  runs under a strict content security policy.
+
+## The dsh web UI
+
+dsh's own web UI must listen on **`127.0.0.1` only**. Access is through an SSH tunnel:
 
 ```sh
 ssh -N -L 3080:127.0.0.1:3080 user@host

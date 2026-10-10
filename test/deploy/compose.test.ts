@@ -57,11 +57,14 @@ describe('docker-compose.yml', () => {
     expect(mounts).toHaveLength(1)
   })
 
-  it('does NOT publish any port', () => {
-    // The health endpoint is loopback-only and the Web UI is reached through an SSH
-    // tunnel. A published port is a published, unauthenticated view of the system.
-    const ports = opsService(base)['ports']
-    expect(ports === undefined || (Array.isArray(ports) && ports.length === 0)).toBe(true)
+  it('publishes only the web interface, and only on the host\'s loopback', () => {
+    // The health endpoint is unauthenticated and stays inside the container. The web
+    // interface has its own sign-in and is meant for `tailscale serve`, a VPN or a
+    // tunnel: a public bind would put it on the internet.
+    const ports = opsService(base)['ports'] as string[]
+    expect(ports).toHaveLength(1)
+    expect(ports[0]).toMatch(/^127\.0\.0\.1:.*:3091$/)
+    expect(JSON.stringify(ports)).not.toContain('3090')
   })
 
   it('declares a healthcheck against the ops endpoint', () => {

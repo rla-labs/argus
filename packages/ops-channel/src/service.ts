@@ -263,9 +263,11 @@ export class OpsChannel {
     this.seen.add(`${message.address.channel}:${message.id}`)
     if (this.seen.size > 5_000) this.seen.clear()
 
-    this.lastSeen = message.address
+    // An adapter that borrows another's identities is not where alerts should go.
+    const identity = this.identityOf(message.address.channel)
+    if (identity === message.address.channel) this.lastSeen = message.address
 
-    const access = this.policy.check(message.address.channel, message.userId)
+    const access = this.policy.check(identity, message.userId)
     if (!access.allowed) {
       await this.refuse(message, access.reason ?? 'not_listed')
       return { kind: 'rejected', reason: access.reason ?? 'not_listed' }
@@ -357,7 +359,7 @@ export class OpsChannel {
     const out = await this.options.commands.runCommand(line, {
       address: message.address,
       userId: message.userId,
-      isAdmin: this.policy.isAdmin(message.address, message.userId),
+      isAdmin: this.policy.isAdmin({ ...message.address, channel: this.identityOf(message.address.channel) }, message.userId),
       ...(this.activeProjectOf(message.address) === undefined
         ? {}
         : { activeProject: this.activeProjectOf(message.address) as string }),
@@ -497,7 +499,7 @@ export class OpsChannel {
    * @param answer the answer.
    */
   async handleButton(answer: ButtonAnswer): Promise<void> {
-    if (!this.policy.isAllowed(answer.address.channel, answer.userId)) {
+    if (!this.policy.isAllowed(this.identityOf(answer.address.channel), answer.userId)) {
       await this.refuse(
         {
           id: answer.questionId,
@@ -597,11 +599,44 @@ export class OpsChannel {
     // answer the same question, and the channel's would never be resolved by a
     // press that the adapter handled itself.
     this.outstanding.add(id)
+    // A second way in, for `answerQuestion`: another surface (the web dashboard)
+    // may answer what this adapter asked. The adapter's own deadline still applies.
+    const elsewhere = new Promise<AnswerOrTimeout>((resolve) => this.answerers.set(id, resolve))
     try {
-      return await adapter.ask(address, { id, text: question, buttons, timeoutMs })
+      return await Promise.race([adapter.ask(address, { id, text: question, buttons, timeoutMs }), elsewhere])
     } finally {
       this.outstanding.delete(id)
+      this.answerers.delete(id)
     }
+  }
+
+  /**
+   * Answer a pending question from somewhere other than the adapter that asked it.
+   *
+   * The person must be allowed on the channel they answer from, as for a button.
+   * The asking adapter's message keeps its buttons until its own timeout; a press
+   * there afterwards changes nothing.
+   *
+   * @param questionId the id passed to {@link ask}.
+   * @param value the chosen button's value.
+   * @param from where the answer comes from, and who gave it.
+   * @returns whether a question was waiting for it.
+   */
+  answerQuestion(questionId: string, value: string, from: { address: ChannelAddress; userId: string }): boolean {
+    const resolve = this.answerers.get(questionId)
+    if (resolve === undefined) return false
+    if (!this.policy.isAllowed(this.identityOf(from.address.channel), from.userId)) return false
+    this.lastAnswer = { questionId, value, address: from.address, userId: from.userId, timestamp: this.options.now() }
+    resolve({ kind: 'button', value })
+    return true
+  }
+
+  /** Resolvers for the questions {@link answerQuestion} may answer. */
+  private readonly answerers = new Map<string, (answer: AnswerOrTimeout) => void>()
+
+  /** The channel whose identities an adapter's users have. */
+  private identityOf(channel: string): string {
+    return this.registry.get(channel)?.identityChannel ?? channel
   }
 
   /** The most recent button answer, for an adapter that resolves on demand. */

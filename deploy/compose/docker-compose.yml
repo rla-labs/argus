@@ -47,13 +47,12 @@ services:
     # ports:
     #   - "127.0.0.1:3090:3090"
 
-    # The Web UI, when health/web is enabled, is also loopback-only. Reach it through
-    # an SSH tunnel rather than publishing it:
-    #
-    #   ssh -N -L 3080:127.0.0.1:3080 user@host
-    #
-    # ports:
-    #   - "127.0.0.1:3080:3080"
+    # The Argus web interface, on the HOST's loopback only. Reach it from your own
+    # devices with `tailscale serve --bg 3091` on the host (HTTPS, nothing opened to
+    # the internet), a VPN, or an SSH tunnel: ssh -N -L 3091:127.0.0.1:3091 user@host.
+    # Never change this to a public address: see docs/user/web.md.
+    ports:
+      - "127.0.0.1:${ARGUS_AGENT_WEB_PORT:-3091}:3091"
 
     # The container is the primary barrier when a sandbox backend is unavailable
     # inside it. These settings are what make that true rather than nominal.

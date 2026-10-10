@@ -267,6 +267,17 @@ Over `max_inject_tokens`, the most recent sections are kept and **the agent is t
 that memory was truncated**. Silent truncation would let an agent act confidently on an
 incomplete picture.
 
+## `web`
+
+The [web interface](web.md).
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Whether it is served. |
+| `port` | int | `3091` | Its port, on the server's loopback (Docker publishes it on the host's `127.0.0.1` only). |
+| `public_url` | string | `http://127.0.0.1:<port>` | The address you open it at, for the `/web` link: the `tailscale serve` address, for example. With `https://`, the session cookie is sent only over HTTPS. |
+| `session_hours` | int | `24` | How long a sign-in lasts. |
+
 ## `health`
 
 | Key | Type | Default | Meaning |

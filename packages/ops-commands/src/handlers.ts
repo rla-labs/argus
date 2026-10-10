@@ -1224,6 +1224,27 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /web ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'web',
+        description: 'A sign-in link for the web interface (admin)',
+        syntax: '/web',
+        detail:
+          'Sends a link that signs you in to the web interface. It works once and for ten ' +
+          'minutes; the sign-in then lasts web.session_hours. The interface is meant for a ' +
+          'private network: open it through tailscale serve, a VPN or an SSH tunnel.',
+        examples: ['/web'],
+        mutating: false,
+        adminOnly: true,
+      },
+      run(_input, context): CommandResult {
+        const web = options.web?.()
+        if (web === undefined) return errorResult('The web interface is not running (web.enabled in ops.yaml).')
+        return result(`Open within 10 minutes; it works once:\n${web.loginLink(context.userId)}`)
+      },
+    },
+
     // ── /defaults ──────────────────────────────────────────────────────────
     {
       spec: {

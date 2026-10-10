@@ -45,6 +45,8 @@ export interface CommandsOptions {
   readonly health?: HealthPort
   /** Delegate for `/memory`, looked up live because `ops-memory` may mount later. */
   readonly memory?: () => MemoryPort | undefined
+  /** Delegate for `/web`: the web interface, looked up live. */
+  readonly web?: () => WebPort | undefined
   /** Delegate for `/defaults frontdesk`: the front desk, looked up live. */
   readonly frontDesk?: () => FrontDeskPort | undefined
   /** The `ops.yaml` path `/defaults` writes to; looked up live. */
@@ -74,6 +76,11 @@ export interface MemoryPort {
     section: string,
     actor: string,
   ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] }
+}
+
+/** What `/web` needs from `ops-web`. */
+export interface WebPort {
+  loginLink(userId: string): string
 }
 
 /** What `/defaults` needs from `ops-orchestrator`. */

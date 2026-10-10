@@ -65,7 +65,8 @@
     "@argus-agent/scheduler": "workspace:*",
     "@argus-agent/approvals-bridge": "workspace:*",
     "@argus-agent/memory": "workspace:*",
-    "@argus-agent/health": "workspace:*"
+    "@argus-agent/health": "workspace:*",
+    "@argus-agent/web": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",

@@ -20,7 +20,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only | [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--remove-provider--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--remove-provider--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
 
@@ -570,6 +570,14 @@ changed: they are the project's identity and its folder. A number, `true`/`false
 
 A change of `model`, `preset` or `fallback_model` reaches a running agent only after
 `/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+
+---
+
+## `/web`  *(admin)*
+
+Sends a link that signs you in to the [web interface](web.md). It works once, for ten
+minutes; the sign-in then lasts `web.session_hours`. Open it on a device that reaches
+the server through Tailscale, a VPN or an SSH tunnel.
 
 ---
 

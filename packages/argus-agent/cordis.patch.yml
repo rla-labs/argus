@@ -99,6 +99,12 @@
     - id: ops-memory
       name: '@argus-agent/memory'
 
+    # The web interface: dashboard, approvals, settings and a chat channel, for the
+    # admin on a private network (tailscale serve, a VPN or an SSH tunnel). A login
+    # comes from Telegram (/web). `web.enabled: false` turns it off.
+    - id: ops-web
+      name: '@argus-agent/web'
+
     # Health aggregation, the loopback endpoint, the daily report, backups and the
     # startup recovery pass. Mount it LAST, so every other plugin is up when it
     # takes its first report.

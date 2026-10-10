@@ -12,7 +12,7 @@
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { OpsCommands, type CommandsOptions, type FrontDeskPort, type HealthPort, type KeysPort, type MemoryPort, type SchedulerPort } from './service.js'
+import { OpsCommands, type CommandsOptions, type FrontDeskPort, type HealthPort, type KeysPort, type MemoryPort, type WebPort, type SchedulerPort } from './service.js'
 import type { CommandInvocation, CommandResult as DshCommandResult } from '@deepseek-ai/dsh-commands'
 import type { CommandContext, CommandResult } from './types.js'
 import { pathsOf } from '@argus-agent/argus-agent'
@@ -81,6 +81,7 @@ export function apply(ctx: Context): void {
   options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
   options.memory = () => ctx.get('opsMemory' as never) as unknown as MemoryPort | undefined
   options.keys = () => ctx.get('opsProviders' as never) as unknown as KeysPort | undefined
+  options.web = () => ctx.get('opsWeb' as never) as unknown as WebPort | undefined
   options.frontDesk = () => ctx.get('opsOrchestrator' as never) as unknown as FrontDeskPort | undefined
   options.configPath = () => (ctx.get('opsConfig' as never) as unknown as { configPath?: string } | undefined)?.configPath
 
@@ -198,4 +199,4 @@ function reload(ctx: Context): ReloadReport {
 }
 
 export { decodeAddress }
-export type { CommandContext, CommandResult, SchedulerPort, FrontDeskPort, HealthPort, KeysPort, MemoryPort }
+export type { CommandContext, CommandResult, SchedulerPort, FrontDeskPort, HealthPort, KeysPort, MemoryPort, WebPort }

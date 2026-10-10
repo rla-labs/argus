@@ -193,6 +193,9 @@ importers:
       '@argus-agent/types':
         specifier: workspace:*
         version: link:../ops-types
+      '@argus-agent/web':
+        specifier: workspace:*
+        version: link:../ops-web
       '@deepseek-ai/cordis':
         specifier: 4.0.4
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
@@ -825,6 +828,55 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 4.0.4
         version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+
+  packages/ops-web:
+    dependencies:
+      '@argus-agent/approvals-bridge':
+        specifier: workspace:*
+        version: link:../ops-approvals-bridge
+      '@argus-agent/channel':
+        specifier: workspace:*
+        version: link:../ops-channel
+      '@argus-agent/commands':
+        specifier: workspace:*
+        version: link:../ops-commands
+      '@argus-agent/governor':
+        specifier: workspace:*
+        version: link:../ops-governor
+      '@argus-agent/meter':
+        specifier: workspace:*
+        version: link:../ops-meter
+      '@argus-agent/projects':
+        specifier: workspace:*
+        version: link:../ops-projects
+      '@argus-agent/store':
+        specifier: workspace:*
+        version: link:../ops-store
+      '@argus-agent/types':
+        specifier: workspace:*
+        version: link:../ops-types
+      '@deepseek-ai/cordis':
+        specifier: 4.0.4
+        version: 4.0.4(@deepseek-ai/cordis-plugin-include@1.0.9)(@deepseek-ai/cordis-plugin-loader@1.0.5)
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.4
+        version: 3.18.4
+      htm:
+        specifier: 3.1.1
+        version: 3.1.1
+      preact:
+        specifier: 10.29.8
+        version: 10.29.8
+    devDependencies:
+      '@argus-agent/argus-agent':
+        specifier: workspace:*
+        version: link:../argus-agent
+      '@argus-agent/testkit':
+        specifier: workspace:*
+        version: link:../ops-testkit
+      '@argus-agent/web':
+        specifier: workspace:*
+        version: 'link:'
 
   profiles/ops:
     dependencies:
@@ -6029,6 +6081,10 @@ packages:
       - supports-color
     dev: false
 
+  /htm@3.1.1:
+    resolution: {integrity: sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==}
+    dev: false
+
   /http-cache-semantics@4.2.0:
     resolution: {integrity: sha512-dTxcvPXqPvXBQpq5dUr6mEMJX4oIEFv6bwom3FDwKRDsuIjjJGANqhBuoAn9c1RQJIdAKav33ED65E2ys+87QQ==}
     dev: false
@@ -6499,6 +6555,15 @@ packages:
       picocolors: 1.1.1
       source-map-js: 1.2.2
     dev: true
+
+  /preact@10.29.8:
+    resolution: {integrity: sha512-ej2aVZ+vZ8WO7tvlQWRM9N63A0KzF9q4mWJfDUHgYaIofWY9hu74QdnQrjoPMmZi2/nZ5gN0bJCQF49xQqx09Q==}
+    peerDependencies:
+      preact-render-to-string: '>=5'
+    peerDependenciesMeta:
+      preact-render-to-string:
+        optional: true
+    dev: false
 
   /prebuild-install@7.1.3:
     resolution: {integrity: sha512-8Mf2cbV7x1cXPUILADGI3wuhfqWvtiLA1iclTDbFRZkgRQS0NqsPZphna9V+HyTEadheuPmjaJMsbzKQFOzLug==}

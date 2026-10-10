@@ -282,6 +282,22 @@ health:
   startup_report: true
   error_alert_threshold: 5
 
+# ── web ─────────────────────────────────────────────────────────────────────────
+# The web interface: dashboard, approvals, settings and a chat. For a PRIVATE
+# network only: on the server, `tailscale serve --bg 3091` makes it reachable from
+# your own devices over HTTPS, with nothing opened to the internet. Sign in by
+# sending /web to the bot. See docs/user/web.md.
+
+web:
+  enabled: true
+  port: 3091
+  # The address you open it at, for the /web link. With tailscale serve:
+  #   public_url: https://<machine>.<tailnet>.ts.net
+  # Unset, the link is http://127.0.0.1:3091 (an SSH tunnel).
+  # public_url: https://argus.tail1234.ts.net
+  # How long a sign-in lasts.
+  session_hours: 24
+
 # ── rate limits ─────────────────────────────────────────────────────────────────
 
 rate_limits: {}

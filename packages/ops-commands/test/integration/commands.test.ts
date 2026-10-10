@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'web', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)

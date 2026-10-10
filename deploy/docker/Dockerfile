@@ -107,6 +107,9 @@ ENV DSH_HOME=/data/dsh-home
 ENV ARGUS_AGENT_CONFIG=/data/config/ops.yaml
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--enable-source-maps"
+# The web interface listens on every interface of the CONTAINER's own network, so
+# compose can publish it; compose publishes it on the host's loopback only.
+ENV ARGUS_AGENT_WEB_HOST=0.0.0.0
 # Never a `.npmrc` in the image: a registry token baked into a layer is a leaked token.
 ENV HOME=/home/ops
 
@@ -124,6 +127,9 @@ VOLUME ["/data"]
 # EXPOSEd so a compose file can attach a healthcheck; it is not meant to be published
 # to a host interface. See docs/user/security.md.
 EXPOSE 3090
+# 3091 is the web interface. Published on the host's 127.0.0.1 only, and reached
+# through `tailscale serve`, a VPN or an SSH tunnel: never a public interface.
+EXPOSE 3091
 
 # The health check calls the same endpoint the operator does, so a failing check and
 # a failing `curl` mean the same thing. `--start-period` covers the first boot, when

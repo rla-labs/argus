@@ -13,6 +13,7 @@ supported alternative.
 | Install it, with Docker | [Install with Docker](install-docker.md) |
 | Install it on a VPS without Docker | [Install natively (systemd)](install-native.md) |
 | Learn how to use it well, day to day | [Working with Argus every day](daily-use.md) |
+| Use the dashboard, approvals and settings in a browser | [The web interface](web.md) |
 | Look up one command | [Telegram commands](commands.md) |
 | Change a setting | [Configuration](configuration.md) |
 | Back up, restore, or upgrade | [Backup, restore and upgrades](backup-and-upgrade.md) |
