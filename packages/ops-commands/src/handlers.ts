@@ -1320,7 +1320,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         // typo that the file would keep and nothing would read.
         const loaded = projects.configOf(projectId)
         const known = loaded === undefined ? undefined : settingKeys(loaded)
-        if (known !== undefined && key !== 'model' && !known.includes(key)) {
+        // A tool's exception is a new key by nature: any tool name may get one.
+        const exception = /^tools\.exceptions\.[a-z0-9_-]+$/i.test(key)
+        if (known !== undefined && key !== 'model' && !exception && !known.includes(key)) {
           return errorResult(`"${key}" is not a project setting. Known: ${known.join(', ')}.`)
         }
 
@@ -1498,6 +1500,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           '(refused), ask (you are asked) or allow (runs unasked). A read or write outside ' +
           'the project’s folder asks even under allow. Change one with /set <project> ' +
           'tools.<group> <value>; web_hosts lists the sites web_fetch reaches unasked. ' +
+          'One tool can differ from its group: /set <project> tools.exceptions.<tool> <value>. ' +
           'MCP servers are listed with their access; change one with /set <project> ' +
           'mcp.<server>.access <value>. ' +
           'With no project, uses this chat’s active one.',
@@ -1516,12 +1519,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         rows.push(`${'other'.padEnd(7)} ${tools.other.padEnd(6)} any tool not listed above`)
         const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}` : ''
+        const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}`)
+        const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
         const servers = Object.entries(projects.configOf(projectId)?.mcp ?? {}).map(
           ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.command ?? server.url ?? ''}`,
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}${mcp}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${named}${mcp}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
         )
       },

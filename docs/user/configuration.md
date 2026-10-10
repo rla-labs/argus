@@ -443,7 +443,20 @@ nothing else; what would ask is refused while `approvals_adhoc` is `deny`.
 `shell` in one project also lets a page the agent read steer the commands it runs; do it
 only for a project you trust with both. `argus doctor` warns about such a project.
 
-`/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it.
+**One tool can differ from its group.** `exceptions` names tools and their access, which
+wins over the group, the always-allowed tools included:
+
+```yaml
+tools:
+  web: ask
+  exceptions:
+    web_search: allow     # searching is fine; fetching a page still asks
+    edit: deny            # it may write new files, never edit existing ones
+    todo_write: off       # not even offered
+```
+
+`/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it,
+and `/set <project> tools.exceptions.web_search allow` sets one exception.
 
 ### `ask_project` — one project asks another
 

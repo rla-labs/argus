@@ -381,6 +381,50 @@ describe('the gate', () => {
     expect(ran.sort()).toEqual(['read', 'todo_write'])
   }, 60_000)
 
+  it('follows a tool\'s exception over its group, the always-allowed ones included', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\ntools:\n  write: allow\n  other: deny\n  exceptions:\n    edit: deny\n    mystery_tool: allow\n    todo_write: deny` },
+      script: [
+        {
+          text: 'working',
+          toolCalls: [
+            { name: 'write', arguments: '{"file_path":"a.md","content":"x"}', id: 'c1' },
+            { name: 'edit', arguments: '{"file_path":"a.md"}', id: 'c2' },
+            { name: 'mystery_tool', arguments: '{}', id: 'c3' },
+            { name: 'todo_write', arguments: '{}', id: 'c4' },
+          ],
+        },
+        { text: 'done' },
+      ],
+    })
+    await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const name of ['write', 'edit', 'mystery_tool', 'todo_write']) {
+      agent.ctx.tools.register(
+        defineTool({
+          name,
+          description: name,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async () => {
+            ran.push(name)
+            return 'ok'
+          },
+        }),
+      )
+    }
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(() => booted.governor.status().running.length === 0 && booted.store.runs.recent(1).length === 1, { timeoutMs: 30_000, label: 'run ended' })
+    expect(ran.sort()).toEqual(['mystery_tool', 'write'])
+    // Nothing asked: every decision was the file's.
+    expect(booted.store.approvals.recent(10)).toHaveLength(0)
+  }, 60_000)
+
   it('follows an MCP server\'s access, and shows the call\'s arguments when it asks', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
     dirs.push(dataDir)

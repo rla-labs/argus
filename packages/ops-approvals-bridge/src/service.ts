@@ -132,8 +132,9 @@ export class OpsApprovalsBridge {
     const owner = this.options.projects.ownerOf(exec.agent.id as string)
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
     const group = toolGroupOf(exec.name)
-    if (group === 'quiet') return undefined
     const project = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId) : undefined
+    const exception = project?.tools.exceptions[exec.name]
+    if (group === 'quiet' && exception === undefined) return undefined
     // A tool of one of the project's MCP servers follows that server's `access`.
     const serverName = mcpServerOf(exec.name)
     const server = serverName === undefined ? undefined : project?.mcp[serverName]
@@ -142,10 +143,10 @@ export class OpsApprovalsBridge {
       this.ctx.logger('ops-approvals').warn('tool %s is in no group; it follows tools.other', exec.name)
     }
     const policy = owner.kind === 'project' ? (project?.tools ?? PROJECT_TOOL_DEFAULTS) : taskToolPolicy(this.options.config.approvals_adhoc)
-    const access = server?.access ?? policy[group]
+    const access = exception ?? server?.access ?? (group === 'quiet' ? 'allow' : policy[group])
     if (access === 'deny' || access === 'off') {
       const where = owner.kind === 'project' ? `in project ${owner.projectId}` : 'in a one-off task'
-      const rule = server === undefined ? `tools.${group}` : `mcp.${serverName}.access`
+      const rule = exception !== undefined ? `tools.exceptions.${exec.name}` : server === undefined ? `tools.${group}` : `mcp.${serverName}.access`
       return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (${rule}: ${access}). Do not look for another way to do the same thing.` }
     }
 

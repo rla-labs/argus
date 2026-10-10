@@ -775,6 +775,14 @@ describe('admin-only commands', () => {
     expect(booted.projects.configOf('alpha')).toBeDefined()
   }, 30_000)
 
+  it('/set writes one tool\'s exception, and /tools shows it', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect(await run(booted, '/set alpha tools.exceptions.web_search allow')).toContain('tools.exceptions.web_search = "allow"')
+    expect(booted.projects.configOf('alpha')?.tools.exceptions).toEqual({ web_search: 'allow' })
+    expect(await run(booted, '/tools alpha')).toContain('Exceptions (over the group): web_search allow')
+    expect(await run(booted, '/set alpha tools.exceptions.edit sometimes')).toContain('does not validate')
+  }, 30_000)
+
   it('/set writes the project file, keeps its comments, and reloads', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const file = join(booted.dataDir, 'config', 'projects', 'alpha.yaml')

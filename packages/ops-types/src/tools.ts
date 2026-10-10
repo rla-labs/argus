@@ -31,6 +31,8 @@ export interface ToolPolicy {
   readonly other: Exclude<ToolAccess, 'off'>
   /** Hosts `web_fetch` reaches unasked under `web: ask`; a host covers its subdomains. */
   readonly web_hosts: readonly string[]
+  /** One tool's access, by name, over its group's (and over the always-allowed ones). */
+  readonly exceptions: Readonly<Record<string, ToolAccess>>
 }
 
 /**
@@ -75,6 +77,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
   agents: 'off',
   other: 'ask',
   web_hosts: [],
+  exceptions: {},
 }
 
 /**
@@ -87,7 +90,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
  */
 export function taskToolPolicy(adhoc: 'auto' | 'ask' | 'deny'): ToolPolicy {
   const risky = adhoc === 'deny' ? 'deny' : 'ask'
-  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', other: risky, web_hosts: [] }
+  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', other: risky, web_hosts: [], exceptions: {} }
 }
 
 /**
@@ -111,7 +114,10 @@ export function toolGroupOf(name: string): ToolGroup | 'quiet' {
  * @returns every name in a group set to `off`.
  */
 export function hiddenTools(policy: ToolPolicy): string[] {
-  return Object.entries(TOOL_GROUPS).flatMap(([group, names]) => (policy[group as ToolGroup] === 'off' ? [...names] : []))
+  const byGroup = Object.entries(TOOL_GROUPS).flatMap(([group, names]) => (policy[group as ToolGroup] === 'off' ? [...names] : []))
+  const exceptions = Object.entries(policy.exceptions)
+  // An exception wins both ways: it hides one tool of a visible group, and shows one of a hidden group.
+  return [...byGroup.filter((name) => (policy.exceptions[name] ?? 'off') === 'off'), ...exceptions.filter(([name, access]) => access === 'off' && !byGroup.includes(name)).map(([name]) => name)]
 }
 
 /**

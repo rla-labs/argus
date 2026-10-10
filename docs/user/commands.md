@@ -640,6 +640,7 @@ the file stays as it was and the reply says why.
 | `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
 | `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
+| `tools.exceptions.<tool>` | One tool's access over its group's, e.g. `tools.exceptions.web_search allow` |
 | `mcp.<server>.access`, `mcp.<server>.timeout_s`, ... | An MCP server's settings; `access` applies to the next call, the rest after `/reset` |
 | `memory.user_profile`, `progress`, `preset` | The rest |
 

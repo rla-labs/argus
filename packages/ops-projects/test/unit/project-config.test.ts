@@ -248,7 +248,7 @@ describe('parseProjectConfig', () => {
 
 describe('the tools block', () => {
   it('defaults to today\'s behaviour with delegation hidden', () => {
-    expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', other: 'ask', web_hosts: [] })
+    expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', other: 'ask', web_hosts: [], exceptions: {} })
   })
 
   it('takes a group\'s access and the web hosts', () => {
@@ -264,6 +264,12 @@ describe('the tools block', () => {
     expect(parseFails({ tools: { webb: 'allow' } }).issues.map((issue) => issue.path)).toContain('tools.webb')
     expect(() => parse({ tools: { web: 'sometimes' } })).toThrow()
     expect(() => parse({ tools: { other: 'off' } })).toThrow()
+  })
+
+  it('takes one tool\'s exception over its group, and refuses a value it does not know', () => {
+    expect(parse({ tools: { web: 'ask', exceptions: { web_search: 'allow', edit: 'deny' } } }).tools).toMatchObject({ web: 'ask', exceptions: { web_search: 'allow', edit: 'deny' } })
+    expect(parseFails({ tools: { exceptions: { web_search: 'sometimes' } } }).issues.map((issue) => issue.path)).toContain('tools.exceptions.web_search')
+    expect(parseFails({ tools: { exceptions: ['web_search'] } }).issues.map((issue) => issue.path)).toContain('tools.exceptions')
   })
 })
 

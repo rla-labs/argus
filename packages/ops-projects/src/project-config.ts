@@ -92,7 +92,10 @@ function toolAccess(fallback: string) {
 }
 
 /** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
-const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_hosts']
+const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_hosts', 'exceptions']
+
+/** What one tool's exception may be. */
+const ACCESS_VALUES = ['off', 'deny', 'ask', 'allow']
 
 /** The keys one `mcp:` server may hold. */
 const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'timeout_s']
@@ -336,9 +339,20 @@ export function parseProjectConfig(
   }
 
   const tools = document['tools']
+  let exceptions: Record<string, string> = {}
   if (tools !== null && typeof tools === 'object' && !Array.isArray(tools)) {
     for (const key of Object.keys(tools)) {
       if (!TOOL_KEYS.includes(key)) issues.push({ path: `tools.${key}`, message: `not a tool group; use one of ${TOOL_KEYS.join(', ')}` })
+    }
+    const named = (tools as Record<string, unknown>)['exceptions']
+    if (named !== undefined && named !== null) {
+      if (typeof named !== 'object' || Array.isArray(named)) issues.push({ path: 'tools.exceptions', message: 'must map tool names to off, deny, ask or allow' })
+      else {
+        exceptions = named as Record<string, string>
+        for (const [name, access] of Object.entries(exceptions)) {
+          if (!ACCESS_VALUES.includes(access)) issues.push({ path: `tools.exceptions.${name}`, message: `must be one of ${ACCESS_VALUES.join(', ')}` })
+        }
+      }
     }
   }
 
@@ -361,7 +375,10 @@ export function parseProjectConfig(
   let validated: Record<string, unknown>
   let mcp: Record<string, Record<string, unknown>>
   try {
-    validated = projectConfigSchema(withDefaults) as unknown as Record<string, unknown>
+    // The exceptions are checked above; the schema knows only the groups.
+    const written = (withDefaults as Record<string, unknown>)['tools']
+    const groups = written !== null && typeof written === 'object' && !Array.isArray(written) ? Object.fromEntries(Object.entries(written).filter(([key]) => key !== 'exceptions')) : written
+    validated = projectConfigSchema({ ...withDefaults, tools: groups } as never) as unknown as Record<string, unknown>
     mcp = mcpSchema((document['mcp'] ?? {}) as never) as Record<string, Record<string, unknown>>
   } catch (error) {
     throw new ProjectConfigError(`${options.sourcePath} failed validation`, [
@@ -383,7 +400,7 @@ export function parseProjectConfig(
     budget: validated['budget'] as ProjectBudget,
     approvals: validated['approvals'] as ProjectApprovals,
     memory: validated['memory'] as ProjectMemory,
-    tools: validated['tools'] as ToolPolicy,
+    tools: { ...(validated['tools'] as Omit<ToolPolicy, 'exceptions'>), exceptions: exceptions as ToolPolicy['exceptions'] },
     mcp: Object.fromEntries(
       Object.entries(mcp).map(([name, server]) => [
         name,

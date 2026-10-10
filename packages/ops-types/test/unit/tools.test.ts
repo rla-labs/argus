@@ -20,6 +20,8 @@ describe('tool groups', () => {
     expect(hiddenTools(PROJECT_TOOL_DEFAULTS)).toContain('subagent')
     expect(hiddenTools(PROJECT_TOOL_DEFAULTS)).not.toContain('bash')
     expect(hiddenTools({ ...PROJECT_TOOL_DEFAULTS, agents: 'ask', web: 'off' })).toEqual(['web_fetch', 'web_search'])
+    // An exception wins both ways.
+    expect(hiddenTools({ ...PROJECT_TOOL_DEFAULTS, agents: 'ask', web: 'off', exceptions: { web_search: 'allow', edit: 'off' } })).toEqual(['web_fetch', 'edit'])
   })
 
   it('gives a task the web and refuses the rest unless ad-hoc approvals ask', () => {

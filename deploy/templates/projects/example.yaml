@@ -103,6 +103,10 @@ tools:
   # Sites web_fetch reaches without asking under `web: ask`. A host covers its subdomains.
   web_hosts: []
   #   - news.ycombinator.com
+  # One tool's access over its group's: /set <project> tools.exceptions.<tool> <value>
+  exceptions: {}
+  #   web_search: allow
+  #   edit: deny
 
 # ── MCP servers ─────────────────────────────────────────────────────────────────
 # Tools from other systems, as mcp__<server>__<tool>. A local program (command) or a
