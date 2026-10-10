@@ -122,7 +122,7 @@ cd /opt/argus-agent-src
 Then check out the release you want (a tag is reproducible; a branch is not):
 
 ```sh
-sudo git checkout v0.2.5
+sudo git checkout v0.2.6
 ```
 
 The automated installer can also clone for you — this step is only needed if you want to
@@ -232,7 +232,7 @@ sudo chmod 0750 /srv/argus-agent /srv/argus-agent/data
 ```sh
 sudo mkdir -p /opt/argus-agent
 sudo git clone https://github.com/rla-labs/argus.git /opt/argus-agent
-sudo git -C /opt/argus-agent checkout v0.2.5
+sudo git -C /opt/argus-agent checkout v0.2.6
 sudo chown -R ops:ops /opt/argus-agent
 ```
 
