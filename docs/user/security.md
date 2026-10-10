@@ -9,6 +9,7 @@ What this deployment defends against, and what it explicitly does not.
 | Threat | In scope | Control |
 |---|---|---|
 | A stranger messaging the bot | **Yes** | The allowlist (the admin, `allowed_users`, and users added with `/allow`), checked on every inbound path. Nobody until an admin is set. |
+| An allowed user spending or widening access | **Yes** | Two roles: operators run and stop work and answer approvals; spending (`/new`, `/model`, budgets, free models), permissions (`/set`, `/key`, `/allow`, instructions) and deletion are the admin's ([configuration](configuration.md#access--who-may-operate-the-system)). |
 | An allowed user's mistake | **Partly** | Approvals (`ask` by default), per-project budgets, sandbox modes. |
 | A prompt-injected agent | **Partly** | Sandbox per call, approvals, the allowlist is unaffected — but an approved command does what it does. |
 | A leaked bot token | **Partly** | Revoke with BotFather. The token grants the bot's identity, not the host. |

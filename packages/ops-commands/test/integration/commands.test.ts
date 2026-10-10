@@ -130,6 +130,8 @@ function contextFor(overrides: Partial<CommandContext> = {}): CommandContext {
     address: { channel: 'test', chatId: 'chat-1' },
     userId: 'user-1',
     now: Date.now(),
+    // The admin, unless a test is about an operator.
+    isAdmin: true,
     ...overrides,
   }
 }
@@ -748,7 +750,7 @@ describe('admin-only commands', () => {
   it('refuse anyone but the admin, the confirmed forms included', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     for (const line of ['/set alpha budget.day_usd 5', '/archive alpha', '/archive-confirm alpha', '/allow', '/allow-confirm x']) {
-      const out = await booted.commands.runCommand(line, contextFor())
+      const out = await booted.commands.runCommand(line, contextFor({ isAdmin: false }))
       expect(out.error, line).toBe(true)
       expect(out.text, line).toContain('Only the admin')
     }
@@ -776,7 +778,7 @@ describe('admin-only commands', () => {
     writeFileSync(file, `# kept\n${readFileSync(file, 'utf8')}`)
     expect(await run(booted, '/defaults')).toContain('Tasks:      fake/fake-model')
 
-    const refused = await booted.commands.runCommand('/defaults tasks fake/other-model', contextFor({}))
+    const refused = await booted.commands.runCommand('/defaults tasks fake/other-model', contextFor({ isAdmin: false }))
     expect(refused.text).toContain('Only the admin')
     expect(await run(booted, '/defaults tasks fake/other-model', admin())).toContain('The next task runs on it')
     expect(booted.governor.adhocModel()).toEqual({ provider: 'fake', model: 'other-model' })
@@ -1530,10 +1532,26 @@ describe('/instructions', () => {
     expect(await run(booted, '/instructions alpha Answer in Romanian.\nNever touch blog/.', admin)).toContain('instructions saved')
     expect(kept.get('alpha')).toBe('Answer in Romanian.\nNever touch blog/.')
     expect(await run(booted, '/instructions alpha')).toBe('Instructions of alpha:\n\nAnswer in Romanian.\nNever touch blog/.')
-    expect(await run(booted, '/instructions alpha Be brief.')).toContain('Only the admin')
+    expect(await run(booted, '/instructions alpha Be brief.', contextFor({ isAdmin: false }))).toContain('Only the admin')
     expect(await run(booted, `/instructions alpha ${'x'.repeat(200)}`, admin)).toBe('too long')
     expect(await run(booted, '/instructions alpha clear', admin)).toContain('removed')
     expect(kept.get('alpha')).toBe('')
     expect(await run(booted, '/instructions nowhere')).toContain('nowhere')
+  }, 30_000)
+})
+
+// ── roles ──────────────────────────────────────────────────────────────────
+
+describe('roles', () => {
+  it('lets an operator see and run work, and keeps spending, creating and deleting for the admin', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const operator = contextFor({ isAdmin: false, userId: 'user-2' })
+    expect(await run(booted, '/budget alpha', operator)).toContain('Budget for project:alpha')
+    expect(await run(booted, '/budget alpha +5', operator)).toContain('Only the admin')
+    expect(await run(booted, '/model alpha fake/fake-model', operator)).toContain('admin')
+    expect(await run(booted, '/new beta', operator)).toContain('Only the admin')
+    expect(await run(booted, '/new', operator)).toContain('Templates')
+    expect(await run(booted, '/allow-free fake/gratis', operator)).toContain('admin')
+    expect(await run(booted, '/status', operator)).not.toContain('admin')
   }, 30_000)
 })

@@ -810,7 +810,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'forget',
-        description: 'Remove one section of a project’s memory',
+        description: 'Remove one section of a project’s memory (admin)',
         syntax: '/forget <project-id> [section]',
         detail:
           'A project’s memory is a list of sections (“## Build”, “## Conventions”, …). ' +
@@ -837,6 +837,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             [`Sections of ${projectId}'s memory:`, ...sections.map((entry) => `- ${entry.name} (${entry.chars} chars)`), '', `Remove one: /forget ${projectId} <section>`].join('\n'),
           )
         }
+        if (context.isAdmin !== true) return errorResult('Only the admin can remove memory.')
         const match = sections.find((entry) => entry.name === section) ?? sections.find((entry) => entry.name.toLowerCase() === section.toLowerCase())
         if (match === undefined) {
           return errorResult(`${projectId}'s memory has no section "${section}". Send /forget ${projectId} to list them.`)
@@ -858,6 +859,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         detail: 'Removes the section the confirmation asked about. Not meant to be typed.',
         examples: [],
         mutating: true,
+        adminOnly: true,
         requires: 'ops-memory',
       },
       run(input, context): CommandResult {
@@ -973,7 +975,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'budget',
-        description: 'Show or change a budget',
+        description: 'Show or change a budget (admin to change)',
         syntax: '/budget <scope> [+<usd> | unlock <duration> | set <day|month> <usd>]',
         detail:
           'With no action, shows the scope’s state. `+<usd>` adds temporary headroom and ' +
@@ -992,6 +994,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const action = tokens[1]
         const now = options.now()
 
+        if (action !== undefined && context.isAdmin !== true) return errorResult('Only the admin can change a budget. Anyone can see it: /budget ' + scopeToken)
         if (action === undefined) {
           const state = governor.budgetState(scope, now)
           const lines = [
@@ -1080,7 +1083,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'model',
-        description: 'Change a project’s model',
+        description: 'Change a project’s model (admin)',
         syntax: '/model <project-id> <provider/model>',
         detail:
           'Records a runtime override. A live agent keeps its current model — dsh fixes the ' +
@@ -1088,6 +1091,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'after /reset. A configuration reload reverts it, because the file is the durable intent.',
         examples: ['/model site-firma deepseek/deepseek-flash'],
         mutating: true,
+        adminOnly: true,
       },
       async run(input, context): Promise<CommandResult> {
         const tokens = tokenize(input)
@@ -1115,7 +1119,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'new',
-        description: 'Create a project',
+        description: 'Create a project (admin)',
         syntax: '/new <id> [template] [provider/model]',
         detail:
           'Creates the project folder, writes its project file, and reloads the configuration ' +
@@ -1136,6 +1140,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           const broken = problems.length > 0 ? `\n\nNot loaded:\n${problems.map((line) => `  ${line}`).join('\n')}` : ''
           return result(`Create a project: ${this.spec.syntax}\n\nTemplates:\n${list.join('\n')}${broken}\n\nWithout a template the project asks before writing, running or browsing.`)
         }
+        if (context.isAdmin !== true) return errorResult('Only the admin can create a project.')
         if (!isValidProjectId(id)) {
           return failWith(
             { syntax: this.spec.syntax } as CommandSpec,
@@ -1594,7 +1599,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'allow-free',
-        description: 'Allow a free remote model to run',
+        description: 'Allow a free remote model to run (admin)',
         syntax: '/allow-free <provider/model>',
         detail:
           'A remote model priced at $0 — an OpenRouter :free variant, or a 0 in ops.yaml — is ' +
@@ -1603,6 +1608,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'Local providers (local_providers, default ollama) need nothing. Requires confirmation.',
         examples: ['/allow-free openrouter/deepseek/deepseek-flash:free'],
         mutating: true,
+        adminOnly: true,
         destructive: true,
       },
       run(input, context): CommandResult {
@@ -1634,6 +1640,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         detail: 'Records the confirmation /allow-free asked for. Not meant to be typed.',
         examples: [],
         mutating: true,
+        adminOnly: true,
       },
       run(input, context): CommandResult {
         const parsed = parseModelRef(tokenize(input)[0] ?? '')

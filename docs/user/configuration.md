@@ -40,9 +40,21 @@ so the file can be copied, committed or shown without leaking anything.
 | `allowed_users` | list | `[]` | More `{ channel, userId }` entries. **With no admin either, everyone is refused.** |
 | `warn_interval_minutes` | int | `15` | Rate limit for refusal warnings. |
 
-**The admin commands.** `/set`, `/archive` and `/allow` run only for the admin: the
-`access.admin` user, or anyone in the admin's chat when `access.admin` is a group. From
-the dsh Web UI they always run, because only someone on the server can reach it. Users
+**Two roles.**
+
+| Role | Who | May |
+|---|---|---|
+| **admin** | `access.admin` (anyone in its chat, when it is a group) | everything |
+| **operator** | every other allowed user (`allowed_users`, `/allow`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
+
+What spends money, changes what the agents may do, or deletes is the admin's:
+`/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
+`/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
+and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
+instructions or the memory stays open to everyone.
+
+From the dsh Web UI and Argus's own web interface, commands run as the admin: only the
+admin is given a web link, and only someone on the server reaches the dsh Web UI. Users
 added with `/allow` are allowed on top of `allowed_users`.
 
 ```yaml

@@ -182,8 +182,8 @@ describe('end to end with the console adapter', () => {
   it('creates a project, sends free text, receives the result and checks usage', async () => {
     const booted = await bootChannel()
 
-    // 1. Create a project through a command.
-    await booted.channel.handleIncoming(message('/new reports fake/fake-model'))
+    // 1. The admin creates a project through a command.
+    await booted.channel.handleIncoming(message('/new reports fake/fake-model', { address: { channel: 'console', chatId: 'admin-chat' }, userId: 'admin-chat' }))
     await settle()
     expect(booted.projects.configOf('reports')).toBeDefined()
 

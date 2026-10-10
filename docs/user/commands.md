@@ -12,6 +12,19 @@ An **amount** is `2`, `2.5`, `$2`, or `$2.50`.
 For which command fits which moment, read
 [Working with Argus every day](daily-use.md#commands-by-situation).
 
+**Who may run what.**
+
+| Role | Who | May |
+|---|---|---|
+| **admin** | `access.admin` (anyone in its chat, when it is a group) | everything |
+| **operator** | every other allowed user (`allowed_users`, `/allow`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
+
+What spends money, changes what the agents may do, or deletes is the admin's:
+`/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
+`/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
+and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
+instructions or the memory stays open to everyone.
+
 | Group | Commands |
 |---|---|
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
@@ -20,7 +33,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see the roles above) | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
 
