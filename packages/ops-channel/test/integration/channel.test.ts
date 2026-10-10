@@ -594,6 +594,8 @@ describe('delivery', () => {
     expect(await booted.channel.sendFile(alpha, ['site', 'notes.md'])).toMatch(/^Sent alpha\.zip/)
     expect(listed[0]?.trim().split('\n').sort()).toEqual(['notes.md', 'site/', 'site/css/', 'site/css/style.css', 'site/index.html'])
     expect(await booted.channel.sendFile(alpha, ['site'])).toMatch(/^Sent site\.zip/)
+    // A chosen name, kept to safe characters.
+    expect(await booted.channel.sendFile(alpha, ['site', 'notes.md'], undefined, '../October report.zip')).toMatch(/^Sent October-report\.zip/)
     expect(existsSync(booted.adapter.sent.at(-1)!.message.files![0]!.path!)).toBe(false)
   }, 40_000)
 

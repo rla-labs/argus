@@ -750,7 +750,7 @@ export class OpsChannel {
    * @param caption optional text sent with it.
    * @returns what happened, for the model.
    */
-  async sendFile(owner: Owner, paths: string | readonly string[], caption?: string): Promise<string> {
+  async sendFile(owner: Owner, paths: string | readonly string[], caption?: string, archiveName?: string): Promise<string> {
     if (owner.kind === 'orchestrator') return 'send_file is for projects and tasks; the front desk has no folder.'
     const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)
     if (root === undefined) return 'This agent has no folder to send from.'
@@ -788,7 +788,9 @@ export class OpsChannel {
     // Several files, or a folder: one zip, made here so the agent never builds an
     // archive by hand. `-y` keeps a symlink a link, so nothing outside the folder
     // is read through one.
-    const base = list.length === 1 ? basename(resolve(root, list[0]!)) : basename(resolve(root))
+    // A name the agent chose, kept to safe characters: it becomes a file name here.
+    const chosen = (archiveName ?? '').replace(/\.zip$/i, '').replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 80)
+    const base = chosen || (list.length === 1 ? basename(resolve(root, list[0]!)) : basename(resolve(root)))
     const temp = mkdtempSync(join(tmpdir(), 'argus-send-'))
     const archive = join(temp, `${base || 'files'}.zip`)
     try {

@@ -89,7 +89,7 @@ finish() {
 # request each), the chat channel and the admin. Each failure comes with its fix.
 
 # The /doctor JSON as lines: ok<TAB>what<TAB>fix.
-readonly DOCTOR_PARSE='let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{const flat=(t)=>String(t||"").replace(/\s+/g," ");try{for(const f of JSON.parse(s).findings)console.log([f.ok?"1":"0",flat([f.check,f.detail].filter(Boolean).join(": ")),flat(f.fix)].join("\t"))}catch{console.log("E")}})'
+readonly DOCTOR_PARSE='let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{const flat=(t)=>String(t||"").replace(/\s+/g," ");try{for(const f of JSON.parse(s).findings)console.log([f.ok?(f.warn?"W":"1"):"0",flat([f.check,f.detail].filter(Boolean).join(": ")),flat(f.fix)].join("\t"))}catch{console.log("E")}})'
 
 report_doctor() {
   local lines="$1" good text fix
@@ -98,7 +98,12 @@ report_doctor() {
     return 0
   fi
   while IFS=$'\t' read -r good text fix; do
-    if [ "${good}" = "1" ]; then check_pass "${text}"; else check_fail "${text}" "${fix:+fix: ${fix}}"; fi
+    case "${good}" in
+      1) check_pass "${text}" ;;
+      # A warning passes: it is a choice to look at again, not a fault.
+      W) check_pass "${text}"; warn "${text}"; [ -n "${fix}" ] && dim "     ${fix}" ;;
+      *) check_fail "${text}" "${fix:+fix: ${fix}}" ;;
+    esac
   done <<<"${lines}"
 }
 

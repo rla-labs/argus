@@ -200,14 +200,15 @@ export function apply(ctx: Context): void {
         parameters: {
           paths: { type: 'array', items: { type: 'string' }, description: 'Files or folders, relative to your folder.', required: true },
           caption: { type: 'string', description: 'Optional short text sent with the file.' },
+          archive_name: { type: 'string', description: 'Optional name for the archive when several files are sent, e.g. "report-october".' },
         },
         output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }] },
         execute: async (args, exec) => {
-          const input = args as { paths?: unknown; caption?: unknown }
+          const input = args as { paths?: unknown; caption?: unknown; archive_name?: unknown }
           const owner = exec.agent === undefined ? undefined : ctx.opsProjects.ownerOf(exec.agent.id as string)
           if (owner === undefined) return 'send_file works only for a project or a task.'
           const paths = (Array.isArray(input.paths) ? input.paths : []).filter((path): path is string => typeof path === 'string')
-          return service.sendFile(owner, paths, typeof input.caption === 'string' ? input.caption : undefined)
+          return service.sendFile(owner, paths, typeof input.caption === 'string' ? input.caption : undefined, typeof input.archive_name === 'string' ? input.archive_name : undefined)
         },
       }),
     ),

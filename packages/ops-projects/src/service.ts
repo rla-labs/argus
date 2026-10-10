@@ -199,16 +199,26 @@ export class OpsProjects {
    * @returns the findings.
    */
   doctor(): DoctorFinding[] {
+    // A page the agent reads can steer the commands it runs, unasked.
+    const risky: DoctorFinding[] = this.configuredIds().flatMap((id) => {
+      const tools = this.configOf(id)?.tools
+      return tools?.web === 'allow' && tools.shell === 'allow'
+        ? [{ ok: true, warn: true, check: `project ${id}`, detail: 'tools.web and tools.shell are both allow: a web page it reads can steer the commands it runs', fix: `if that is not intended: /set ${id} tools.shell ask` }]
+        : []
+    })
     const invalid = this.invalidProjects()
     if (invalid.length === 0) {
-      return [{ ok: true, check: 'the project files', detail: `${this.configuredIds().length} valid` }]
+      return [{ ok: true, check: 'the project files', detail: `${this.configuredIds().length} valid` }, ...risky]
     }
-    return invalid.map((project) => ({
-      ok: false,
-      check: `project ${project.id}`,
-      detail: project.reason,
-      fix: `edit ${project.path}, then send /reload`,
-    }))
+    return [
+      ...invalid.map((project) => ({
+        ok: false,
+        check: `project ${project.id}`,
+        detail: project.reason,
+        fix: `edit ${project.path}, then send /reload`,
+      })),
+      ...risky,
+    ]
   }
 
   /** Re-check every project's model: something a check reads changed (a price arrived). */

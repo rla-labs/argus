@@ -441,7 +441,7 @@ nothing else; what would ask is refused while `approvals_adhoc` is `deny`.
 **These are rules for tools, not a sandbox.** With `shell: allow`, or `curl` in
 `auto_allow`, the agent reaches the network whatever `web` says. Allowing both `web` and
 `shell` in one project also lets a page the agent read steer the commands it runs; do it
-only for a project you trust with both.
+only for a project you trust with both. `argus doctor` warns about such a project.
 
 `/tools <project>` shows a project's table; `/set <project> tools.web allow` changes it.
 

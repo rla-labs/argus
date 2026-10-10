@@ -276,6 +276,7 @@ message. The agent edits its memory itself. To remove a whole section yourself,
 **An agent can send you files itself** with its `send_file` tool, from its own folder to
 the chat the work came from, as an attachment. One file goes as it is; several files, or a
 folder ("send me the site"), arrive as one zip the tool makes, with nothing to approve.
+Ask for a name ("send it as october-report") and the zip is called that.
 Projects and one-off tasks both have it. The size limit is the channel's, and applies to
 the zip: 50 MB on Telegram.
 

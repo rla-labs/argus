@@ -98,6 +98,8 @@ export interface DoctorFinding {
   readonly detail?: string
   /** What to do about a failure, as a step the operator can follow. */
   readonly fix?: string
+  /** With `ok`: a setting that works but deserves a second look. */
+  readonly warn?: boolean
 }
 
 /** A service that contributes to `argus doctor`. */
