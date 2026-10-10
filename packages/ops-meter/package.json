@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/meter",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Real-time token and cost accounting, attributed to exactly one owner and priced from ops.yaml",
   "type": "module",
   "main": "lib/index.js",

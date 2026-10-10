@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/approvals-bridge",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Bridges dsh's approval requests to Telegram, so risky actions can be approved from a phone and denied by default",
   "type": "module",
   "main": "lib/index.js",

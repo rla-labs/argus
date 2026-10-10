@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/governor",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "The only path to execution: admission, concurrency, budgets, per-run limits and the kill switch",
   "type": "module",
   "main": "lib/index.js",

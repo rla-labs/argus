@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/projects",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "Owns the lifecycle of every dsh agent: project agents, ad-hoc task agents and the orchestrator, plus the session ownership map",
   "type": "module",
   "main": "lib/index.js",
