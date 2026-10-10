@@ -21,6 +21,7 @@ import {
   restAfter,
   tokenize,
   truncate,
+  spreadOf,
 } from '../../src/parse.js'
 
 describe('tokenize', () => {
@@ -361,5 +362,13 @@ describe('truncate', () => {
     for (const max of [1, 2, 5, 10]) {
       expect(truncate('x'.repeat(100), max).length).toBeLessThanOrEqual(max)
     }
+  })
+})
+
+describe('spreadOf', () => {
+  it('gives the median, the 90th percentile and the largest, each a value that happened', () => {
+    expect(spreadOf([])).toBeUndefined()
+    expect(spreadOf([5])).toEqual({ typical: 5, big: 5, most: 5 })
+    expect(spreadOf([10, 1, 9, 2, 8, 3, 7, 4, 6, 5])).toEqual({ typical: 5, big: 9, most: 10 })
   })
 })

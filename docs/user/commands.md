@@ -31,7 +31,7 @@ instructions or the memory stays open to everyone.
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
-| Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
+| Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see the roles above) | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
@@ -407,6 +407,31 @@ folder is refused. A file larger than Telegram can send (`telegram.max_file_byte
 /get site-firma reports/weekly.md
 /get site-firma out/day 1.csv
 ```
+
+---
+
+## `/estimate [project-id | tasks]`
+
+What a run usually costs, before you send a big one. From the project's last finished
+runs (up to 30): a typical run (the median), a big one (the 90th percentile) and the
+largest, with their steps and time; then what is left of its budget, and how many
+typical or big runs that is.
+
+```
+/estimate site-firma
+```
+
+```
+site-firma: from its last 14 finished runs, on deepseek/deepseek-flash
+  typical  $0.012  (9 steps, 2m)
+  big      $0.081  (41 steps, 11m)
+  largest  $0.140
+Left this day: $2.71, about 225 typical or 33 big runs.
+```
+
+`tasks` does the same for one-off tasks. It is history, not a forecast: a request unlike
+the past ones can cost more, and a project with no finished run yet has nothing to go
+by (you get its model's price instead).
 
 ---
 

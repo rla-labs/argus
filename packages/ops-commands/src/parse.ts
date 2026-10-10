@@ -354,3 +354,17 @@ export function truncate(text: string, max: number): string {
   if (text.length <= max) return text
   return `${text.slice(0, Math.max(0, max - 1))}…`
 }
+
+/**
+ * The spread of past values: the typical one (median), a big one (90th percentile)
+ * and the largest. Nearest-rank percentiles, so every figure is one that happened.
+ *
+ * @param values the values, in any order.
+ * @returns the spread, or `undefined` for no values.
+ */
+export function spreadOf(values: readonly number[]): { typical: number; big: number; most: number } | undefined {
+  if (values.length === 0) return undefined
+  const sorted = [...values].sort((a, b) => a - b)
+  const rank = (p: number): number => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] as number
+  return { typical: rank(0.5), big: rank(0.9), most: sorted[sorted.length - 1] as number }
+}

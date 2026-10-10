@@ -142,6 +142,9 @@ Every project has a daily and a monthly budget, `budgets.default_day_usd` and
 | 80% (`soft_pct`) | A warning, or a switch to `fallback_model` when the soft action is `downgrade` |
 | 100% | The project **pauses**: running work stops, queued work waits |
 
+**Before a big request,** `/estimate site-firma` shows what its runs usually cost and how
+many the budget still allows.
+
 **When a project pauses,** decide whether the work is worth more money:
 
 ```

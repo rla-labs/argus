@@ -25,6 +25,7 @@ import {
   parseScope,
   renderTable,
   restAfter,
+  spreadOf,
   tokenize,
   truncate,
 } from './parse.js'
@@ -735,6 +736,75 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const written = memory.writeInstructions(projectId, text.toLowerCase() === 'clear' ? '' : text, context.userId)
         if (!written.ok) return errorResult(written.message)
         return result(written.bytes === 0 ? `${projectId}: instructions removed.` : `${projectId}: instructions saved (${written.bytes} bytes). They apply from its next request.`)
+      },
+    },
+
+    // ── /estimate ──────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'estimate',
+        description: 'What a run of a project usually costs, and how many the budget leaves',
+        syntax: '/estimate [project-id | tasks]',
+        detail:
+          'From the project’s last finished runs (up to 30): what a typical run cost, a big ' +
+          'one (the 90th percentile) and the largest, with their steps and time; then what ' +
+          'is left of its budget and how many typical and big runs that is. tasks does the ' +
+          'same for one-off tasks. It is history, not a forecast: a task unlike the past ' +
+          'ones can cost more. With no argument, uses this chat’s active project.',
+        examples: ['/estimate', '/estimate site-firma', '/estimate tasks'],
+        mutating: false,
+      },
+      run(input, context): CommandResult {
+        const argument = tokenize(input)[0]
+        const tasks = argument?.toLowerCase() === 'tasks'
+        const projectId = tasks ? undefined : projectOf(argument, context)
+        if (!tasks && projectId === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        }
+        let model: ModelRef
+        let scope: Scope
+        let runs: ReturnType<typeof store.runs.recent>
+        if (projectId !== undefined) {
+          const state = projectState(projectId)
+          if (!state.found) return errorResult(state.text)
+          const config = projects.configOf(projectId)
+          model = config === undefined ? governor.adhocModel() : { provider: config.provider, model: config.model }
+          scope = scopeOf(projectId)
+          runs = store.runs.byOwner(scope, ESTIMATE_RUNS * 2)
+        } else {
+          model = governor.adhocModel()
+          scope = 'adhoc' as Scope
+          runs = store.runs.recent(ESTIMATE_RUNS * 10).filter((run) => run.owner_key.startsWith('adhoc:'))
+        }
+        const name = projectId ?? 'Tasks'
+        const finished = runs
+          .filter((run) => run.ended_at !== null && run.status !== 'running')
+          .slice(0, ESTIMATE_RUNS)
+          .map((run) => ({ cost: store.usage.totalsByRun(run.id).cost_micros, steps: run.steps, ms: (run.ended_at as number) - run.started_at }))
+          .filter((run) => run.cost > 0)
+        const price = priceLine(model)
+        const cost = spreadOf(finished.map((run) => run.cost))
+        if (cost === undefined) {
+          return result(`${name}: no finished run with a cost yet, so nothing to go by.\n${model.provider}/${model.model}. ${price}`)
+        }
+        const steps = spreadOf(finished.map((run) => run.steps)) as { typical: number; big: number }
+        const time = spreadOf(finished.map((run) => run.ms)) as { typical: number; big: number }
+        const lines = [
+          `${name}: from its last ${finished.length} finished run${finished.length === 1 ? '' : 's'}, on ${model.provider}/${model.model}`,
+          `  typical  $${formatUsd(cost.typical)}  (${steps.typical} steps, ${formatDuration(time.typical)})`,
+          `  big      $${formatUsd(cost.big)}  (${steps.big} steps, ${formatDuration(time.big)})`,
+          `  largest  $${formatUsd(cost.most)}`,
+        ]
+        const budget = governor.budgetState(scope, options.now())
+        if (budget.limitMicros !== undefined) {
+          const left = Math.max(0, Number(budget.limitMicros) + Number(budget.overrideMicros) - Number(budget.spentMicros))
+          const runsOf = (each: number): number => (each > 0 ? Math.floor(left / each) : 0)
+          lines.push(`Left this ${budget.period}: $${formatUsd(left)}, about ${runsOf(cost.typical)} typical or ${runsOf(cost.big)} big runs.`)
+        } else {
+          lines.push('Its budget is unlimited.')
+        }
+        lines.push(price, 'This is history, not a forecast: work unlike the past runs can cost more.')
+        return result(lines.join('\n'))
       },
     },
 
@@ -1892,6 +1962,8 @@ function settingKeys(config: unknown, prefix = ''): string[] {
     .flatMap(([key, value]) => settingKeys(value, prefix.length === 0 ? key : `${prefix}.${key}`))
 }
 
+/** How many past runs `/estimate` reads. */
+const ESTIMATE_RUNS = 30
 /** How many rows `/runs` shows. */
 const RUNS_SHOWN = 10
 /** How many past decisions `/approvals` shows. */

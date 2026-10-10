@@ -182,7 +182,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'instructions', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'web', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'instructions', 'estimate', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'web', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -532,6 +532,24 @@ describe('/task', () => {
 })
 
 // ── /runs ──────────────────────────────────────────────────────────────────
+
+describe('/estimate', () => {
+  it('says there is nothing to go by, then gives a run\'s cost and what the budget leaves', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect(await run(booted, '/estimate alpha')).toContain('nothing to go by')
+    submit(booted, 'alpha')
+    await waitRan(booted)
+    // The meter writes a run's usage a moment after the run ends.
+    await waitFor(() => booted.store.runs.recent(5).some((row) => booted.store.usage.totalsByRun(row.id).cost_micros > 0), { timeoutMs: 10_000, label: 'usage' })
+    const text = await run(booted, '/estimate alpha')
+    expect(text).toContain('from its last 1 finished run, on fake/fake-model')
+    expect(text).toMatch(/typical\s+\$0\.001/)
+    expect(text).toMatch(/Left this (day|month): \$\d/)
+    expect(text).toContain('not a forecast')
+    expect(await run(booted, '/estimate nope')).toContain('No project "nope"')
+    expect(await run(booted, '/estimate tasks')).toContain('Tasks: no finished run with a cost yet')
+  }, 40_000)
+})
 
 describe('/runs', () => {
   it('lists a project’s runs with their outcome and cost', async () => {
