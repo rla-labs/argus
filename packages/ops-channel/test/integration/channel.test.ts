@@ -5,6 +5,7 @@
  * The console adapter from `ops-testkit` drives every case, because the point of
  * the package is that a real adapter is thin enough to be exercised this way.
  */
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -560,7 +561,7 @@ describe('delivery', () => {
     const booted = await bootChannel({
       projects: { alpha: {} },
       script: [
-        { toolCalls: [{ id: 'c1', name: 'send_file', arguments: JSON.stringify({ path: 'out/site.zip', caption: 'the site' }) }] },
+        { toolCalls: [{ id: 'c1', name: 'send_file', arguments: JSON.stringify({ paths: ['out/site.zip'], caption: 'the site' }) }] },
         { text: 'Sent.' },
       ],
     })
@@ -576,14 +577,34 @@ describe('delivery', () => {
     expect(sent?.message.files?.[0]).toMatchObject({ name: 'site.zip', path: join(cwd, 'out', 'site.zip') })
   }, 40_000)
 
-  it('send_file refuses what is outside the folder, not a file, too large, or from the front desk', async () => {
+  it('send_file zips several files or a folder into one archive, then removes it', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    mkdirSync(join(cwd, 'site', 'css'), { recursive: true })
+    writeFileSync(join(cwd, 'site', 'index.html'), '<html>')
+    writeFileSync(join(cwd, 'site', 'css', 'style.css'), 'body{}')
+    writeFileSync(join(cwd, 'notes.md'), '# notes')
+    const listed: string[] = []
+    const send = booted.adapter.send.bind(booted.adapter)
+    booted.adapter.send = async (to, message) => {
+      for (const file of message.files ?? []) listed.push(execFileSync('unzip', ['-Z1', file.path], { encoding: 'utf8' }))
+      return send(to, message)
+    }
+    const alpha = { kind: 'project', projectId: 'alpha' } as const
+    expect(await booted.channel.sendFile(alpha, ['site', 'notes.md'])).toMatch(/^Sent alpha\.zip/)
+    expect(listed[0]?.trim().split('\n').sort()).toEqual(['notes.md', 'site/', 'site/css/', 'site/css/style.css', 'site/index.html'])
+    expect(await booted.channel.sendFile(alpha, ['site'])).toMatch(/^Sent site\.zip/)
+    expect(existsSync(booted.adapter.sent.at(-1)!.message.files![0]!.path)).toBe(false)
+  }, 40_000)
+
+  it('send_file refuses what is outside the folder, missing, too large, or from the front desk', async () => {
     const booted = await bootChannel({ projects: { alpha: {} }, limits: { maxTextLength: 4000, maxFileBytes: 10 } })
     const cwd = booted.projects.configOf('alpha')!.cwd
-    mkdirSync(join(cwd, 'dir'), { recursive: true })
+    mkdirSync(cwd, { recursive: true })
     writeFileSync(join(cwd, 'big.txt'), 'more than ten bytes')
     const alpha = { kind: 'project', projectId: 'alpha' } as const
     expect(await booted.channel.sendFile(alpha, '../../ops.sqlite')).toContain('outside your folder')
-    expect(await booted.channel.sendFile(alpha, 'dir')).toContain('not a file')
+    expect(await booted.channel.sendFile(alpha, [])).toContain('paths is required')
     expect(await booted.channel.sendFile(alpha, 'missing.txt')).toContain('does not exist')
     expect(await booted.channel.sendFile(alpha, 'big.txt')).toContain('at most')
     expect(await booted.channel.sendFile({ kind: 'orchestrator' }, 'x')).toContain('front desk')

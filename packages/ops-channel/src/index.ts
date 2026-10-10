@@ -193,19 +193,19 @@ export function apply(ctx: Context): void {
       defineTool({
         name: 'send_file',
         description:
-          'Send one file from your folder to the person, as an attachment in the chat this work came from. ' +
-          'For a folder or several files, make an archive first (zip -r out.zip dir, or tar -czf out.tar.gz dir), then send it.',
+          'Send files from your folder to the person, as an attachment in the chat this work came from. ' +
+          'One file goes as it is; several files, or a folder, are zipped into one archive for you. Never build an archive yourself.',
         parameters: {
-          path: { type: 'string', description: 'The file, relative to your folder.', required: true },
+          paths: { type: 'array', items: { type: 'string' }, description: 'Files or folders, relative to your folder.', required: true },
           caption: { type: 'string', description: 'Optional short text sent with the file.' },
         },
         output: { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }] },
         execute: async (args, exec) => {
-          const input = args as { path?: unknown; caption?: unknown }
+          const input = args as { paths?: unknown; caption?: unknown }
           const owner = exec.agent === undefined ? undefined : ctx.opsProjects.ownerOf(exec.agent.id as string)
           if (owner === undefined) return 'send_file works only for a project or a task.'
-          const path = typeof input.path === 'string' ? input.path : ''
-          return service.sendFile(owner, path, typeof input.caption === 'string' ? input.caption : undefined)
+          const paths = (Array.isArray(input.paths) ? input.paths : []).filter((path): path is string => typeof path === 'string')
+          return service.sendFile(owner, paths, typeof input.caption === 'string' ? input.caption : undefined)
         },
       }),
     ),

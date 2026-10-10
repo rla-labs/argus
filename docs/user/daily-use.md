@@ -248,11 +248,11 @@ from time to time. If it has written down something wrong, tell the project so i
 message. The agent edits its memory itself. To remove a whole section yourself,
 `/forget site-firma` lists them and `/forget site-firma <section>` removes one.
 
-**An agent can send you a file itself** with its `send_file` tool: one file from its own
-folder, to the chat the work came from, as an attachment. For a folder, ask for an archive
-("zip the site and send it to me"): it makes one with `zip` or `tar` (a shell command, so in
-a project you approve it), then sends that. A one-off task has no shell, so it sends single
-files only. The size limit is the channel's: 50 MB on Telegram.
+**An agent can send you files itself** with its `send_file` tool, from its own folder to
+the chat the work came from, as an attachment. One file goes as it is; several files, or a
+folder ("send me the site"), arrive as one zip the tool makes, with nothing to approve.
+Projects and one-off tasks both have it. The size limit is the channel's, and applies to
+the zip: 50 MB on Telegram.
 
 **Ask for results as files** when you will want to keep them ("write it to
 `reports/…`"). A file in the project folder outlives the chat, and `/get` brings it back

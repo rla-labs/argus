@@ -8,8 +8,11 @@
  * @module @argus-agent/channel/service
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, statSync, writeFileSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { execFile } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { basename, join, relative, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import {
   addressesEqual,
   encodeAddress,
@@ -667,31 +670,32 @@ export class OpsChannel {
   }
 
   /**
-   * Send a file from an agent's own folder to the chat its run answers.
+   * Send files from an agent's own folder to the chat its run answers.
    *
    * The `send_file` tool's body. The owner comes from the calling agent, never from
-   * an argument, and the path must stay inside that owner's folder. The answer is
-   * for the model: what was sent, or why not.
+   * an argument, and every path must stay inside that owner's folder. One file goes
+   * as it is; several, or a folder, go as one zip made here. The answer is for the
+   * model: what was sent, or why not.
    *
    * @param owner the calling agent's owner.
-   * @param path the file, relative to the owner's folder.
+   * @param paths the files or folders, relative to the owner's folder.
    * @param caption optional text sent with it.
    * @returns what happened, for the model.
    */
-  async sendFile(owner: Owner, path: string, caption?: string): Promise<string> {
+  async sendFile(owner: Owner, paths: string | readonly string[], caption?: string): Promise<string> {
     if (owner.kind === 'orchestrator') return 'send_file is for projects and tasks; the front desk has no folder.'
     const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)
     if (root === undefined) return 'This agent has no folder to send from.'
-    if (path.trim().length === 0) return 'path is required: the file, relative to your folder.'
-    if (!isInside(root, path)) return `${path} is outside your folder; only files inside ${root} can be sent.`
-    const full = resolve(root, path)
-    let size: number
-    try {
-      const stat = statSync(full)
-      if (!stat.isFile()) return `${path} is not a file. To send a folder, make an archive of it first (zip -r or tar -czf), then send that.`
-      size = stat.size
-    } catch {
-      return `${path} does not exist.`
+    const list = (typeof paths === 'string' ? [paths] : [...paths]).map((path) => path.trim()).filter((path) => path.length > 0)
+    if (list.length === 0) return 'paths is required: one or more files or folders, relative to your folder.'
+    let folder = false
+    for (const path of list) {
+      if (!isInside(root, path)) return `${path} is outside your folder; only files inside ${root} can be sent.`
+      try {
+        folder ||= statSync(resolve(root, path)).isDirectory()
+      } catch {
+        return `${path} does not exist.`
+      }
     }
 
     const run = this.options.store.runs.active().find((row) => row.owner_key === ownerKey(owner))
@@ -700,14 +704,35 @@ export class OpsChannel {
     if (address === undefined) return 'There is no chat to send to.'
     const adapter = this.registry.get(address.channel)
     if (adapter === undefined) return `The ${address.channel} channel is not connected.`
-    if (size > adapter.limits.maxFileBytes) {
-      return `${path} is ${megabytes(size)}; ${address.channel} sends at most ${megabytes(adapter.limits.maxFileBytes)}. Split it, or compress it.`
-    }
-
     const subject: OutputSubject = owner.kind === 'project' ? { kind: 'project', projectId: owner.projectId } : { kind: 'adhoc' }
-    const name = basename(full)
-    await adapter.send(address, { text: `${prefixFor(subject)}${caption?.trim() || name}`, files: [{ name, path: full }] })
-    return `Sent ${name} (${megabytes(size)}).`
+
+    const send = async (full: string): Promise<string> => {
+      const name = basename(full)
+      const size = statSync(full).size
+      if (size > adapter.limits.maxFileBytes) {
+        return `${name} is ${megabytes(size)}; ${address.channel} sends at most ${megabytes(adapter.limits.maxFileBytes)}. Send fewer files, or split it.`
+      }
+      await adapter.send(address, { text: `${prefixFor(subject)}${caption?.trim() || name}`, files: [{ name, path: full }] })
+      return `Sent ${name} (${megabytes(size)}).`
+    }
+    if (list.length === 1 && !folder) return send(resolve(root, list[0]!))
+
+    // Several files, or a folder: one zip, made here so the agent never builds an
+    // archive by hand. `-y` keeps a symlink a link, so nothing outside the folder
+    // is read through one.
+    const base = list.length === 1 ? basename(resolve(root, list[0]!)) : basename(resolve(root))
+    const temp = mkdtempSync(join(tmpdir(), 'argus-send-'))
+    const archive = join(temp, `${base || 'files'}.zip`)
+    try {
+      const members = list.map((path) => `./${relative(resolve(root), resolve(root, path)) || '.'}`)
+      await execFileAsync('zip', ['-r', '-q', '-y', archive, ...members], { cwd: root })
+      return await send(archive)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'The zip command is not installed on this machine, so several files cannot be sent at once.'
+      return `Could not make the archive: ${error instanceof Error ? error.message : String(error)}`
+    } finally {
+      rmSync(temp, { recursive: true, force: true })
+    }
   }
 
   /** Remember where a run's output should go. */
@@ -873,6 +898,8 @@ function safeName(name: string): string {
 
 export { safeName, encodeAddress }
 export type { IncomingAttachment, OutgoingMessage }
+
+const execFileAsync = promisify(execFile)
 
 /** A size in megabytes, for a message. */
 function megabytes(bytes: number): string {
