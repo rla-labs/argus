@@ -84,6 +84,23 @@ export function userProfileFile(dataDir: string): string {
   return join(dataDir, 'memory', 'USER.md')
 }
 
+/**
+ * A project's `INSTRUCTIONS.md`: what the person wants of it, in the system prompt.
+ *
+ * Beside `MEMORY.md`, outside the project's folder, so the agent cannot rewrite
+ * its own instructions.
+ *
+ * @param dataDir the data directory.
+ * @param projectId the project id.
+ * @returns the absolute path.
+ */
+export function instructionsFile(dataDir: string, projectId: string): string {
+  return join(projectStateDir(dataDir, projectId), 'INSTRUCTIONS.md')
+}
+
+/** The largest `INSTRUCTIONS.md` that is written: it is in every request's prompt. */
+export const MAX_INSTRUCTIONS_BYTES = 8 * 1024
+
 /** The default `memory.max_inject_tokens`. */
 export const DEFAULT_MAX_INJECT_TOKENS = 2000
 

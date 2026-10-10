@@ -85,5 +85,7 @@
   "tools.other": "altele",
   "common.loading": "Se încarcă…",
   "common.error": "Ceva n-a mers: {message}",
-  "settings.mcp": "MCP {name}"
+  "settings.mcp": "MCP {name}",
+  "settings.instructions": "Instrucțiunile proiectelor",
+  "settings.instructionsHint": "Ce i se cere fiecărui proiect, în promptul de sistem la fiecare cerere. Salvarea se aplică de la următoarea cerere; un text gol le șterge."
 }

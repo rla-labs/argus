@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
-import { overview, settings, type FrontDeskPort, type ProvidersPort, type SchedulePort } from './data.js'
+import { overview, settings, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
 import { WebChannelAdapter } from './web-channel.js'
 
@@ -132,6 +132,7 @@ export async function apply(ctx: Context): Promise<void> {
     schedules: () => ctx.get('opsScheduler' as never) as unknown as SchedulePort | undefined,
     providers: () => ctx.get('opsProviders' as never) as unknown as ProvidersPort | undefined,
     frontDesk: () => ctx.get('opsOrchestrator' as never) as unknown as FrontDeskPort | undefined,
+    memory: () => ctx.get('opsMemory' as never) as unknown as InstructionsPort | undefined,
     now: () => Date.now(),
   }
 

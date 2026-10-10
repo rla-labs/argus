@@ -85,5 +85,7 @@
   "tools.other": "other",
   "common.loading": "Loading…",
   "common.error": "Something went wrong: {message}",
-  "settings.mcp": "MCP {name}"
+  "settings.mcp": "MCP {name}",
+  "settings.instructions": "Project instructions",
+  "settings.instructionsHint": "What each project is told to do, in its system prompt on every request. Saving applies from its next request; an empty text removes them."
 }

@@ -22,22 +22,23 @@
     "typecheck": "tsc -p tsconfig.test.json"
   },
   "dependencies": {
-    "@argus-agent/types": "workspace:*",
-    "@argus-agent/store": "workspace:*",
     "@argus-agent/projects": "workspace:*",
-    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "@argus-agent/store": "workspace:*",
+    "@argus-agent/types": "workspace:*",
     "@deepseek-ai/dsh-agent": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "3.18.4",
     "better-sqlite3": "11.5.0"
   },
   "devDependencies": {
-    "@argus-agent/memory": "workspace:*",
-    "@argus-agent/meter": "workspace:*",
-    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
     "@argus-agent/channel": "workspace:*",
     "@argus-agent/commands": "workspace:*",
-    "@argus-agent/argus-agent": "workspace:*",
+    "@argus-agent/governor": "workspace:*",
+    "@argus-agent/memory": "workspace:*",
+    "@argus-agent/meter": "workspace:*",
     "@argus-agent/testkit": "workspace:*",
     "@types/better-sqlite3": "7.6.11"
   },

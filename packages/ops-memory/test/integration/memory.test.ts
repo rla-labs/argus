@@ -782,3 +782,35 @@ describe('reset and health', () => {
     expect(health.details['truncated']).toBe(0)
   }, 60_000)
 })
+
+// ── instructions ───────────────────────────────────────────────────────────
+
+describe('project instructions', () => {
+  /** The instructions section of an agent's system prompt, as assembled now. */
+  async function instructionsOf(agent: unknown): Promise<string | undefined> {
+    const { scopeOf } = await import('@deepseek-ai/dsh-scope')
+    const ctx = (agent as { ctx: { systemPrompt: { assemble(context: unknown): Promise<{ sections: Array<{ name: string; text: string }> }> } } }).ctx
+    const assembly = await ctx.systemPrompt.assemble({ scope: scopeOf(ctx as never) })
+    return assembly.sections.find((section) => section.name === 'argus:project-instructions')?.text
+  }
+
+  it('puts a project\'s INSTRUCTIONS.md in its own agent\'s system prompt, read on every request', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-mem-ins-'))
+    dirs.push(dataDir)
+    const booted = await bootMemory({ dataDir, projects: { alpha: projectDocument(dataDir, 'alpha'), beta: projectDocument(dataDir, 'beta') } })
+    const alpha = await booted.projects.ensureAgent('alpha')
+    const beta = await booted.projects.ensureAgent('beta')
+    expect(await instructionsOf(alpha) ?? '').toBe('')
+
+    expect(booted.memory.writeInstructions('alpha', 'Answer in Romanian.', 'user-1')).toEqual({ ok: true, bytes: 19 })
+    expect(booted.memory.instructionsPath('alpha')).toBe(join(dataDir, 'state', 'alpha', 'INSTRUCTIONS.md'))
+    expect(await instructionsOf(alpha)).toContain('Answer in Romanian.')
+    expect(await instructionsOf(beta) ?? '').not.toContain('Romanian')
+    expect(booted.store.audit.byTarget('alpha').some((row) => row.action === 'instructions.written')).toBe(true)
+
+    expect(booted.memory.writeInstructions('alpha', 'x'.repeat(9_000), 'user-1').ok).toBe(false)
+    expect(booted.memory.writeInstructions('alpha', '  ', 'user-1')).toEqual({ ok: true, bytes: 0 })
+    expect(existsSync(booted.memory.instructionsPath('alpha'))).toBe(false)
+    expect(await instructionsOf(alpha) ?? '').toBe('')
+  }, 40_000)
+})

@@ -11,7 +11,7 @@ settings, and a chat. It is built for **one person on a private network**.
 | **Overview** | Your projects around the front desk: which are running, which wait for you, how much of today's budget each used. Spending today and this month, with the last 14 days. The runs going on now (with a Stop button), the approvals waiting, the next 24 hours of schedules, and the latest actions. It updates by itself. |
 | **Approvals** | Every pending approval, whichever chat asked it, with Approve, Deny and "All of this kind, this run". |
 | **Chat** | The same chat as Telegram: plain text goes to the active project or the front desk, `/commands` run, approval buttons and files appear in it. |
-| **Settings** | The models for tasks and the front desk, the API keys (checked before they are saved), and what each project may use (`read`, `write`, `shell`, `web`, `agents`, `other`). |
+| **Settings** | The models for tasks and the front desk, the API keys (checked before they are saved), what each project may use (`read`, `write`, `shell`, `web`, `agents`, `other`, its MCP servers), and each project's [instructions](commands.md#instructions-project-id--project-id-text). |
 
 The interface is in English and Romanian; the buttons at the top switch. It changes
 nothing in its own way: each action runs the same command you would type in Telegram

@@ -478,6 +478,39 @@ the variables in its `env` (dsh removes every inherited variable that looks like
 token or password). Install only servers you would install on the machine yourself.
 In the Docker image `npx` is available; Python servers (`uvx`) are not.
 
+### `INSTRUCTIONS.md` — what the project is told
+
+A project's instructions are in `<data_dir>/state/<id>/INSTRUCTIONS.md`, beside its
+`MEMORY.md` and outside its folder, so its agent can read them in its prompt but not
+change them. They are read on every request: edit them with
+[`/instructions`](commands.md#instructions-project-id--project-id-text), on the web's
+Settings page, or in the file, and the next request uses them. Up to 8 KB.
+
+### Templates — your own kinds of project
+
+`/new <id> <template>` starts a project from a template. Four are built in (`site`,
+`research`, `reports`, `devops`, listed in
+[`/new`](commands.md#new-id-template-providermodel)); a file
+`<data_dir>/config/templates/<name>.yaml` adds one, or replaces a built-in of the
+same name:
+
+```yaml
+summary: the online shop            # the line /new shows
+description: Runs the online shop: products, orders and the newsletter.
+instructions: |
+  Answer in Romanian.
+  Never change a price without asking.
+tools:
+  web: allow
+approvals:
+  auto_allow: ["ls"]
+```
+
+Everything other than `summary`, `description` and `instructions` is copied into the
+new project's file, so any project setting can be in a template. `id`, `cwd`,
+`provider` and `model` cannot: `/new` sets them. A template that does not read is
+named in `/new`'s list, and a project it would make invalid is reported by `/new`.
+
 ### Precedence
 
 ```

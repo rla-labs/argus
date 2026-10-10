@@ -37,7 +37,13 @@ export interface DataSources {
   readonly schedules: () => SchedulePort | undefined
   readonly providers: () => ProvidersPort | undefined
   readonly frontDesk: () => FrontDeskPort | undefined
+  readonly memory: () => InstructionsPort | undefined
   readonly now: () => number
+}
+
+/** What the settings read of `ops-memory`: a project's instructions. */
+export interface InstructionsPort {
+  readInstructions(projectId: string): string
 }
 
 /** Days of spending the trend shows. */
@@ -80,7 +86,7 @@ export interface Overview {
 export interface Settings {
   readonly defaults: { readonly tasks: string; readonly frontDesk: string | null }
   readonly keys: ReadonlyArray<{ readonly provider: string; readonly configured: boolean; readonly writable: boolean }>
-  readonly projects: ReadonlyArray<{ readonly id: string; readonly model: string; readonly tools: ToolPolicy; readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string }>; readonly dayUsd: number; readonly monthUsd: number }>
+  readonly projects: ReadonlyArray<{ readonly id: string; readonly model: string; readonly tools: ToolPolicy; readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string }>; readonly instructions: string | null; readonly dayUsd: number; readonly monthUsd: number }>
 }
 
 /** Who an owner is, in a word. */
@@ -195,7 +201,7 @@ export function settings(sources: DataSources): Settings {
       const config = sources.projects.configOf(id)
       return config === undefined
         ? []
-        : [{ id, model: `${config.provider}/${config.model}`, tools: config.tools, mcp: Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })), dayUsd: config.budget.day_usd, monthUsd: config.budget.month_usd }]
+        : [{ id, model: `${config.provider}/${config.model}`, tools: config.tools, mcp: Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })), instructions: sources.memory()?.readInstructions(id) ?? null, dayUsd: config.budget.day_usd, monthUsd: config.budget.month_usd }]
     }),
   }
 }

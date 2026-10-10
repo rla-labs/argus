@@ -63,6 +63,7 @@ export function apply(ctx: Context): void {
     governor: ctx.opsGovernor,
     projectsConfigDir: paths.projectsDir,
     projectsRoot: join(paths.dataDirAbs, 'projects'),
+    templatesDir: join(paths.configDirAbs, 'templates'),
     // Re-reading the directory is how `/new` makes a project usable without a
     // restart. The governor is re-dispatched because a new project may unblock a
     // request that was waiting for it.

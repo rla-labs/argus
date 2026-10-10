@@ -36,9 +36,10 @@
     "preact": "10.29.8"
   },
   "devDependencies": {
-    "@argus-agent/web": "workspace:*",
     "@argus-agent/argus-agent": "workspace:*",
-    "@argus-agent/testkit": "workspace:*"
+    "@argus-agent/memory": "workspace:^",
+    "@argus-agent/testkit": "workspace:*",
+    "@argus-agent/web": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.4"

@@ -16,10 +16,10 @@ For which command fits which moment, read
 |---|---|
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
-| A project's results | [`/memory`](#memory-project-id) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
+| A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
-| Projects | [`/new`](#new-id-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
@@ -321,6 +321,27 @@ Defaults to the active project. A memory longer than 3,000 characters is sent as
 
 ---
 
+## `/instructions [project-id] | <project-id> <text>`
+
+What a project is told to do: its role, its rules, how to answer. They are in its
+agent's system prompt on every request, so a change applies from the next one, with
+no `/reset`. The agent cannot change them; its own notes are its [memory](#memory-project-id).
+
+```
+/instructions
+/instructions site-firma
+/instructions site-firma Answer in Romanian.
+Never change anything under blog/ without asking.
+/instructions site-firma clear
+```
+
+With a project and text, the text — every line after the id — replaces the
+instructions. `clear` removes them. Up to 8 KB, since they go with every request.
+Seeing them is anyone's; changing them is the admin's. A template sets the first ones;
+the web's Settings page edits them too.
+
+---
+
 ## `/forget <project-id> [section]`  *(asks first)*
 
 A project's memory is a list of `##` sections (`## Build`, `## Conventions`, ...).
@@ -492,15 +513,34 @@ it is refused with the file and the problem.
 
 ---
 
-## `/new <id> [provider/model]`
+## `/new <id> [template] [provider/model]`
 
-Creates the project folder, writes a project file from a template, and reloads
-the configuration — so the project is usable at once, without a restart.
+Creates the project folder, writes its project file, and reloads the configuration —
+so the project is usable at once, without a restart.
 
 ```
+/new
 /new reports
-/new reports deepseek/deepseek-flash
+/new market research
+/new site-firma site deepseek/deepseek-flash
 ```
+
+`/new` alone lists the templates. A template gives the project what a kind of work
+needs: its description, its [tool settings](configuration.md#tools--what-the-agent-may-use),
+a few commands that run unasked, and its first [instructions](#instructions-project-id--project-id-text):
+
+| Template | For | Tools | Runs unasked |
+|---|---|---|---|
+| `site` | a website or web app | read, write; shell and web ask | `ls`, `pwd`, `date`, `git status`, `git diff`, `git log` |
+| `research` | research on the web, written up as sourced notes | read, write, web; no shell | — |
+| `reports` | recurring reports kept as dated files | read, write, web; shell asks | `ls`, `pwd`, `date` |
+| `devops` | checking and running servers and services | read; write, shell and web ask; 80 steps a run | `ls`, `df`, `free`, `uptime`, `ps`, `systemctl status`, `journalctl`, `docker ps`, `docker logs`, ... |
+
+Commands the agent could steer into running its own code (`npm run …`, `git commit`,
+which runs hooks) still ask: add them with `/set <id> approvals.auto_allow [...]` if
+you want them. Without a template the project asks before writing, running or browsing.
+Your own templates go in `config/templates/<name>.yaml`; see
+[configuration](configuration.md#templates--your-own-kinds-of-project).
 
 ```
 Created project reports using deepseek/deepseek-flash.

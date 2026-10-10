@@ -28,7 +28,7 @@ interface Overview {
 interface Settings {
   defaults: { tasks: string; frontDesk: string | null }
   keys: Array<{ provider: string; configured: boolean; writable: boolean }>
-  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string }>; dayUsd: number; monthUsd: number }>
+  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string }>; instructions: string | null; dayUsd: number; monthUsd: number }>
 }
 
 interface ChatEntry {
@@ -210,6 +210,13 @@ function SettingsView({ data, run, outcome }: { data: Settings; run: (line: stri
   const [desk, setDesk] = useState(data.defaults.frontDesk ?? '')
   const [provider, setProvider] = useState(data.keys[0]?.provider ?? '')
   const [key, setKey] = useState('')
+  const instructed = data.projects.filter((project) => project.instructions !== null)
+  const [instructionsOf, setInstructionsOf] = useState(instructed[0]?.id ?? '')
+  const [instructions, setInstructions] = useState(instructed[0]?.instructions ?? '')
+  const pick = (id: string): void => {
+    setInstructionsOf(id)
+    setInstructions(data.projects.find((project) => project.id === id)?.instructions ?? '')
+  }
   return html`
     ${outcome}
     <div class="row">
@@ -264,7 +271,20 @@ function SettingsView({ data, run, outcome }: { data: Settings; run: (line: stri
             <td>$${project.dayUsd} / $${project.monthUsd}</td>
           </tr>`,
         )}</tbody></table></div>
-    </section>`
+    </section>
+    ${instructed.length === 0
+      ? null
+      : html`<section class="hud">
+          <h2>${t('settings.instructions')}</h2>
+          <p class="muted" style="margin:0">${t('settings.instructionsHint')}</p>
+          <form style="display:flex;flex-direction:column;gap:10px" onSubmit=${(event: Event) => { event.preventDefault(); run(`/instructions ${instructionsOf} ${instructions.trim() || 'clear'}`) }}>
+            <div class="field"><label class="lbl" for="i-project">${t('settings.project')}</label>
+              <select id="i-project" value=${instructionsOf} onChange=${(e: Event) => pick((e.target as HTMLSelectElement).value)}>${instructed.map((project) => html`<option value=${project.id}>${project.id}</option>`)}</select></div>
+            <label class="sr" for="i-text">${t('settings.instructions')}</label>
+            <textarea id="i-text" rows="8" class="mono" style="padding:10px;min-height:160px" value=${instructions} onInput=${(e: Event) => setInstructions((e.target as HTMLTextAreaElement).value)}></textarea>
+            <div><button class="btn ghost" type="submit">${t('settings.save')}</button></div>
+          </form>
+        </section>`}`
 }
 
 // ── the app ────────────────────────────────────────────────────────────────

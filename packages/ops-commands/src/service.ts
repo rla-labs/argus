@@ -39,6 +39,8 @@ export interface CommandsOptions {
   readonly projectsConfigDir: string
   /** Where project folders are created. */
   readonly projectsRoot: string
+  /** The deployment's own project templates (`<config_dir>/templates`). */
+  readonly templatesDir: string
   /** Delegate for `/cron`, when `ops-scheduler` is mounted. */
   readonly scheduler?: SchedulerPort
   /** Delegate for `/health`, when `ops-health` is mounted. */
@@ -76,6 +78,9 @@ export interface MemoryPort {
     section: string,
     actor: string,
   ): { readonly ok: true; readonly name: string } | { readonly ok: false; readonly sections: readonly string[] }
+  instructionsPath(projectId: string): string
+  readInstructions(projectId: string): string
+  writeInstructions(projectId: string, text: string, actor: string): { readonly ok: true; readonly bytes: number } | { readonly ok: false; readonly message: string }
 }
 
 /** What `/web` needs from `ops-web`. */

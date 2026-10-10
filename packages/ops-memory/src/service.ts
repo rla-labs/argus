@@ -58,7 +58,7 @@ import {
   removeSection,
   writeMemoryFileAtomic,
 } from './memory-file.js'
-import { estimateTokens, memoryFile, projectStateDir, recallFile, userProfileFile } from './paths.js'
+import { MAX_INSTRUCTIONS_BYTES, estimateTokens, instructionsFile, memoryFile, projectStateDir, recallFile, userProfileFile } from './paths.js'
 import { RecallIndex, snippet, type RecallHit } from './recall.js'
 import { composeInjection, hasContent, type Injection } from './truncate.js'
 import './events.js'
@@ -203,6 +203,51 @@ export class OpsMemory {
       this.options.now(),
     )
     return { ok: true, name: removed.name }
+  }
+
+  /** A project's `INSTRUCTIONS.md` path. */
+  instructionsPath(projectId: string): string {
+    return instructionsFile(this.options.dataDir, projectId)
+  }
+
+  /** Read a project's instructions; empty when it has none. */
+  readInstructions(projectId: string): string {
+    return readMemoryFile(this.instructionsPath(projectId))
+  }
+
+  /**
+   * Replace a project's instructions: `/instructions`, and a template at `/new`.
+   * Empty text removes them. Audited as `instructions.written`.
+   *
+   * @param projectId the project.
+   * @param text the new instructions.
+   * @param actor who wrote them, for the audit log.
+   * @returns the bytes written, or why nothing was.
+   */
+  writeInstructions(projectId: string, text: string, actor: string): { readonly ok: true; readonly bytes: number } | { readonly ok: false; readonly message: string } {
+    const body = text.trim()
+    const bytes = Buffer.byteLength(body, 'utf8')
+    if (bytes > MAX_INSTRUCTIONS_BYTES) {
+      return { ok: false, message: `The instructions are ${bytes} bytes; the limit is ${MAX_INSTRUCTIONS_BYTES}, because they are sent with every request. Shorten them.` }
+    }
+    const path = this.instructionsPath(projectId)
+    if (body.length === 0) rmSync(path, { force: true })
+    else writeMemoryFileAtomic(path, `${body}\n`)
+    this.options.store.audit.record({ actor, action: 'instructions.written', target: projectId, details: { bytes } }, this.options.now())
+    return { ok: true, bytes }
+  }
+
+  /**
+   * The system-prompt section a project's agent is given: its instructions, read
+   * on every request, so an edit applies to the next one without a reset.
+   *
+   * @param projectId the project.
+   * @returns the section, or empty when the project has no instructions.
+   */
+  instructionsSection(projectId: string): string {
+    const text = this.readInstructions(projectId).trim()
+    if (text.length === 0) return ''
+    return `# Project instructions\n\nThe person who runs this project wrote these for you. Follow them in all your work on it.\n\n${text}`
   }
 
   /** Read the global user profile. */

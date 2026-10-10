@@ -38,6 +38,7 @@ import {
   type CommandSpec,
 } from './types.js'
 import type { CommandsOptions } from './service.js'
+import { loadTemplates } from './templates.js'
 import type { CommandHandler } from './types.js'
 
 /** Return a failed parse as an error that shows the syntax. */
@@ -694,6 +695,49 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /instructions ──────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'instructions',
+        description: 'See or change what a project is told to do (admin to change)',
+        syntax: '/instructions [project-id] | /instructions <project-id> <text…> | /instructions <project-id> clear',
+        detail:
+          'A project’s instructions are in its agent’s system prompt on every request: its ' +
+          'role, its rules, how to answer. With a project and text, the text (every line ' +
+          'after the id) replaces them and applies from the next request. clear removes ' +
+          'them. With no project, shows this chat’s active one’s. The agent cannot change ' +
+          'them; it keeps its own notes in /memory. Changing them is the admin’s.',
+        examples: ['/instructions', '/instructions site-firma', '/instructions site-firma Answer in Romanian. Never touch the blog/ folder.'],
+        // Not audited here: the memory service audits every change, and a view is no change.
+        mutating: false,
+        requires: 'ops-memory',
+      },
+      run(input, context): CommandResult {
+        const memory = options.memory?.()
+        if (memory === undefined) return errorResult('Project instructions need ops-memory, which is not installed on this deployment.')
+        const match = /^\s*(\S+)(?:\s+([\s\S]*\S))?\s*$/.exec(input)
+        const projectId = projectOf(match?.[1], context)
+        if (projectId === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        }
+        const state = projectState(projectId)
+        if (!state.found) return errorResult(state.text)
+        const text = match?.[2]
+        if (text === undefined) {
+          const current = memory.readInstructions(projectId).trim()
+          if (current.length === 0) return result(`${projectId} has no instructions. Give it some: /instructions ${projectId} <text>`)
+          if (current.length > MEMORY_INLINE_CHARS) {
+            return result(`${projectId}'s instructions are ${current.length} characters, attached as a file.`, { files: [{ name: `${projectId}-INSTRUCTIONS.md`, content: current }] })
+          }
+          return result(`Instructions of ${projectId}:\n\n${current}`)
+        }
+        if (!context.isAdmin) return errorResult('Only the admin can change a project’s instructions.')
+        const written = memory.writeInstructions(projectId, text.toLowerCase() === 'clear' ? '' : text, context.userId)
+        if (!written.ok) return errorResult(written.message)
+        return result(written.bytes === 0 ? `${projectId}: instructions removed.` : `${projectId}: instructions saved (${written.bytes} bytes). They apply from its next request.`)
+      },
+    },
+
     // ── /log ───────────────────────────────────────────────────────────────
     {
       spec: {
@@ -1072,20 +1116,25 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'new',
         description: 'Create a project',
-        syntax: '/new <id> [provider/model]',
+        syntax: '/new <id> [template] [provider/model]',
         detail:
-          'Creates the project folder, writes a project file from a template, and reloads the ' +
-          'configuration so the project is usable at once. The id must be lowercase letters, ' +
-          'digits and dashes. Without a model it uses tasks.model. A model whose provider has ' +
-          'no API key (<PROVIDER>_API_KEY) or no price is refused.',
-        examples: ['/new site-firma', '/new reports zai/glm-5.3-flash', '/new notes openrouter/deepseek/deepseek-v4-flash'],
+          'Creates the project folder, writes its project file, and reloads the configuration ' +
+          'so the project is usable at once. The id must be lowercase letters, digits and ' +
+          'dashes. A template (site, research, reports, devops, or one in config/templates/) ' +
+          'sets the tools, the commands that run unasked, and the first instructions; send ' +
+          '/new alone to list them. Without a model it uses tasks.model. A model whose ' +
+          'provider has no API key or no price is refused.',
+        examples: ['/new', '/new site-firma site', '/new market research zai/glm-5.3-flash', '/new notes openrouter/deepseek/deepseek-v4-flash'],
         mutating: true,
       },
       async run(input, context): Promise<CommandResult> {
         const tokens = tokenize(input)
         const id = tokens[0]
+        const { templates, problems } = loadTemplates(options.templatesDir)
         if (id === undefined) {
-          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'new needs an id.')
+          const list = [...templates.values()].map((template) => `  ${template.name.padEnd(10)} ${template.summary}`)
+          const broken = problems.length > 0 ? `\n\nNot loaded:\n${problems.map((line) => `  ${line}`).join('\n')}` : ''
+          return result(`Create a project: ${this.spec.syntax}\n\nTemplates:\n${list.join('\n')}${broken}\n\nWithout a template the project asks before writing, running or browsing.`)
         }
         if (!isValidProjectId(id)) {
           return failWith(
@@ -1097,8 +1146,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, `Project "${id}" already exists.`)
         }
 
+        // A model has a slash; any other word is a template.
+        const rest = tokens.slice(1)
+        const templateName = rest.find((token) => !token.includes('/'))
+        const template = templateName === undefined ? undefined : templates.get(templateName.toLowerCase())
+        if (templateName !== undefined && template === undefined) {
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, `No template "${templateName}". Templates: ${[...templates.keys()].join(', ')}.`)
+        }
+        if (rest.length > (templateName === undefined ? 1 : 2)) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'new takes an id, a template and a model, no more.')
         const adhoc = governor.adhocModel()
-        const defaultModel = tokens[1] ?? `${adhoc.provider}/${adhoc.model}`
+        const defaultModel = rest.find((token) => token.includes('/')) ?? `${adhoc.provider}/${adhoc.model}`
         const parsed = parseModelRef(defaultModel)
         if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
         // Refused before any file is written: no route, no API key, no price.
@@ -1118,9 +1175,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             toYaml({
               id,
               cwd,
-              description: `Created by ${context.userId} with /new.`,
+              description: template?.description || `Created by ${context.userId} with /new.`,
               provider: parsed.value.provider,
               model: parsed.value.model,
+              ...template?.settings,
             }),
           )
           options.reloadProjects()
@@ -1136,10 +1194,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
               : `Wrote ${file} but it does not validate:\n${invalid.reason}\nFix it, then /reload.`,
           )
         }
+        // The template's instructions; a project without memory installed simply has none.
+        const instructions = template === undefined || template.instructions.length === 0 ? undefined : options.memory?.()?.writeInstructions(id, template.instructions, context.userId)
+        const from = template === undefined ? '' : ` from the ${template.name} template`
+        const told = instructions?.ok === true ? `Its instructions: /instructions ${id}.\n` : ''
         return result(
-          `Created project ${id} using ${parsed.value.text}.\n` +
+          `Created project ${id}${from} using ${parsed.value.text}.\n` +
             `  folder  ${cwd}\n  file    ${file}\n` +
-            `${priceLine(parsed.value)}\n` +
+            `${priceLine(parsed.value)}\n${told}` +
             `Make it active with /p ${id}, then send it work.`,
         )
       },

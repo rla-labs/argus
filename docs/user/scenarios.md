@@ -18,9 +18,13 @@ still builds.
 **1. Create it, and say what it is for.**
 
 ```
-/new site
+/new site site
 /set site description The company website: an Astro site, its blog and its contact form
 ```
+
+The second `site` is the template: it lets the agent edit files, asks before it runs
+a command, and gives it a few rules (build after a change, commit each one when there is git). See them
+with `/instructions site`.
 
 **2. Put the code in its folder.** The folder is
 `/srv/argus-agent/data/projects/site/` on the server. Copy the site there:

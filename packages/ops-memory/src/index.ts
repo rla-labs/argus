@@ -21,6 +21,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { memoryOf, memorySchema } from './config.js'
 import { OpsMemory } from './service.js'
 
@@ -33,6 +34,12 @@ export * from './truncate.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-memory'
+
+/**
+ * Where a project's instructions sit in the system prompt: after dsh's own guidance,
+ * before a deployment's persona suffix (10200), so they are the last word but one.
+ */
+export const INSTRUCTIONS_ORDER = 10_100
 
 /**
  * The services this plugin requires.
@@ -124,6 +131,13 @@ export function apply(ctx: Context): void {
       registered.add(payload.sessionId)
       for (const tool of memory.projectTools(agent)) {
         agentCtx.effect(() => agentCtx.tools.register(tool))
+      }
+      // The project's INSTRUCTIONS.md, in this agent's system prompt. The text is a
+      // function, read on every assembly, so an edit reaches the next request.
+      const prompt = (agentCtx as { systemPrompt?: SystemPrompt }).systemPrompt
+      if (payload.owner?.kind === 'project' && prompt !== undefined) {
+        const projectId = (payload.owner as { projectId: string }).projectId
+        agentCtx.effect(() => prompt.section({ name: 'argus:project-instructions', order: INSTRUCTIONS_ORDER, interpolate: false, text: () => memory.instructionsSection(projectId) }))
       }
     }
 

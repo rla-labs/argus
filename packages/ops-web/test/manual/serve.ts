@@ -39,6 +39,7 @@ const boot = await bootOps({
     { id: 'commands', name: '@deepseek-ai/dsh-commands' },
     { id: 'ops-commands', name: '@argus-agent/commands' },
     { id: 'ops-channel', name: '@argus-agent/channel' },
+    { id: 'ops-memory', name: '@argus-agent/memory' },
     { id: 'ops-web', name: '@argus-agent/web' },
     { id: 'ops-config', name: '@argus-agent/argus-agent/loader-row' },
   ],

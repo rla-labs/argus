@@ -180,7 +180,7 @@ describe('registration', () => {
 
     // The Web UI's command menu reads this, so a command missing here is a
     // command a user cannot reach without typing the slash form.
-    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'web', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
+    for (const expected of ['help', 'projects', 'p', 'status', 'runs', 'approvals', 'memory', 'instructions', 'log', 'forget', 'files', 'get', 'set', 'tools', 'key', 'defaults', 'web', 'archive', 'allow', 'stop', 'task', 'usage', 'budget', 'model', 'new', 'cron', 'health', 'panic', 'resume-all', 'reset', 'confirm']) {
       expect(listed, expected).toContain(expected)
     }
   }, 30_000)
@@ -1107,6 +1107,52 @@ describe('prices and /allow-free', () => {
 // ── /new ───────────────────────────────────────────────────────────────────
 
 describe('/new', () => {
+  /** A memory service that keeps instructions in a map. */
+  function instructionsIn(booted: Booted): Map<string, string> {
+    const kept = new Map<string, string>()
+    const ctx = booted.ctx as unknown as { provide(name: string): void; set(name: string, value: unknown): void }
+    ctx.provide('opsMemory')
+    ctx.set('opsMemory', {
+      readInstructions: (id: string) => kept.get(id) ?? '',
+      writeInstructions: (id: string, text: string) => {
+        kept.set(id, text)
+        return { ok: true, bytes: text.length }
+      },
+    })
+    return kept
+  }
+
+  it('lists the templates, and creates a project from one: its settings and its instructions', async () => {
+    const booted = await bootCommands()
+    const kept = instructionsIn(booted)
+    const list = await run(booted, '/new')
+    for (const name of ['site', 'research', 'reports', 'devops']) expect(list).toContain(name)
+
+    const out = await run(booted, '/new market research fake/fake-model')
+    expect(out).toContain('from the research template')
+    const config = booted.projects.configOf('market')
+    expect(config?.tools).toMatchObject({ web: 'allow', write: 'allow', shell: 'deny' })
+    expect(config?.description).toContain('Researches')
+    expect(config?.model).toBe('fake-model')
+    expect(kept.get('market')).toContain('source')
+
+    expect(await run(booted, '/new other nonsense')).toContain('No template "nonsense"')
+    expect(booted.projects.configOf('other')).toBeUndefined()
+  }, 30_000)
+
+  it('takes the deployment\'s own template from config/templates, and refuses one that sets the model', async () => {
+    const booted = await bootCommands()
+    instructionsIn(booted)
+    mkdirSync(join(booted.dataDir, 'config', 'templates'), { recursive: true })
+    writeFileSync(join(booted.dataDir, 'config', 'templates', 'shop.yaml'), 'summary: the shop\ndescription: Runs the shop.\ninstructions: Be polite.\ntools:\n  web: deny\n')
+    writeFileSync(join(booted.dataDir, 'config', 'templates', 'bad.yaml'), 'model: x/y\n')
+    const list = await run(booted, '/new')
+    expect(list).toContain('the shop')
+    expect(list).toContain('bad.yaml: cannot set model')
+    await run(booted, '/new store shop')
+    expect(booted.projects.configOf('store')?.tools.web).toBe('deny')
+  }, 30_000)
+
   it('creates a project that is usable at once', async () => {
     const booted = await bootCommands()
     const out = await booted.commands.runCommand('/new reports', contextFor())
@@ -1167,11 +1213,11 @@ describe('/new', () => {
     expect(out.text).toContain('provider/model')
   }, 30_000)
 
-  it('needs an id', async () => {
+  it('without an id, shows how to use it', async () => {
     const booted = await bootCommands()
+    // Alone, it shows how to use it and the templates.
     const out = await booted.commands.runCommand('/new', contextFor())
-    expect(out.error).toBe(true)
-    expect(out.text).toContain('Syntax: /new <id>')
+    expect(out.text).toContain('/new <id> [template] [provider/model]')
   }, 30_000)
 })
 
@@ -1460,5 +1506,34 @@ describe('what /new leaves behind', () => {
     await booted.commands.runCommand('/new reports', contextFor())
     const files = readdirSync(join(booted.dataDir, 'config', 'projects'))
     expect(files).toEqual(['reports.yaml'])
+  }, 30_000)
+})
+
+// ── /instructions ──────────────────────────────────────────────────────────
+
+describe('/instructions', () => {
+  it('shows, replaces with every line after the id, and clears; only the admin changes them', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const kept = new Map<string, string>()
+    const ctx = booted.ctx as unknown as { provide(name: string): void; set(name: string, value: unknown): void }
+    ctx.provide('opsMemory')
+    ctx.set('opsMemory', {
+      readInstructions: (id: string) => kept.get(id) ?? '',
+      writeInstructions: (id: string, text: string) => {
+        if (text.length > 100) return { ok: false, message: 'too long' }
+        kept.set(id, text)
+        return { ok: true, bytes: text.length }
+      },
+    })
+    const admin = contextFor({ isAdmin: true })
+    expect(await run(booted, '/instructions alpha')).toContain('has no instructions')
+    expect(await run(booted, '/instructions alpha Answer in Romanian.\nNever touch blog/.', admin)).toContain('instructions saved')
+    expect(kept.get('alpha')).toBe('Answer in Romanian.\nNever touch blog/.')
+    expect(await run(booted, '/instructions alpha')).toBe('Instructions of alpha:\n\nAnswer in Romanian.\nNever touch blog/.')
+    expect(await run(booted, '/instructions alpha Be brief.')).toContain('Only the admin')
+    expect(await run(booted, `/instructions alpha ${'x'.repeat(200)}`, admin)).toBe('too long')
+    expect(await run(booted, '/instructions alpha clear', admin)).toContain('removed')
+    expect(kept.get('alpha')).toBe('')
+    expect(await run(booted, '/instructions nowhere')).toContain('nowhere')
   }, 30_000)
 })
