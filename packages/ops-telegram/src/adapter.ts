@@ -114,6 +114,8 @@ export class TelegramChannelAdapter implements ChannelAdapter {
   private readonly api: TelegramApi['raw']
   private readonly queue: OutgoingQueue
   private readonly answeredQuestions = new Map<string, (answer: AnswerOrTimeout) => void>()
+  /** Where each open question was sent, by ops-channel's id, so it can be closed. */
+  private readonly sentQuestions = new Map<string, { readonly to: ChannelAddress; readonly messageId: string; readonly key: string }>()
   private onMessage: ((message: IncomingMessage) => void) | undefined
   private onButton: ((answer: ButtonAnswer) => void) | undefined
   private stopped = false
@@ -471,12 +473,14 @@ export class TelegramChannelAdapter implements ChannelAdapter {
     const pending = new Promise<AnswerOrTimeout>((resolve) => {
       this.answeredQuestions.set(questionId, resolve)
     })
+    this.sentQuestions.set(question.id, { to, messageId: message.messageId, key: questionId })
 
     // Telegram has no server-side timeout for a keyboard, so the deadline is
     // enforced here. `unref` keeps a pending question from holding the process
     // open past its usefulness.
     if (question.timeoutMs !== undefined) {
       setTimeout(() => {
+        this.sentQuestions.delete(question.id)
         const resolve = this.answeredQuestions.get(questionId)
         if (resolve === undefined) return
         this.answeredQuestions.delete(questionId)
@@ -484,6 +488,21 @@ export class TelegramChannelAdapter implements ChannelAdapter {
       }, question.timeoutMs).unref?.()
     }
     return pending
+  }
+
+  /**
+   * Close a question answered elsewhere: the message keeps its text, gains the
+   * note, and loses its buttons (an edit without a keyboard removes it).
+   */
+  async closeQuestion(question: Question, note: string): Promise<void> {
+    const sent = this.sentQuestions.get(question.id)
+    if (sent === undefined) return
+    this.sentQuestions.delete(question.id)
+    const resolve = this.answeredQuestions.get(sent.key)
+    this.answeredQuestions.delete(sent.key)
+    // The channel already has its answer; this only stops waiting here.
+    resolve?.('timeout')
+    await this.edit({ channel: this.name, chatId: sent.to.chatId, messageId: sent.messageId }, { text: `${question.text}\n\n${note}` })
   }
 
   /** Whether polling is running, for `ops-health`. */

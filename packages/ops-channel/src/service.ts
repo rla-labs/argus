@@ -601,9 +601,24 @@ export class OpsChannel {
     this.outstanding.add(id)
     // A second way in, for `answerQuestion`: another surface (the web dashboard)
     // may answer what this adapter asked. The adapter's own deadline still applies.
-    const elsewhere = new Promise<AnswerOrTimeout>((resolve) => this.answerers.set(id, resolve))
+    let answeredElsewhere = false
+    const elsewhere = new Promise<AnswerOrTimeout>((resolve) =>
+      this.answerers.set(id, (answer) => {
+        answeredElsewhere = true
+        resolve(answer)
+      }),
+    )
+    const asked = { id, text: question, buttons, timeoutMs }
     try {
-      return await Promise.race([adapter.ask(address, { id, text: question, buttons, timeoutMs }), elsewhere])
+      const answer = await Promise.race([adapter.ask(address, asked), elsewhere])
+      if (answeredElsewhere && answer !== 'timeout' && adapter.closeQuestion !== undefined) {
+        // The asking chat still shows live buttons: say who answered, and where.
+        const label = buttons.find((button) => button.value === answer.value)?.label ?? answer.value
+        const who = this.lastAnswer?.questionId === id ? ` by ${this.lastAnswer.userId} on ${this.lastAnswer.address.channel}` : ''
+        // A failed close leaves the old buttons, which change nothing now: not worth more.
+        adapter.closeQuestion(asked, `Answered${who}: ${label}`).catch(() => undefined)
+      }
+      return answer
     } finally {
       this.outstanding.delete(id)
       this.answerers.delete(id)
@@ -614,8 +629,8 @@ export class OpsChannel {
    * Answer a pending question from somewhere other than the adapter that asked it.
    *
    * The person must be allowed on the channel they answer from, as for a button.
-   * The asking adapter's message keeps its buttons until its own timeout; a press
-   * there afterwards changes nothing.
+   * The asking adapter closes its copy when it can (`closeQuestion`); otherwise its
+   * buttons stay until its own timeout, and a press there changes nothing.
    *
    * @param questionId the id passed to {@link ask}.
    * @param value the chosen button's value.

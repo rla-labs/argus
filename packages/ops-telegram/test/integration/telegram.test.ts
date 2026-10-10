@@ -409,6 +409,20 @@ describe('outgoing messages', () => {
     expect(markup.inline_keyboard[0]).toEqual([{ text: 'Yes', callback_data: 'yes' }])
   }, 30_000)
 
+  it('closes a question answered elsewhere: the note replaces the buttons', async () => {
+    const booted = await bootTelegram()
+    const asked = booted.channel.ask({ channel: 'telegram', chatId: '99887766' }, 'Run it?', [{ value: 'approve', label: 'Approve' }], 60_000, 'approval:q1')
+    await settle()
+    // Answered from another surface (the web's users are Telegram's).
+    expect(booted.channel.answerQuestion('approval:q1', 'approve', { address: { channel: 'telegram', chatId: '99887766' }, userId: '99887766' })).toBe(true)
+    expect(await asked).toEqual({ kind: 'button', value: 'approve' })
+    await settle()
+    const edit = api.sent.filter((entry) => entry.method === 'editMessageText').at(-1)
+    expect(edit?.payload['text']).toContain('Run it?')
+    expect(edit?.payload['text']).toContain('Answered by 99887766 on telegram: Approve')
+    expect(edit?.payload['reply_markup']).toBeUndefined()
+  }, 30_000)
+
   it('edits a message rather than sending a new one', async () => {
     const booted = await bootTelegram()
     const ref = await booted.channel.send({ channel: 'telegram', chatId: '99887766' }, { text: 'first' })

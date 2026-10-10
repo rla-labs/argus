@@ -215,4 +215,14 @@ export interface ChannelAdapter {
    * @returns the answer, or `'timeout'`.
    */
   ask(to: ChannelAddress, question: Question): Promise<AnswerOrTimeout>
+
+  /**
+   * Close a question that was answered somewhere else: show the note in place of
+   * the buttons, and stop waiting for a press. Optional; without it the buttons stay
+   * until the question's timeout, and a press then changes nothing.
+   *
+   * @param question the question, as {@link ask} received it.
+   * @param note what to show, e.g. who answered it and where.
+   */
+  closeQuestion?(question: Question, note: string): Promise<void>
 }
