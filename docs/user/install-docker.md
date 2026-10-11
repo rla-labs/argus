@@ -16,7 +16,7 @@ this repository is stated [honestly](#what-was-verified-and-what-was-not).
 | RAM | 1 GB | 2 GB if you run a local model. |
 | Disk | 10 GB | The image is ~400 MB; the rest is sessions and workspaces. |
 | Docker | 20.10+ with the Compose plugin | `install.sh` offers to install it. |
-| Network | Outbound HTTPS | Docker Hub (or your registry), `api.telegram.org`, your provider. |
+| Network | Outbound HTTPS | `ghcr.io` (the image), `api.telegram.org`, your provider. No inbound port. |
 | Access | `sudo` for the data directory | Needed once, to set ownership. |
 
 You also need:
@@ -27,7 +27,10 @@ You also need:
    A `@username` will **not** work: usernames can be changed or released, so they are
    not identities.
 3. **A provider API key** — from your model provider. Optional at install time; without
-   it the system runs but no agent can think.
+   it the system runs but no agent can think. You can also send it later from the chat
+   with `/key`.
+4. **Optional: [Tailscale](https://tailscale.com)**, to open the [web interface](web.md)
+   from your laptop or phone.
 
 ## Quick install
 
@@ -38,8 +41,9 @@ cd argus
 ./deploy/scripts/install.sh
 ```
 
-It asks four questions, then does everything else. When it finishes, **check Telegram** —
-the first message should already be there.
+It pulls the published image (`ghcr.io/rla-labs/argus:<version>`), asks four questions,
+then does everything else. When it finishes, **check Telegram** — the first message
+should already be there. `--build` builds the image from your checkout instead.
 
 ### Non-interactive
 
@@ -260,7 +264,7 @@ worse than one that admits its gaps.
 | The defaults are safe (empty allowlist, low budgets, `ask`) | the same test |
 | `backup.sh` → `restore.sh` round trip with data verification | `test/deploy/backup-restore.test.ts` |
 | Retention keeps the configured number and deletes nothing it did not create | the same test |
-| The compose files are valid YAML with the required services and settings | `test/deploy/compose.test.ts` |
+| The compose files are valid YAML with the required services and settings, and publish only the web port, on loopback | `test/deploy/compose.test.ts` |
 | The systemd unit parses | `systemd-analyze verify` |
 
 ### Verified on real hosts
@@ -275,7 +279,7 @@ worse than one that admits its gaps.
 
 | Not checked | Why | What to do |
 |---|---|---|
-| The published image | No release has been tagged yet | Install with `--build` |
+| The web interface through `tailscale serve` on a real VPS | Checked locally in a browser so far | Follow [the web interface](web.md) and report what you find |
 | The ten-minute figure on *your* host | It is a measurement from one VPS | Run it and time it |
 
 ## After installing
@@ -290,9 +294,11 @@ argus backup      # a backup
 Then:
 
 1. **Send `/start`** to your bot. It says what to do next.
-2. **Create a project** from the chat: `/new <name>`, then
-   `/set <name> description <what it is for>`.
+2. **Create a project** from the chat: `/new` lists the templates, `/new <name> <template>`
+   creates one, then `/set <name> description <what it is for>`.
 3. **Follow [Getting started](getting-started.md)** for the rest of the first ten minutes.
+4. **Optionally, the web interface:** `sudo tailscale serve --bg 3091` on the host, set
+   `web.public_url`, then send `/web`. See [the web interface](web.md).
 
 ## The Ollama variant
 
@@ -380,7 +386,7 @@ with it. The `rsync` line above is not optional.
 |---|---|
 | `docker/Dockerfile` | Multi-stage; non-root uid 10001; tini; `/data` volume; healthcheck |
 | `docker/entrypoint.sh` | Verifies `/data`, creates the layout, refuses without a config, starts dsh |
-| `compose/docker-compose.yml` | One service, bind-mounted data, hardened, log-capped |
+| `compose/docker-compose.yml` | One service, bind-mounted data, hardened, log-capped; the web port on the host's `127.0.0.1` only |
 | `compose/docker-compose.ollama.yml` | Overlay adding a local Ollama on an internal network |
 | `argus.sh` | The `argus` command: picks the Docker or the native script ([commands](README.md#running-it-from-the-shell-argus)) |
 | `scripts/install.sh` | Fresh host → first Telegram message |
@@ -391,4 +397,4 @@ with it. The `rsync` line above is not optional.
 | `scripts/smoke.sh` | Is this deployment actually working? |
 | `scripts/lib.sh` | Shared logging, confirmation, health and compose helpers |
 | `native/` | The full non-Docker install: scripts and the unit template ([Install natively](install-native.md)) |
-| `templates/` | `ops.yaml.minimal` (what the installers write), `ops.yaml.example` (every key), `env.example`, `projects/example.yaml` |
+| `templates/` | `ops.yaml.minimal` (what the installers write), `ops.yaml.example` (every key), `env.example`, `projects/example.yaml` (every project key, MCP included) |

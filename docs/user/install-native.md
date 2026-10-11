@@ -35,6 +35,7 @@ Step by step, from a fresh Linux server to a working bot on Telegram, with **no 
 | Access | `root`, or `sudo` | The install creates a system user and writes to `/opt`, `/srv`, `/etc` |
 | Network | Outbound HTTPS | `api.telegram.org`, your provider, npm |
 | `zip` | Any | So `send_file` can send a folder or several files as one zip: `sudo apt-get install -y zip` (`sudo dnf install -y zip` on RHEL/Rocky/Fedora). The Docker image has it. |
+| Optional | | `git`, if a project should commit its work (the `site` template does when git is there); whatever an [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) needs (`npx` comes with Node; `uvx` for Python servers is yours to install); [Tailscale](https://tailscale.com), to open the [web interface](web.md) |
 
 Three things to collect before you start:
 
@@ -508,13 +509,15 @@ sudo systemctl restart argus-agent
 
 ## 7. Creating your first project
 
-A project is a top-level agent with its own folder, model, budget and memory. Create
-it from the chat. `/new` makes the folder and the file, and `/set` changes a setting
-without opening the server:
+A project is a top-level agent with its own folder, model, budget, instructions and
+memory. Create it from the chat. `/new` makes the folder and the file (from a template,
+when one fits: `/new` alone lists them), `/set` changes a setting, and `/instructions`
+tells the project how to work, all without opening the server:
 
 ```
-/new reports
+/new reports reports
 /set reports description The customer reporting pipeline: nightly aggregations, CSV exports, and the monthly invoice run
+/instructions reports Every report starts with three lines: what changed, what needs attention, what is fine.
 ```
 
 [Getting started](getting-started.md) goes on from there. The project's file is
@@ -563,6 +566,7 @@ write into its neighbour's workspace has no isolation at all.
 | `/status` | Every project and its state |
 | `/usage` | Cost, per project and global |
 | `/runs`, `/files`, `/get` | What it ran, and the files it made |
+| `/estimate` | What its runs usually cost, before a big one |
 | `/help` | Everything else |
 
 ---
@@ -593,6 +597,13 @@ sudo systemctl restart argus-agent
 sudo systemctl stop argus-agent
 sudo systemctl start argus-agent
 ```
+
+### The web interface
+
+The service listens on `127.0.0.1:3091` for the [web interface](web.md). Nothing opens
+it to the network; reach it with `sudo tailscale serve --bg 3091` (then set
+`web.public_url` in `ops.yaml` to the address it prints and restart), a VPN or an SSH
+tunnel, and sign in with `/web`. The host firewall needs no new rule.
 
 ### Capping the journal
 
@@ -802,13 +813,14 @@ Argus Agent never logs them.
   data/                                THE DATA — the only thing to back up
     config/ops.yaml                    the configuration
     config/projects/*.yaml             one file per project
+    config/templates/*.yaml            your own project templates (optional)
     projects/<id>/                     each project's working directory
     state/<id>/MEMORY.md               per-project memory (outside the workspace)
-    state/<id>/secrets.env             per-project secrets (outside the workspace)
+    state/<id>/INSTRUCTIONS.md         per-project instructions (outside the workspace)
     memory/USER.md                     the global user profile
     scratch/                           ad-hoc task folders (NOT backed up)
     backups/                           the dated backups
-    dsh-home/                          $DSH_HOME
+    dsh-home/                          $DSH_HOME, with .credentials.yaml (keys saved with /key)
       profiles/ops/                    the composed dsh profile
         package.json                   its bundles
         node_modules/                  the installed plugins

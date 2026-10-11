@@ -7,15 +7,19 @@ looks wrong.
 
 - [The mental model](#the-mental-model)
 - [A day with Argus](#a-day-with-argus)
+- [Starting a project well](#starting-a-project-well)
 - [Talking to projects](#talking-to-projects)
 - [One-off tasks and the front desk](#one-off-tasks-and-the-front-desk)
 - [Keeping costs under control](#keeping-costs-under-control)
 - [Approvals without the noise](#approvals-without-the-noise)
 - [Scheduled work](#scheduled-work)
 - [Memory, files and history](#memory-files-and-history)
+- [Connecting other systems (MCP)](#connecting-other-systems-mcp)
+- [Projects that ask each other](#projects-that-ask-each-other)
 - [Changing a project](#changing-a-project)
 - [When something goes wrong](#when-something-goes-wrong)
 - [Sharing the bot](#sharing-the-bot)
+- [The same from a browser](#the-same-from-a-browser)
 - [Commands by situation](#commands-by-situation)
 - [Habits that pay off](#habits-that-pay-off)
 
@@ -27,7 +31,7 @@ Three kinds of work, three ways in:
 
 | Kind | What it is | How you start it |
 |---|---|---|
-| **A project** | A long-lived agent with its own folder, model, memory, budget and conversation | `/new <id>` once; then make it active with `/p <id>` and write to it |
+| **A project** | A long-lived agent with its own folder, model, instructions, memory, budget and conversation | `/new <id> [template]` once (the admin); then make it active with `/p <id>` and write to it |
 | **A one-off task** | A throw-away agent in a scratch folder, no memory | `/task <text>` |
 | **A schedule** | A project prompt or a task that fires on a cron expression | `/cron add ...` |
 
@@ -78,6 +82,38 @@ is queued and the agent reads it next. It does not interrupt.
 waiting), and `/status` (nothing unexpected running). Approvals left unanswered are
 refused when they time out, so leaving one open is safe; the work just stops at that
 step.
+
+---
+
+## Starting a project well
+
+A project starts from a **template** when one fits the work:
+
+```
+/new                         the templates
+/new site-firma site         a website: edits files, builds, uses git
+/new market research         web research written up as sourced notes
+/new weekly reports          recurring reports kept as dated files
+/new servers devops          checks and runs servers and services
+```
+
+A template sets what the project may use (which tools ask, which run unasked) and gives
+it its first **instructions**. Without one, the project asks before writing, running a
+command or using the web. Your own templates go in `config/templates/`
+([configuration](configuration.md#templates--your-own-kinds-of-project)).
+
+Then, two sentences make the difference:
+
+- **A description**, for routing: `/set market description Market research for the
+  shop: competitors, prices, suppliers`. The front desk sends work by it.
+- **Instructions**, for how it works: `/instructions market Answer in Romanian. Cite every
+  source with its date. Never buy anything.` They are in the agent's system prompt on
+  every request, so they hold for the whole conversation, survive `/reset`, and apply from
+  the next request when you change them. Every line after the project id is kept.
+
+**Instructions are yours, memory is the agent's.** The agent cannot change its
+instructions; it writes its memory itself as it learns (`/memory`). Put rules and the
+role in the instructions; let the facts it discovers go to memory.
 
 ---
 
@@ -145,7 +181,7 @@ Every project has a daily and a monthly budget, `budgets.default_day_usd` and
 **Before a big request,** `/estimate site-firma` shows what its runs usually cost and how
 many the budget still allows.
 
-**When a project pauses,** decide whether the work is worth more money:
+**When a project pauses,** the admin decides whether the work is worth more money:
 
 ```
 /budget site-firma              where it stands
@@ -180,10 +216,14 @@ By default, a project asks before it:
 - fetches a web page or searches the web;
 - reads or searches anything outside its own folder (the database and `config/`, with
   your keys, are outside it);
+- uses a tool of one of its [MCP servers](#connecting-other-systems-mcp);
 - uses any other tool, including one a later version of dsh adds.
 
+A template may relax some of these; `/tools <project>` shows what applies.
+
 Reading and searching its own folder, and keeping its own to-do list, never ask.
-Delegating to other agents is off: the project does not see those tools. Each project
+Delegating to other agents, and [asking other projects](#projects-that-ask-each-other),
+is off: the project does not see those tools. Each project
 can change this per group; see [what a project may use](#what-a-project-may-use). Each
 question becomes:
 
@@ -227,8 +267,17 @@ trust on the web:
 /set news tools.web allow
 ```
 
+One tool can differ from its group. A project that may search the web freely but
+should still ask before opening a page:
+
+```
+/set news tools.exceptions.web_search allow
+```
+
 A read or write outside the project's folder asks whatever the setting. The full
 table is in [configuration](configuration.md#tools--what-the-agent-may-use).
+`argus doctor` warns about a project that allows both `web` and `shell` unasked: a
+page it reads could then steer the commands it runs.
 
 ---
 
@@ -287,9 +336,55 @@ later.
 
 ---
 
+## Connecting other systems (MCP)
+
+An MCP server gives a project tools from another system: GitHub issues, a database, a
+calendar, a browser. The admin adds it to the project's file, with any secret written as
+`${NAME}` and its value sent from the chat:
+
+```yaml
+mcp:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env: { GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}" }
+```
+
+```
+/key GITHUB_TOKEN ghp_…           your message is deleted at once
+/reset site-firma                 the agent connects when it starts
+/tools site-firma                 the server, and whether its tools ask
+```
+
+Its tools ask, like any other, until you trust the server:
+`/set site-firma mcp.github.access allow`. Each server belongs to one project; tasks
+and the front desk never see it. The details, and what to install, are in
+[configuration](configuration.md#mcp--external-tools-through-mcp-servers); what to
+watch for, in [security](security.md#mcp-servers).
+
+---
+
+## Projects that ask each other
+
+With `tools.agents` at `ask` or `allow`, a project can put a question to another and
+use the answer: the reports project asks the devops project for last night's disk usage,
+the site project asks research for a competitor's prices.
+
+```
+/set reports tools.agents ask
+```
+
+The question is ordinary work for the other project: it waits for a slot, runs in that
+project's folder with its memory and instructions, and is **paid from that project's
+budget**. The answer goes back to the asking project, not to the chat; the other
+project's `/runs` and `/log` show it. A project busy answering a question cannot ask
+one in turn. With `ask`, you approve each question first.
+
+---
+
 ## Changing a project
 
-Settings change from the chat (admin only), without touching the server:
+Settings change from the chat (the admin), without touching the server:
 
 ```
 /set site-firma budget.day_usd 5
@@ -308,6 +403,14 @@ folder, memory and history stay, and moving its file back plus `/reload` restore
 
 For a project's full file (every key, with comments) see
 [Configuration → Projects](configuration.md#projects).
+
+The rest of the setup is also the admin's, from the chat:
+
+```
+/key openrouter sk-or-v1-…              a provider's API key, checked before it is saved
+/defaults tasks deepseek/deepseek-flash  the model for /task (and `frontdesk …` for the front desk)
+/instructions site-firma …              what the project is told
+```
 
 ---
 
@@ -340,9 +443,22 @@ The admin (`access.admin`) can let someone else in from the chat:
 /allow remove 123456789
 ```
 
-The id is their numeric Telegram id (they get it from `@userinfobot`). An added user can
-talk to every project, run commands and spend the budgets. They cannot run `/set`,
-`/archive` or `/allow`. Add only people you would give the budget to.
+The id is their numeric Telegram id (they get it from `@userinfobot`). An added user is
+an **operator**: they talk to every project, run and stop work, schedule it, and answer
+approvals, which spends the budgets. What spends more, widens what agents may do, or
+deletes stays the admin's: creating projects, changing models, budgets, settings,
+instructions and keys, removing memory, adding users. The full list is in
+[who may run what](commands.md#who-may-run-what). Add only people you would give the
+budget to.
+
+---
+
+## The same from a browser
+
+`/web` (the admin) sends a sign-in link to the [web interface](web.md): an overview of
+the projects, spending, live runs and schedules, the pending approvals, the settings
+(models, keys, what each project may use, its instructions) and the same chat. It is
+meant for a private network: open it through Tailscale, a VPN or an SSH tunnel.
 
 ---
 
@@ -353,11 +469,12 @@ talk to every project, run commands and spend the budgets. They cannot run `/set
 | Opening the chat | `/start`, `/help`, `/help <command>` |
 | Choosing where messages go | `/p`, `/p <id>`, `/p none`, `/projects` |
 | Seeing what is happening | `/status`, `/status <project>`, `/approvals`, `/health` |
-| Money | `/usage`, `/usage global month`, `/budget <scope>`, `/budget <scope> +<usd>` |
-| What a project did | `/runs`, `/log`, `/memory`, `/forget`, `/files`, `/get` |
+| Money | `/usage`, `/usage global month`, `/estimate`, `/budget <scope>` |
+| What a project did | `/runs`, `/log`, `/memory`, `/files`, `/get` |
+| How a project works | `/instructions`, `/tools` |
 | Starting work | a plain message, `/task <text>`, `/cron add ...` |
-| Stopping work | `/stop`, `/panic`, `/resume-all` |
-| Changing things (admin) | `/new`, `/set`, `/model`, `/reset`, `/archive`, `/reload`, `/allow`, `/allow-free` |
+| Stopping and restarting work | `/stop`, `/reset`, `/reload`, `/panic`, `/resume-all` |
+| Changing things (admin) | `/new`, `/set`, `/instructions <id> <text>`, `/model`, `/budget <scope> +<usd>`, `/forget`, `/archive`, `/allow`, `/allow-free`, `/key`, `/defaults`, `/web` |
 
 Every command, with its syntax and examples: [Telegram commands](commands.md).
 
@@ -369,8 +486,8 @@ Every command, with its syntax and examples: [Telegram commands](commands.md).
    Small projects have short memories, clear descriptions and budgets that mean something.
 2. **Set `/p` once per conversation.** Most mistakes come from writing to the wrong
    project.
-3. **Say what "done" looks like** in every instruction. An agent without a finish line
-   spends steps looking for one.
+3. **Put the standing rules in `/instructions`,** and say what "done" looks like in
+   every message. An agent without a finish line spends steps looking for one.
 4. **Keep results in files,** and fetch them with `/get`.
 5. **Reset when a conversation drifts,** and let memory carry what matters.
 6. **Allow-list the harmless, approve the rest.** A shorter question list makes each

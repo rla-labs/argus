@@ -1,6 +1,7 @@
 # Argus Agent — user documentation
 
-Installing Argus, running it day to day from Telegram, and keeping it healthy.
+Installing Argus, running it day to day from Telegram or a browser, and keeping it
+healthy.
 **Docker is the recommended install.** The native install (systemd on a VPS) is a fully
 supported alternative.
 
@@ -26,7 +27,7 @@ supported alternative.
 |---|---|
 | A Telegram bot token | Message [`@BotFather`](https://t.me/BotFather), send `/newbot` |
 | Your numeric Telegram user id | Message [`@userinfobot`](https://t.me/userinfobot) |
-| A provider API key | Your model provider (DeepSeek, OpenRouter, Anthropic, ...) |
+| A provider API key | Your model provider (DeepSeek, OpenRouter, Anthropic, ...). Later keys go in from the chat with `/key` |
 | A Linux host | Docker with the Compose plugin, or Node 22 and systemd for the native install |
 
 A `@username` will **not** work as the user id: usernames can be changed or released, so
@@ -34,7 +35,7 @@ they are not identities.
 
 ```sh
 git clone https://github.com/rla-labs/argus.git && cd argus
-./deploy/scripts/install.sh --build          # Docker
+./deploy/scripts/install.sh                  # Docker: pulls the published image (--build: from this checkout)
 sudo ./deploy/native/install-native.sh       # or: native
 ```
 
@@ -69,12 +70,14 @@ Options after the command go to the script that does the work: `argus backup --k
    ├── ops.sqlite              runs, requests, usage, audit, approvals
    ├── config/ops.yaml         the whole configuration
    ├── config/projects/*.yaml  one file per project
+   ├── config/templates/       your own project templates (optional)
    ├── projects/               each project's working directory
-   ├── state/                  per-project memory
-   ├── dsh-home/               the composed profile and session logs
+   ├── state/                  per-project memory and instructions
+   ├── dsh-home/               the composed profile, session logs, and keys saved with /key
    └── backups/                rotating database backups
 ```
 
 Back up that directory, off the machine, and the deployment can be rebuilt from nothing.
-The secrets (`.env` for Docker, `secrets.env` for native) live outside it. Keep a copy of
-them in your password manager.
+It includes the keys saved with `/key`, so keep the backup as safe as the keys. The
+secrets set at install (`.env` for Docker, `secrets.env` for native) live outside it.
+Keep a copy of them in your password manager.

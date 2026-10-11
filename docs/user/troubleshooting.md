@@ -75,13 +75,68 @@ would flood the chat.
 | `grep 'injection failed'` | The agent started without its memory |
 
 **Memory is only what the agent explicitly wrote.** A fact that was discussed but
-never recorded is gone after a reset.
+never recorded is gone after a reset. A rule that must always hold belongs in its
+instructions (`/instructions <id> …`), which the agent receives on every request.
+
+### "The project ignores its instructions"
+
+| Check | Fix |
+|---|---|
+| `/instructions <id>` | Are they what you think? Empty means none were saved |
+| `cat ${data_dir}/state/<id>/INSTRUCTIONS.md` | The file the prompt is built from |
+| The model | A small model follows a long list of rules less well: keep them short, or `/set <id> model …` |
+
+Instructions apply from the next request; a reply already being written finishes
+without the change.
+
+### "Only the admin can …"
+
+The command spends money, widens what an agent may do, or deletes, and you are an
+operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what).
+
+### The agent says a tool is not allowed, or does not have it
+
+| Check | Fix |
+|---|---|
+| `/tools <project>` | The group's setting: `off` hides the tools, `deny` refuses them |
+| The refusal names the rule (`tools.web: deny`, `tools.exceptions.edit: deny`, `mcp.github.access: deny`) | Change it with `/set <project> <that key> ask` |
+| You changed a group from `off` | Hidden tools come back after `/reset <project>` |
+| A one-off task | It reads and searches the web only; give the work to a project |
+
+### An MCP server's tools do not appear
+
+| Check | Fix |
+|---|---|
+| `grep 'MCP server .* is left out'` | The reason: a `${NAME}` not set (`/key NAME value`), a program not found, a server down |
+| Added or changed it after the agent started? | `/reset <project>`: the agent connects when it starts |
+| `npx` in the Docker image | Available; `uvx` (Python servers) is not |
+| `/tools <project>` | The server is listed, with its `access` |
+
+### A project asked another and got no answer
+
+| Check | Fix |
+|---|---|
+| The tool's reply ("No answer from …") | It says why: the other project's budget, a stop, a timeout |
+| `/runs <other project>` | The question ran there, as its own run |
+| `/budget <other project>` | The answer is paid from the other project's budget |
+| The asking project's `tools.agents` | `off` (the default) hides `ask_project` |
+
+### The web interface does not open, or the link fails
+
+| Check | Fix |
+|---|---|
+| "This link is not valid" | A link works once, for ten minutes: send `/web` again |
+| Signed out after a restart | Sessions are kept in memory: send `/web` again |
+| The link points at `127.0.0.1` | Set `web.public_url` to the address you open it at (the `tailscale serve` one), and restart |
+| `sudo tailscale serve status` | Is port 3091 served? |
+| `grep 'web interface'` | The line says where it listens, or why it could not start (a port in use) |
 
 ### A risky action was refused
 
 | Check | Fix |
 |---|---|
 | `grep 'refused without asking'` | The project's `mode: deny`, or not allow-listed |
+| The agent was told "is not allowed in project …" | A tool setting refused it; see [above](#the-agent-says-a-tool-is-not-allowed-or-does-not-have-it) |
 | `SELECT * FROM approvals ORDER BY created_at DESC LIMIT 5` | The `status` says what happened |
 | `decided_at` vs `created_at` | A press **after** the timeout changes nothing |
 | Is the answering user allow-listed? | The channel checks the allowlist on the answer path too |

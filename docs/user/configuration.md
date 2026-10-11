@@ -6,12 +6,20 @@ every key at its default. The installers write the short
 [`templates/ops.yaml.minimal`](../../deploy/templates/ops.yaml.minimal) instead: timezone,
 data directory, admin and budgets. Copy a section from the reference to change it.
 
-Configuration lives in two files:
+Configuration lives in these files:
 
 | File | Holds | Mode |
 |---|---|---|
-| `${DATA_DIR}/config/ops.yaml` | Everything below | 640, owned by uid 10001 |
-| `deploy/compose/.env` | Secrets and deployment settings | **600** |
+| `${DATA_DIR}/config/ops.yaml` | Everything below, down to [Projects](#projects) | 640, owned by uid 10001 |
+| `${DATA_DIR}/config/projects/<id>.yaml` | One [project](#projects) each | 640 |
+| `${DATA_DIR}/config/templates/<name>.yaml` | Your own [project templates](#templates--your-own-kinds-of-project), optional | 640 |
+| `${DATA_DIR}/state/<id>/INSTRUCTIONS.md` | A project's [instructions](#instructionsmd--what-the-project-is-told) | 600 |
+| `deploy/compose/.env` (`secrets.env` on a native install) | Secrets and deployment settings | **600** |
+| `.credentials.yaml` in the dsh home | Keys and secrets saved with `/key` | **600** |
+
+Most of it changes from the chat: `/set` writes a project's file, `/defaults` the two
+default models in `ops.yaml`, `/instructions` a project's instructions, `/key` the
+credentials. Each keeps the file's comments.
 
 **Secrets are never in `ops.yaml`.** The bot token (`TELEGRAM_BOT_TOKEN`) and the provider
 keys (`<PROVIDER>_API_KEY`) are read from the environment or from dsh's credentials
@@ -256,6 +264,11 @@ spend six times the money on work that is no longer relevant.
 | `timeout_minutes` | int | `30` | How long a person has to answer. |
 | `ask_timeout_s` | int | `30` | How long the **channel** has to deliver the question. |
 | `allow_run_grant` | boolean | `true` | Whether "approve all of this kind for this run" is offered. |
+
+A question about a single command or a page fetch in a project also offers **Always
+allow**: the admin's press adds that exact command to the project's
+`approvals.auto_allow` (or the site to `tools.web_hosts`), through `/set`. Anyone
+else's press approves once.
 | `max_action_length` | int | `500` | Truncation length in the question text. |
 
 **`approvals_adhoc` defaults to `deny`** because a one-off task has no allowlist, and
@@ -278,6 +291,9 @@ answer, an error. Silence means no, because the operator is most likely asleep.
 Over `max_inject_tokens`, the most recent sections are kept and **the agent is told
 that memory was truncated**. Silent truncation would let an agent act confidently on an
 incomplete picture.
+
+A project's [instructions](#instructionsmd--what-the-project-is-told) are separate: they
+are in the system prompt, not in this budget, and have their own 8 KB limit.
 
 ## `web`
 
@@ -369,15 +385,22 @@ tools:
   write: ask
   shell: ask
   web: ask
-  agents: off
+  agents: off                # also ask_project
   other: ask                 # deny | ask | allow
   web_hosts: [news.ycombinator.com]
+  exceptions:                # one tool over its group
+    web_search: allow
+
+mcp: {}                      # MCP servers, by name; see below
 
 memory:
   user_profile: true
 
 progress: true
 ```
+
+`/new <id> <template>` writes such a file for you; the
+[template](#templates--your-own-kinds-of-project) fills the `tools` and `approvals`.
 
 ### `description` — the most important field
 
@@ -522,7 +545,11 @@ In the Docker image `npx` is available; Python servers (`uvx`) are not.
 
 ### `INSTRUCTIONS.md` — what the project is told
 
-A project's instructions are in `<data_dir>/state/<id>/INSTRUCTIONS.md`, beside its
+What the project is for and how it should work, in your words: its role, the rules it
+keeps, how to answer. They hold for every conversation and survive `/reset`; the
+agent's own notes are its memory, which it writes itself.
+
+They are in `<data_dir>/state/<id>/INSTRUCTIONS.md`, beside its
 `MEMORY.md` and outside its folder, so its agent can read them in its prompt but not
 change them. They are read on every request: edit them with
 [`/instructions`](commands.md#instructions-project-id--project-id-text), on the web's

@@ -48,7 +48,7 @@ rm -f "${DATA_DIR}/.write-test"
 #
 #   config/    ops.yaml and projects/*.yaml
 #   projects/  the project workspaces (each project's cwd)
-#   state/     per-project memory and secrets, OUTSIDE every workspace
+#   state/     per-project memory and instructions, OUTSIDE every workspace
 #   scratch/   ad-hoc task folders and the orchestrator's cwd
 #   memory/    the global USER.md
 #   backups/   the dated database copies

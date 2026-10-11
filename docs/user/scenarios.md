@@ -22,9 +22,15 @@ still builds.
 /set site description The company website: an Astro site, its blog and its contact form
 ```
 
-The second `site` is the template: it lets the agent edit files, asks before it runs
-a command, and gives it a few rules (build after a change, commit each one when there is git). See them
-with `/instructions site`.
+The second `site` is the template: it lets the agent edit files in its folder, asks
+before it runs a command or opens a web page, and gives it a few rules (build after a
+change, commit each one when there is git). See them with `/instructions site`, and add
+your own, for example:
+
+```
+/instructions site Build after every change and fix what breaks before you report.
+Never touch the blog/ folder. Answer in English.
+```
 
 **2. Put the code in its folder.** The folder is
 `/srv/argus-agent/data/projects/site/` on the server. Copy the site there:
@@ -47,14 +53,16 @@ Read this project. Write in your memory how to install, build and test it, and t
 It answers, and `/memory site` shows what it wrote. Every later session starts from
 these notes, so you do not explain the project twice.
 
-**4. Stop the harmless commands from asking.** Building and testing change nothing
-outside the folder:
+**4. Stop the harmless commands from asking.** When `npm run build` asks for the first
+time, press **Always allow** and it never asks again; or set the list at once:
 
 ```
 /set site approvals.auto_allow [npm ci, npm run build, npm test]
 ```
 
-Anything else, such as deleting files or a command you did not expect, still asks.
+`npm run …` runs the project's own scripts, which the agent can edit; allow them for a
+project whose changes you read (`/log`). Anything else, such as deleting files or a
+command you did not expect, still asks.
 
 **5. Give it work.** Say what is wrong, what you expect, and what you want back:
 
@@ -62,10 +70,10 @@ Anything else, such as deleting files or a command you did not expect, still ask
 The contact form returns 500 since yesterday. Find the cause, fix it, run the tests, and tell me which files you changed.
 ```
 
-Each file it changes asks for your approval. **Approve all of this kind for this run**
-covers the rest of that task. `/log site` shows afterwards every command it ran and every
-file it touched. `/get site <path>`
-sends you a file to review.
+Its edits inside its folder do not ask (the template allows them); a command that is
+not on the list does, and **Approve all of this kind for this run** covers the rest of
+that task. `/log site` shows afterwards every command it ran and every file it touched.
+`/get site <path>` sends you a file to review.
 
 **6. A morning check:**
 
@@ -104,7 +112,8 @@ Writing the file asks for your approval. Then read the script before anything ru
 /get monitor check.mjs
 ```
 
-**3. Allow that one command.** A rule allows a command exactly as written, plus extra
+**3. Allow that one command.** Press **Always allow** when `node check.mjs` first asks,
+or set it yourself. A rule allows a command exactly as written, plus extra
 options (words that start with `-`). A rule for `curl -s` would therefore not cover
 `curl -s https://example.com`. A rule naming the script is exact, and it covers every run:
 
@@ -112,11 +121,14 @@ options (words that start with `-`). A rule for `curl -s` would therefore not co
 /set monitor approvals.auto_allow [node check.mjs]
 ```
 
-**4. Say once what "the report" means, and try it:**
+**4. Say once what "the report" means, as an instruction, and try it:**
 
 ```
-When I ask for "the report": run node check.mjs, then reply with one line per site, and a warning for any site that is down or whose certificate expires within 14 days. Save this in your memory as "Daily report".
+/instructions monitor When I ask for "the report": run node check.mjs, then reply with one line per site, and a warning for any site that is down or whose certificate expires within 14 days.
 ```
+
+Instructions are in the agent's prompt on every request, so the meaning holds in every
+session, and only you can change it.
 
 ```
 the report
@@ -176,8 +188,9 @@ size is taken.
 ## What the three have in common
 
 - **The description routes the work.** Write what the project is for, as a sentence.
-- **The memory holds what you would otherwise repeat:** how to build, what a report
-  looks like. Ask the project to write it down.
+- **Instructions hold your rules** (what a report looks like, what never to touch); the
+  **memory holds what the agent learns** (how to build, where things are). Set the first
+  with `/instructions`; ask the project to write the second down.
 - **The allowlist removes the noise** of approving harmless commands. Keep it to
   commands that change nothing important. For unattended work, allow one reviewed
   script rather than a general command.

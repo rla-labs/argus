@@ -12,10 +12,11 @@ What is backed up, what is not, and how to restore.
    │                          backed up ONLINE, via SQLite's own backup API
    ├── sessions/           ← every session transcript
    ├── projects/           ← every project workspace
-   ├── state/              ← per-project memory (MEMORY.md) and secrets
+   ├── state/              ← per-project memory (MEMORY.md) and instructions (INSTRUCTIONS.md)
    ├── memory/             ← the global USER.md
-   ├── config/             ← ops.yaml and projects/*.yaml
-   ├── dsh-home/           ← the composed profile and dsh's own state
+   ├── config/             ← ops.yaml, projects/*.yaml and templates/*.yaml
+   ├── dsh-home/           ← the composed profile, dsh's own state, and the keys
+   │                          saved with /key (.credentials.yaml)
    ├── scratch/            ← ad-hoc task folders          ← EXCLUDED from the archive
    └── backups/            ← the backups themselves       ← EXCLUDED (not recursive)
 ```
@@ -57,7 +58,11 @@ Including it would make every backup carry whatever a one-off task happened to d
 | A provider's own state | The provider | — |
 
 **`.env` is not in the data directory**, so `backup.sh` does not see it. Losing it means
-losing the bot token and the provider keys. Keep a copy in your password manager.
+losing the bot token and the provider keys set there. Keep a copy in your password manager.
+
+**The keys saved with `/key` are in the backup** (`dsh-home/.credentials.yaml`), so a
+backup restores them, and a backup is as secret as your keys: keep it where you would
+keep them, and encrypt it when it leaves the machine.
 
 ### Running it
 
@@ -403,6 +408,25 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.3.0
+
+Nothing to migrate. A project file without a `tools` block gets the defaults: reading
+its own folder runs, writing, commands, the web and any other tool ask, delegation is
+hidden. Four things to know:
+
+- **Roles.** A user other than the admin becomes an **operator**: they can no longer run
+  `/new`, `/model`, `/allow-free`, change a budget or remove memory
+  ([who may run what](commands.md#who-may-run-what)).
+- **Delegation is off by default.** A project does not see `subagent`, `workflow`,
+  `ralph` and the other `agents` tools (nor the new `ask_project`) until
+  `tools.agents` is `ask` or `allow`.
+- **The web interface.** On Docker, run `git pull` in your checkout before
+  `argus upgrade`, so the compose file publishes the web port (on the host's
+  `127.0.0.1:3091` only). Then follow [the web interface](web.md). A native install
+  serves it on `127.0.0.1:3091` without a change.
+- **`argus doctor`** now also warns about a project that allows both `web` and `shell`
+  unasked.
 
 ### Reading the changelog
 

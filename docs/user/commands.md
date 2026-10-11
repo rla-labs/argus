@@ -12,7 +12,17 @@ An **amount** is `2`, `2.5`, `$2`, or `$2.50`.
 For which command fits which moment, read
 [Working with Argus every day](daily-use.md#commands-by-situation).
 
-**Who may run what.**
+| Group | Commands |
+|---|---|
+| Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
+| What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
+| A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
+| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
+| Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
+| Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+
+## Who may run what
 
 | Role | Who | May |
 |---|---|---|
@@ -24,16 +34,6 @@ What spends money, changes what the agents may do, or deletes is the admin's:
 `/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
 and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions or the memory stays open to everyone.
-
-| Group | Commands |
-|---|---|
-| Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
-| What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
-| A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
-| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
-| Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
-| Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see the roles above) | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ---
 
@@ -317,7 +317,10 @@ When     Project     Action      Outcome  By
 3h ago   site-firma  git status  granted  policy
 ```
 
-`policy` means the project's approval rules decided, without asking.
+`policy` means the project's approval rules decided, without asking. A question for a
+single command or a page fetch also offers **Always allow**: the admin's press adds that
+exact command (or that site) to the project's rules, so it never asks again; see
+[approvals without the noise](daily-use.md#approvals-without-the-noise).
 
 ---
 
@@ -366,7 +369,8 @@ section after a confirmation. The name is matched without regard to case.
 /forget site-firma Deploy notes
 ```
 
-Use it when the project learned something wrong, or something that is no longer true.
+Listing is anyone's; removing is the admin's. Use it when the project learned
+something wrong, or something that is no longer true.
 A running agent keeps what it already read until `/reset`; its next session does not
 see the section. The removal is in the audit log as `memory.forgotten`.
 
@@ -437,7 +441,7 @@ by (you get its model's price instead).
 
 ## `/budget <scope> [action]`
 
-With no action, shows the state. Three actions:
+With no action, shows the state; anyone may look. The three actions are the admin's:
 
 | Action | Effect |
 |---|---|
@@ -481,7 +485,7 @@ shows the syntax.
 
 ## `/model <project-id> <provider/model>`
 
-Records a runtime override.
+Records a runtime override. The admin's: it changes what the project spends.
 
 ```
 /model site-firma deepseek/deepseek-flash
@@ -503,7 +507,7 @@ everything before the **first** one.
 ## `/allow-free <provider/model>`  *(asks first)*
 
 Allows a **remote** model priced at $0 to run. Such a model — an OpenRouter `:free`
-variant, or a 0 written in `ops.yaml` — is refused until you allow it: free remote
+variant, or a 0 written in `ops.yaml` — is refused until the admin allows it: free remote
 models are often rate-limited and may log or train on what they are sent, and a 0 that
 is a typo would silently disable every budget. A local provider (`local_providers`,
 default `ollama`) needs nothing.
@@ -554,7 +558,8 @@ it is refused with the file and the problem.
 ## `/new <id> [template] [provider/model]`
 
 Creates the project folder, writes its project file, and reloads the configuration —
-so the project is usable at once, without a restart.
+so the project is usable at once, without a restart. Creating is the admin's; anyone
+may list the templates.
 
 ```
 /new
@@ -581,11 +586,16 @@ Your own templates go in `config/templates/<name>.yaml`; see
 [configuration](configuration.md#templates--your-own-kinds-of-project).
 
 ```
-Created project reports using deepseek/deepseek-flash.
-  folder  /var/lib/argus-agent/projects/reports
-  file    /var/lib/argus-agent/config/projects/reports.yaml
-Make it active with /p reports, then send it work.
+Created project market from the research template using deepseek/deepseek-flash.
+  folder  /var/lib/argus-agent/projects/market
+  file    /var/lib/argus-agent/config/projects/market.yaml
+Price: $0.14 in / $0.28 out per 1M tokens (catalog, verified 2026-10-01).
+Its instructions: /instructions market.
+Make it active with /p market, then send it work.
 ```
+
+Then give it a `description` the front desk can route on (`/set market description …`);
+a template's is generic.
 
 The id must be lowercase letters, digits and dashes, 2 to 41 characters — the
 same rule the loader enforces, so a command can never write a file that fails the
@@ -721,8 +731,9 @@ not see them), `deny` (refused), `ask` (you are asked) or `allow` (runs unasked)
 the sites `web_fetch` reaches unasked. A read or write outside the project's folder asks
 even under `allow`. Change a group with `/set <project> tools.<group> <value>`; the
 groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
-The project's MCP servers follow, each with its `access`; change one with
-`/set <project> mcp.<server>.access allow`.
+Then come the tools that differ from their group (`tools.exceptions`, set with
+`/set <project> tools.exceptions.<tool> <value>`), and the project's MCP servers, each
+with its `access` (`/set <project> mcp.<server>.access allow`).
 
 ```
 /tools
@@ -759,9 +770,11 @@ does not. The user is allowed on the channel you send the command from.
 /allow remove 123456789
 ```
 
-An added user can do everything you can except the admin commands: run commands, spend
-the budgets, talk to every project. The users added here are kept in the database
-(and in a backup); the ones in `access.allowed_users` are changed in `ops.yaml`.
+An added user is an **operator** (see [who may run what](#who-may-run-what)): they talk to
+every project, run and stop work, schedule it and answer approvals, which spends the
+budgets; they cannot create projects, change models, budgets or settings, or add users.
+The users added here are kept in the database (and in a backup); the ones in
+`access.allowed_users` are changed in `ops.yaml`.
 
 ---
 
@@ -881,4 +894,7 @@ Every state-changing command writes an `audit_log` row:
 | `details` | The channel and chat id |
 
 A read-only command writes nothing, and neither does a command that only asked
-for confirmation — nothing changed, so nothing is audited.
+for confirmation — nothing changed, so nothing is audited. `/key` keeps only the
+provider or the secret's name, never the value. A change of a project's instructions is
+recorded as `instructions.written` (its size, not its text), and a question one project
+put to another (`ask_project`) as `project.asked`.

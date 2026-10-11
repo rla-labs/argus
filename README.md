@@ -35,8 +35,10 @@ And it should tell you, in plain words, what happened and what it needs from you
 ## What it does today
 
 - **Projects.** Long-running agents, each in its own folder, with its own model,
-  memory and budget. Each one is a separate top-level agent, never a subagent of
-  another.
+  instructions, memory and budget. Each one is a separate top-level agent, never a
+  subagent of another. Start one from a template (`site`, `research`, `reports`,
+  `devops`, or your own) and tell it how to work with `/instructions`; the instructions
+  are in its prompt on every request, and only you can change them.
 - **One-off tasks.** Ephemeral agents for a single job, accounted separately.
 - **Scheduled work.** Cron schedules that fire exactly once, including across
   restarts, with the result delivered to your chat.
@@ -47,8 +49,15 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Administration from the chat.** Read a project's runs, what each one did, its
   memory and its files (`/runs`, `/log`, `/memory`, `/files`, `/get`), remove a wrong
   memory (`/forget`), change its settings (`/set`), archive it, and let someone else in
-  (`/allow`), without opening SSH. On the host, `argus doctor` checks keys, models and
-  projects, and says how to fix what fails.
+  (`/allow`), without opening SSH. API keys (`/key`, checked with the provider before
+  they are saved) and the default models (`/defaults`) change from the chat too. On the
+  host, `argus doctor` checks keys, models and projects, and says how to fix what fails.
+- **A web interface.** An overview of the projects, spending, live runs and schedules,
+  the pending approvals, the settings and the same chat, in English or Romanian. It is
+  built for a private network (Tailscale, a VPN, an SSH tunnel) and signs you in with a
+  one-time link from `/web`.
+- **Two roles.** The admin decides what spends money, what agents may do and what is
+  deleted; operators run, stop and approve work.
 - **Hard cost control.** Every execution passes through one governor, which
   enforces concurrency and budgets before anything starts and again at every step.
   Prices for DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter)
@@ -56,9 +65,20 @@ And it should tell you, in plain words, what happened and what it needs from you
   daily from OpenRouter. You are told when a model you use changes price, and a
   free remote model runs only after you allow it.
   Budgets have warning thresholds, can downgrade the model, and pause a project at
-  the limit. `/panic` stops everything in under five seconds.
-- **Approvals.** A risky action becomes a question in Telegram: *Approve*,
-  *Deny*, or *Approve this kind for the rest of the run*. No answer means no.
+  the limit. `/estimate` shows what a project's runs usually cost before you send a big
+  one. `/panic` stops everything in under five seconds.
+- **Per-project permissions.** Each project says what its agent may use: reading,
+  writing, the shell, the web, delegation, each `off`, `deny`, `ask` or `allow`, with
+  exceptions for single tools and a list of sites it may fetch.
+- **Approvals.** A risky action becomes a question in Telegram (or on the web):
+  *Approve*, *Deny*, *Approve this kind for the rest of the run*, or *Always allow* this
+  exact command. No answer means no.
+- **Integrations through MCP.** A project can use the tools of MCP servers (GitHub, a
+  database, a calendar), each server visible to that project only, its secrets kept out
+  of the project's files, and its calls behind the same approvals.
+- **Projects that work together.** With delegation allowed, one project can ask another
+  a question; the answer is paid from the other project's budget and runs under its
+  rules.
 - **Memory.** Each project has durable memory that survives resets and
   compactions. It is stored outside the project's own workspace, where its tools
   can't touch it.
@@ -96,7 +116,7 @@ not yet been run in production by anyone. dsh itself is still a release candidat
 
 What has been verified:
 
-- **1,800+ automated tests.** They cover a `SIGKILL` crash in the middle of a
+- **2,000+ automated tests.** They cover a `SIGKILL` crash in the middle of a
   run, a day-long outage of the scheduler, and every approval bypass we could
   think of.
 - **The Docker install, end to end, on a real daemon:** install, health checks,
@@ -116,23 +136,25 @@ What has been verified:
 What is not verified yet:
 
 - **Agents running shell tools under the native systemd hardening.**
-- **The published Docker image.** No release has been tagged yet, so
-  `ghcr.io/rla-labs/argus` does not exist; install with `--build` until it does.
-  The first release is planned for the end of the next phase.
+- **The web interface on a real server.** Checked in a browser against a local
+  instance; not yet through `tailscale serve` on a VPS.
+- **MCP servers in production.** Tested with a real stdio server in the test suite,
+  not yet with the public servers (GitHub and the like).
 - **Long-running use.** No deployment has run for weeks against real budgets.
 
 ## Where it is going
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **A web dashboard.** Costs, the queue, live runs, approvals and schedules on
-   one page.
-2. **Integrations through MCP**, so agents can reach GitHub, mail, calendars and
-   databases, with the same approvals and budgets.
-3. **More channels and more people.** Slack, Discord or a web chat, plus roles,
-   so a team can share one Argus.
-4. **Project templates.** Start "a website maintainer" or "a daily researcher"
-   without writing a prompt.
+1. **Channels that stand on their own.** Today the web interface signs you in through
+   Telegram. Next, users who belong to no single channel, the web with its own sign-in
+   and its own setup, so Argus can run with no Telegram at all.
+2. **More channels and more people.** Slack or Discord, and more roles than admin and
+   operator, so a team can share one Argus.
+3. **Memory that finds meaning**, not only words, and **parallel work** inside one
+   project.
+4. **Operations:** metrics for an existing monitoring stack, and encrypted backups
+   copied off the machine.
 
 If any of this is something you need, an issue describing your use case is the
 most helpful thing you can send.
@@ -155,11 +177,11 @@ key for your model provider.
 ```sh
 git clone https://github.com/rla-labs/argus.git
 cd argus
-./deploy/scripts/install.sh --build
+./deploy/scripts/install.sh
 ```
 
-`--build` builds the image from your checkout; a published image is not available
-yet. The container runs as a non-root user with a read-only filesystem and no
+It pulls the published image (`ghcr.io/rla-labs/argus`); `--build` builds it from your
+checkout instead. The container runs as a non-root user with a read-only filesystem and no
 capabilities. All state lives in one data directory, which is the only thing you
 need to back up.
 
@@ -185,6 +207,7 @@ documentation starts at [`docs/user/`](docs/user/README.md):
 - [Three scenarios](docs/user/scenarios.md): a website, a daily report, a file you send
 - [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,
   and how to work well with them
+- [The web interface](docs/user/web.md): reaching it privately, signing in
 - [Telegram commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
   [Backup, restore and upgrades](docs/user/backup-and-upgrade.md),
   [Security](docs/user/security.md), [Troubleshooting](docs/user/troubleshooting.md)

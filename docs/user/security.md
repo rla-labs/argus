@@ -16,6 +16,10 @@ What this deployment defends against, and what it explicitly does not.
 | A compromised provider | **No** | Every prompt and file the agent sends reaches the provider. |
 | A local attacker with root | **No** | Root reads `/data` and the secrets. Nothing here defends against root. |
 | A malicious project workspace | **Partly** | A project asks before it reads outside its own folder (another project's files, the database, the keys); code it runs is confined by the sandbox mode. |
+| A web page steering the agent's commands | **Partly** | `web` and `shell` ask by default; `argus doctor` warns about a project that allows both unasked. |
+| An MCP server, or what it returns | **Partly** | Off until the admin adds it to one project; its tools ask until allowed. It runs as Argus's user, outside the sandbox ([below](#mcp-servers)). |
+| One project steering another | **Partly** | `ask_project` is off by default; a question runs as ordinary work in the other project, on its budget and rules, and a project answering cannot ask in turn. |
+| An approval rule that grows too wide | **Partly** | "Always allow" saves one exact command or one site, and only on the admin's press. |
 | Losing the host | **Partly** | Backups. **Copy them off the machine** — a backup on the same disk is not a backup. |
 
 **The honest summary: this system runs code a model asked for.** The controls bound the
@@ -25,20 +29,23 @@ token.
 
 ## Network exposure
 
-Exactly three outbound destinations, and **no inbound ports**.
+**No inbound ports**, and these outbound destinations:
 
 ```
    Argus Agent container
         │
         ├──▶ api.telegram.org          long polling: OUTBOUND only
         ├──▶ <provider> API            the model
-        └──▶ registry                  the image pull, at install/upgrade
+        ├──▶ registry                  the image pull, at install/upgrade
+        └──▶ what you add              an MCP server's URL, the npm registry when `npx`
+                                       fetches one, the sites a project fetches
 ```
 
 | Surface | Exposed? | Why |
 |---|---|---|
 | The health endpoint (3090) | **No** | Bound to `127.0.0.1` inside the container. The Docker healthcheck calls it there; an operator tunnels. |
-| The Web UI (3080) | **No** | The same. The tunnel is the authentication. |
+| Argus's web interface (3091) | **No** | Loopback only (Docker publishes it on the host's `127.0.0.1`). Reached through `tailscale serve`, a VPN or a tunnel, and signed in with a `/web` link. |
+| The dsh Web UI (3080) | **No** | The same. The tunnel is the authentication. |
 | Ollama (11434) | **No** | An internal Docker network. A local model server has **no authentication**, so it is safe only because nothing else can route to it. |
 | The bot | Outbound | Long polling, so there is no webhook to expose and no public domain, certificate or reverse proxy to maintain. |
 
@@ -117,32 +124,26 @@ TELEGRAM_BOT_TOKEN=123456789:AAH…
   command could read the credentials file, just as it could read the environment.
   The approvals on shell commands are what stand in the way.
 
-### Per-project secrets
+### Secrets a project needs
 
-```
-/data/state/<project-id>/secrets.env      # outside every project's cwd
-```
-
-**Outside the workspace, deliberately.** A project's agent has file tools and runs
-with its `cwd` as the workspace root; a secret inside that directory is a secret the
-agent can read, print, and include in a model request. Putting them under
-`/data/state/<id>/` keeps them out of reach of the file tools, and they are injected
-only into the processes that need them.
+A project gets a secret (a GitHub token, a database password) only through one of its
+[MCP servers](#mcp-servers). Its `mcp` block names the secret as `${NAME}`; the value
+comes from `/key NAME value` (dsh's credentials store, like the provider keys) or the
+server's `.env`, and is filled in only when the project's agent starts that server.
 
 | Rule | Why |
 |---|---|
-| One file per project | A project cannot read another's secrets even if it escapes its own directory. |
-| `0600`, owned by the service user | Nothing else on the host reads them. |
-| Never in a project's `cwd` | The agent's file tools reach the whole workspace. |
-| Never in `ops.yaml` | The composition file is committed and shared. |
-| Never at info level | A secret in a log is a leaked secret. |
+| Never in a project's folder | The agent's file tools reach the whole folder, and what it reads can end up in a model request. |
+| Never in the project file or `ops.yaml` | The agent can read the first; the second is shared and copied. |
+| Only the server's process is given it | dsh starts a local server with a scrubbed environment plus its `env`. A value saved with `/key` reaches no other process; one set in `.env` is in the service's environment, like the provider keys. |
+| Never logged | The log and the audit keep the name, never the value. |
 
-### MCP servers' secrets
+The same limit as for the provider keys applies: the agent's commands run as the same
+user as the credentials store, so a command could read it. The approvals on shell
+commands are what stand in the way.
 
-A project's `mcp` block names a secret as `${NAME}`; the value comes from `/key NAME
-value` (dsh's credentials store, like the provider keys) or the server's `.env`, and is
-filled in only when the project's agent starts its servers. It is never in the project
-file, which the agent can read, nor in the log or the audit (which keeps the name).
+The project's own state directory (`state/<id>/`, outside its folder) holds its memory
+and its instructions, which the agent reads in its prompt but cannot write.
 
 ## MCP servers
 
@@ -292,4 +293,7 @@ sudo chown -R 10001:10001 /srv/argus-agent/data
   effect; the allowlist bounds what is asked about.
 - **Protect a secret the agent can read.** Keep secrets out of the workspace; that
   is the whole control.
-- **Authenticate the web UI.** The tunnel is the authentication.
+- **Authenticate the dsh web UI.** The tunnel is its authentication. (Argus's own web
+  interface signs you in, and is still meant for a private network only.)
+- **Make an MCP server trustworthy.** It is a program you chose to run; Argus decides
+  which project sees it and whether its calls ask.

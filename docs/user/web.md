@@ -16,6 +16,9 @@ settings, and a chat. It is built for **one person on a private network**.
 The interface is in English and Romanian; the buttons at the top switch. It changes
 nothing in its own way: each action runs the same command you would type in Telegram
 (`/defaults`, `/key`, `/set`, `/stop`), so the checks and the audit log are the same.
+Only the admin is given a link, so everything here runs as the admin. The chat's
+history is kept in memory: after a restart it starts empty (the projects remember, as
+always).
 
 ## Reach it: Tailscale (recommended)
 
