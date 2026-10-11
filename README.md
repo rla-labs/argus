@@ -4,6 +4,10 @@
 
 **An operating system for AI agents: one you can leave running and trust.**
 
+**Current release: [0.3.0](https://github.com/rla-labs/argus/releases/tag/v0.3.0)**
+(image `ghcr.io/rla-labs/argus:0.3.0`). Self-hosted, controlled from Telegram and a
+private web interface.
+
 *Formerly **dsh-ops**. The plugins keep their `ops-*` names.*
 
 ---
@@ -34,62 +38,77 @@ And it should tell you, in plain words, what happened and what it needs from you
 
 ## What it does today
 
+### Agents that do the work
+
 - **Projects.** Long-running agents, each in its own folder, with its own model,
   instructions, memory and budget. Each one is a separate top-level agent, never a
-  subagent of another. Start one from a template (`site`, `research`, `reports`,
-  `devops`, or your own) and tell it how to work with `/instructions`; the instructions
-  are in its prompt on every request, and only you can change them.
-- **One-off tasks.** Ephemeral agents for a single job, accounted separately.
-- **Scheduled work.** Cron schedules that fire exactly once, including across
-  restarts, with the result delivered to your chat.
-- **Control from Telegram.** Commands like `/status`, `/stop`, `/budget` and
-  `/panic` are deterministic code, so they work without a model in the loop. Any
-  other message goes to the active project, verbatim, or to a cheap "front desk"
-  agent that routes it.
-- **Administration from the chat.** Read a project's runs, what each one did, its
-  memory and its files (`/runs`, `/log`, `/memory`, `/files`, `/get`), remove a wrong
-  memory (`/forget`), change its settings (`/set`), archive it, and let someone else in
-  (`/allow`), without opening SSH. API keys (`/key`, checked with the provider before
-  they are saved) and the default models (`/defaults`) change from the chat too. On the
-  host, `argus doctor` checks keys, models and projects, and says how to fix what fails.
+  subagent of another.
+- **Templates and instructions.** Start a project as a `site`, `research`, `reports`
+  or `devops` project (or from a template of your own) and tell it how to work with
+  `/instructions`. The instructions are in its prompt on every request, and only you
+  can change them.
+- **Memory.** Each project keeps durable notes that survive resets and compactions,
+  stored outside its own folder, where its tools can't touch them.
+- **One-off tasks** for a single job, accounted separately, and **scheduled work**:
+  cron schedules that fire exactly once, even across restarts, with the result
+  delivered to your chat.
+- **Integrations through MCP.** A project can use the tools of MCP servers (GitHub, a
+  database, a calendar). Each server is visible to that one project, its secrets stay
+  out of the project's files, and its calls go through the same approvals.
+- **Projects that work together.** With delegation allowed, one project can ask
+  another a question; the work is paid from the other project's budget and runs under
+  its rules.
+
+### You stay in control
+
+- **Telegram.** Commands like `/status`, `/stop`, `/budget` and `/panic` are
+  deterministic code, so they work without a model in the loop. Any other message
+  goes to the active project, verbatim, or to a cheap "front desk" agent that routes it.
 - **A web interface.** An overview of the projects, spending, live runs and schedules,
   the pending approvals, the settings and the same chat, in English or Romanian. It is
   built for a private network (Tailscale, a VPN, an SSH tunnel) and signs you in with a
   one-time link from `/web`.
+- **Administration without SSH.** A project's runs, what each one did, its memory and
+  files (`/runs`, `/log`, `/memory`, `/files`, `/get`); its settings (`/set`); API keys,
+  checked with the provider before they are saved (`/key`); the default models
+  (`/defaults`); who may use the bot (`/allow`). On the host, `argus doctor` checks keys,
+  models and projects, and says how to fix what fails.
 - **Two roles.** The admin decides what spends money, what agents may do and what is
   deleted; operators run, stop and approve work.
-- **Hard cost control.** Every execution passes through one governor, which
-  enforces concurrency and budgets before anything starts and again at every step.
-  Prices for DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter)
-  ship with Argus and refresh themselves: weekly from a public pricing dataset,
-  daily from OpenRouter. You are told when a model you use changes price, and a
-  free remote model runs only after you allow it.
-  Budgets have warning thresholds, can downgrade the model, and pause a project at
-  the limit. `/estimate` shows what a project's runs usually cost before you send a big
-  one. `/panic` stops everything in under five seconds.
-- **Per-project permissions.** Each project says what its agent may use: reading,
-  writing, the shell, the web, delegation, each `off`, `deny`, `ask` or `allow`, with
+
+### Safety and cost
+
+- **Per-project permissions.** Each project says what its agent may use (reading,
+  writing, the shell, the web, delegation), each `off`, `deny`, `ask` or `allow`, with
   exceptions for single tools and a list of sites it may fetch.
-- **Approvals.** A risky action becomes a question in Telegram (or on the web):
+- **Approvals.** A risky action becomes a question in Telegram or on the web:
   *Approve*, *Deny*, *Approve this kind for the rest of the run*, or *Always allow* this
   exact command. No answer means no.
-- **Integrations through MCP.** A project can use the tools of MCP servers (GitHub, a
-  database, a calendar), each server visible to that project only, its secrets kept out
-  of the project's files, and its calls behind the same approvals.
-- **Projects that work together.** With delegation allowed, one project can ask another
-  a question; the answer is paid from the other project's budget and runs under its
-  rules.
-- **Memory.** Each project has durable memory that survives resets and
-  compactions. It is stored outside the project's own workspace, where its tools
-  can't touch it.
-- **Recovery.** Nothing is lost in a crash. Runs that were interrupted are
-  reported, and you can retry them with one button.
-- **One instance per data directory.** A second process on the same data refuses
-  to start, so schedules can never fire twice. The lock is released by the
-  operating system even after a hard crash, so there is nothing to clean up.
-- **Fault tolerance.** A broken project file sidelines that one project. The rest
-  of the system keeps running, you are told exactly what is wrong, and `/reload`
-  brings the project back once the file is fixed.
+- **Hard cost control.** Every execution passes through one governor, which enforces
+  concurrency and budgets before anything starts and again at every step. Prices for
+  DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter) ship with Argus
+  and refresh themselves; you are told when a model you use changes price, and a free
+  remote model runs only after you allow it. Budgets warn, can downgrade the model, and
+  pause a project at the limit. `/estimate` shows what a project's runs usually cost
+  before you send a big one, and `/panic` stops everything in under five seconds.
+
+### Reliability
+
+- **Recovery.** Nothing is lost in a crash. Interrupted runs are reported, and you can
+  retry them with one button.
+- **One instance per data directory.** A second process on the same data refuses to
+  start, so schedules can never fire twice. The lock is released by the operating
+  system even after a hard crash.
+- **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
+  running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
+
+## New in 0.3.0
+
+The web interface; per-project tool permissions; API keys and default models from the
+chat; MCP servers; project templates and instructions; the admin and operator roles;
+`/estimate`; projects asking each other; and the *Always allow* button. Upgrading from
+0.2 needs no migration; [what changes](docs/user/backup-and-upgrade.md#upgrading-to-030)
+for your users and projects is listed in the upgrade guide.
 
 ## How it is built
 
@@ -110,9 +129,9 @@ Each rule is enforced by tests, not only stated here.
 
 ## Status: an honest picture
 
-**Developer preview.** The foundation is done and heavily tested, but Argus has
-not yet been run in production by anyone. dsh itself is still a release candidate
-(`0.2.0-rc.2`).
+**Early, and in use.** The foundation is done and heavily tested, and Argus runs day
+to day on its author's own server, but nobody else has run it in production yet. dsh
+itself is still a release candidate (`0.2.0-rc.2`).
 
 What has been verified:
 
@@ -122,6 +141,8 @@ What has been verified:
 - **The Docker install, end to end, on a real daemon:** install, health checks,
   backup, restore, upgrade, forced rollback, and upgrading a deployment that still
   uses the old dsh-ops names.
+- **An upgrade from 0.2 to 0.3.0 on a real server** (a Docker host in a VM): every
+  `argus doctor` check passes, and the web interface answers through an SSH tunnel.
 - **The native install, end to end, on a fresh Ubuntu 24.04 with systemd:**
   install, crash recovery, upgrade and rollback from git, uninstall.
   `pnpm test:native-vps` repeats it on demand.
@@ -136,11 +157,12 @@ What has been verified:
 What is not verified yet:
 
 - **Agents running shell tools under the native systemd hardening.**
-- **The web interface on a real server.** Checked in a browser against a local
-  instance; not yet through `tailscale serve` on a VPS.
+- **The web interface through `tailscale serve`.** Reached so far through an SSH
+  tunnel and on the local machine.
 - **MCP servers in production.** Tested with a real stdio server in the test suite,
   not yet with the public servers (GitHub and the like).
-- **Long-running use.** No deployment has run for weeks against real budgets.
+- **Long-running use by others.** No deployment but the author's has run for weeks
+  against real budgets.
 
 ## Where it is going
 
@@ -199,8 +221,14 @@ the health check and sends your first Telegram message.
 
 After either install, open the chat with your bot and send `/start`. On the host, one
 command runs the rest, for both installs: `argus status`, `argus doctor`, `argus logs -f`,
-`argus backup`, `argus restore`, `argus upgrade`. The user
-documentation starts at [`docs/user/`](docs/user/README.md):
+`argus backup`, `argus restore`, `argus upgrade`.
+
+For the web interface, open a private path to the server's port 3091 (on the server:
+`sudo tailscale serve --bg 3091`; or from your computer:
+`ssh -N -L 3091:127.0.0.1:3091 you@server`), then send `/web` to the bot for a
+sign-in link. Nothing is ever opened to the internet.
+
+The user documentation starts at [`docs/user/`](docs/user/README.md):
 
 - [Getting started](docs/user/getting-started.md): from an empty server to a working
   project and a schedule, in ten minutes
@@ -224,7 +252,8 @@ pnpm test:native-vps    # the native install on a throwaway Ubuntu + systemd con
 ```
 
 ```
-packages/          one Cordis plugin per folder (ops-*), plus the argus-agent bundle
+packages/          one Cordis plugin per folder (ops-*, ops-web for the web interface),
+                   plus the argus-agent bundle
 profiles/ops/      the dsh profile that stacks the bundles
 deploy/            Docker, compose, native systemd install, backup/upgrade scripts,
                    and the config templates (ops.yaml.minimal, ops.yaml.example, a project)
