@@ -34,7 +34,7 @@
     "lib/**/*.d.ts",
     "cordis.patch.yml"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE.md",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

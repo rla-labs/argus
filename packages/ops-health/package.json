@@ -10,7 +10,7 @@
     "./package.json": "./package.json"
   },
   "files": ["lib/**/*.js", "lib/**/*.d.ts"],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.test.json"

@@ -17,7 +17,7 @@
     "lib/**/*.d.ts",
     "lib/migrations/*.sql"
   ],
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node --eval \"require('node:fs').cpSync('src/migrations','lib/migrations',{recursive:true})\"",
     "typecheck": "tsc -p tsconfig.test.json"

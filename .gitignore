@@ -16,11 +16,12 @@ coverage/
 cache/
 
 # Developer documentation is kept on the maintainer's machine only: every Markdown file
-# is private except the root README and the user documentation. The tests and check-docs
+# is private except the root README, the LICENSE and the user documentation. The tests and check-docs
 # skip the developer-documentation checks when it is absent, so a public clone still
 # passes `pnpm test`.
 *.md
 !/README.md
+!/LICENSE.md
 !/docs/user/
 !/docs/user/*.md
 # NOT documentation: the orchestrator's system prompt is read by the code at runtime.

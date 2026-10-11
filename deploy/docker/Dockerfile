@@ -69,7 +69,7 @@ FROM node:22-bookworm-slim AS runtime
 LABEL org.opencontainers.image.title="Argus Agent" \
       org.opencontainers.image.description="A self-hosted autonomous agent system on the DeepSeek Harness" \
       org.opencontainers.image.source="https://github.com/rla-labs/argus" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="LicenseRef-Sustainable-Use-1.0" \
       org.opencontainers.image.version="${ARGUS_AGENT_VERSION:-0.3.0}" \
       com.argus-agent.dsh-version="0.2.0-rc.2" \
       com.argus-agent.node="22"
@@ -117,6 +117,7 @@ WORKDIR /app
 COPY --from=build --chown=ops:ops /out/ /app/
 COPY --chown=ops:ops deploy/docker/entrypoint.sh /app/entrypoint.sh
 COPY --chown=ops:ops deploy/templates/ /app/templates/
+COPY --chown=ops:ops LICENSE.md /app/LICENSE.md
 RUN chmod 0755 /app/entrypoint.sh
 
 # The volume. Declared so `docker run` without `-v` still gets a writable tree, and
