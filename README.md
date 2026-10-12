@@ -270,8 +270,6 @@ Argus is source-available under the [Sustainable Use License](LICENSE.md), the l
 n8n uses. You may run it for yourself or for your own company, commercial work included,
 and change it for that use. You may not offer it to others as a hosted or managed
 service, and you may not sell or commercially distribute it, or a modified version.
-Versions up to and including 0.3.0 were published under the MIT License and keep it;
-the Sustainable Use License applies from 0.3.1.
 
 ## Acknowledgements
 
