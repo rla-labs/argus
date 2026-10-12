@@ -4,10 +4,7 @@ Copyright (c) 2026 Lefter Adrian-Romeo
 
 Portions of this software are licensed as follows:
 
-- Argus Agent versions up to and including 0.3.0 were published under the MIT License.
-  Copies of those versions keep that license.
-- From version 0.3.1, Argus Agent is available under the "Sustainable Use License" as
-  defined below.
+- Argus Agent is available under the "Sustainable Use License" as defined below.
 - All third party components incorporated into Argus Agent, such as DeepSeek Harness and
   Cordis, are licensed under the original license provided by the owner of the
   applicable component.
