@@ -423,6 +423,30 @@ describe('outgoing messages', () => {
     expect(edit?.payload['reply_markup']).toBeUndefined()
   }, 30_000)
 
+  it('a press is credited to who pressed it, under the id the question was asked with', async () => {
+    const booted = await bootTelegram()
+    const asked = booted.channel.ask({ channel: 'telegram', chatId: '99887766' }, 'Fetch it?', [{ value: 'always', label: 'Always' }], 60_000, 'approval:q2')
+    await settle()
+    const adapter = booted.channel.adapters().find((entry) => entry.name === 'telegram') as TelegramChannelAdapter
+    const bot = (adapter as unknown as { bot: { botInfo: unknown; handleUpdate(update: unknown): Promise<void> } }).bot
+    bot.botInfo = { id: 1, is_bot: true, first_name: 'argus', username: 'argus_bot' }
+    // The fake numbers its messages in order: the question is the last one sent.
+    const message = (api as unknown as { messageId: number }).messageId
+    await bot.handleUpdate({
+      update_id: 1,
+      callback_query: {
+        id: 'cb1',
+        chat_instance: 'c',
+        data: 'always',
+        from: { id: 99887766, is_bot: false, first_name: 'admin' },
+        message: { message_id: message, date: Math.floor(Date.now() / 1000), chat: { id: 99887766, type: 'private' }, text: 'Fetch it?' },
+      },
+    })
+    expect(await asked).toEqual({ kind: 'button', value: 'always' })
+    // `answeredByAdmin` reads the same record, so the admin's "Always allow" now counts.
+    expect(booted.channel.answeredBy('approval:q2')).toBe('99887766')
+  }, 30_000)
+
   it('edits a message rather than sending a new one', async () => {
     const booted = await bootTelegram()
     const ref = await booted.channel.send({ channel: 'telegram', chatId: '99887766' }, { text: 'first' })

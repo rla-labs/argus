@@ -235,7 +235,12 @@ export class TelegramChannelAdapter implements ChannelAdapter {
         this.answeredQuestions.delete(converted.questionId)
         pending({ kind: 'button', value: converted.value })
       }
-      this.onButton?.(converted)
+      // A press carries the message's key; the channel knows the question by the id
+      // it asked with. Without it, who answered was lost: no `decided_by`, and the
+      // admin's "Always allow" counted as anyone's.
+      const asked = [...this.sentQuestions].find(([, sent]) => sent.key === converted.questionId)?.[0]
+      if (asked !== undefined) this.sentQuestions.delete(asked)
+      this.onButton?.(asked === undefined ? converted : { ...converted, questionId: asked })
     })
 
     this.bot.catch((error) => {
