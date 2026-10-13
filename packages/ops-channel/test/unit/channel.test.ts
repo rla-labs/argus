@@ -24,108 +24,99 @@ import {
   summarise,
   textOf,
 } from '../../src/format.js'
-import { adminOf, allowedWithAdmin, parseAddress } from '../../src/config.js'
+import { adminOf, parseAddress } from '../../src/config.js'
+import { OpsStore } from '@argus-agent/store'
 
 /** An access config, with defaults. */
 function accessConfig(overrides: Partial<AccessConfig> = {}): AccessConfig {
-  return {
-    allowed_users: [],
-    admin: undefined,
-    warnIntervalMs: 60_000,
-    ...overrides,
+  return { admin: undefined, warnIntervalMs: 60_000, ...overrides }
+}
+
+/** A store with these users: `[id, role, ...identities as "channel:external" or "chat:channel:external"]`. */
+function usersStore(...users: Array<[string, 'admin' | 'operator', ...string[]]>): OpsStore {
+  const store = new OpsStore({ path: ':memory:' })
+  for (const [id, role, ...identities] of users) {
+    store.users.create({ id, role }, 0)
+    for (const identity of identities) {
+      const parts = identity.split(':')
+      const chat = parts[0] === 'chat'
+      const [channel, external] = chat ? parts.slice(1) : parts
+      store.users.link({ channel: channel!, external_id: external!, kind: chat ? 'chat' : 'user', user_id: id }, 0)
+    }
   }
+  return store
+}
+
+/** A policy over these users. */
+function policyOf(...users: Array<[string, 'admin' | 'operator', ...string[]]>): AccessPolicy {
+  return new AccessPolicy(accessConfig(), usersStore(...users).users)
 }
 
 /** Adapter limits, with defaults. */
 const LIMITS: AdapterLimits = { maxTextLength: 100, maxFileBytes: 1_000 }
 
 describe('AccessPolicy', () => {
-  it('denies everything with no allowlist', () => {
+  it('denies everything with no users', () => {
     // Default deny. A deployment that has not said who may operate the system
     // has not authorized anyone.
-    const policy = new AccessPolicy(accessConfig())
-    expect(policy.check('telegram', '123').allowed).toBe(false)
-    expect(policy.check('telegram', '123').reason).toBe('no_allowlist')
+    const policy = policyOf()
+    expect(policy.check('telegram', '123')).toEqual({ allowed: false, reason: 'no_allowlist' })
     expect(policy.isEmpty).toBe(true)
   })
 
-  it('reads the users /allow added on every check', () => {
-    let added = [{ channel: 'telegram', userId: '7' }]
-    const policy = new AccessPolicy(accessConfig(), () => added)
-    expect(policy.isAllowed('telegram', '7')).toBe(true)
-    expect(policy.isEmpty).toBe(false)
-    added = []
-    expect(policy.check('telegram', '7').reason).toBe('no_allowlist')
+  it('reads the users table on every check: an addition, a disable, a role change apply at once', () => {
+    const store = usersStore(['a', 'operator', 'telegram:7'])
+    const policy = new AccessPolicy(accessConfig(), store.users)
+    expect(policy.check('telegram', '7')).toEqual({ allowed: true, user: { id: 'a', role: 'operator' } })
+    expect(policy.isAdmin({ channel: 'telegram', chatId: '7' }, '7')).toBe(false)
+    store.users.setRole('a', 'admin')
+    expect(policy.isAdmin({ channel: 'telegram', chatId: '7' }, '7')).toBe(true)
+    store.users.disable('a', 1)
+    expect(policy.check('telegram', '7')).toEqual({ allowed: false, reason: 'disabled' })
+    expect(policy.isAdmin({ channel: 'telegram', chatId: '7' }, '7')).toBe(false)
+    expect(policy.isEmpty).toBe(true)
   })
 
-  it('knows the admin: the user, or anyone in the admin’s group chat', () => {
-    const user = new AccessPolicy(accessConfig({ admin: { channel: 'telegram', chatId: '42' } }))
+  it('a disabled user is refused on every channel', () => {
+    const store = usersStore(['a', 'operator', 'telegram:7', 'web:7'])
+    store.users.disable('a', 1)
+    const policy = new AccessPolicy(accessConfig(), store.users)
+    expect(policy.isAllowed('telegram', '7')).toBe(false)
+    expect(policy.isAllowed('web', '7')).toBe(false)
+  })
+
+  it('knows the admin: the user, or anyone allowed in the admin’s group chat', () => {
+    const user = policyOf(['a', 'admin', 'telegram:42'], ['b', 'operator', 'telegram:43'])
     expect(user.isAdmin({ channel: 'telegram', chatId: '42' }, '42')).toBe(true)
     expect(user.isAdmin({ channel: 'telegram', chatId: '-100' }, '42')).toBe(true)
     expect(user.isAdmin({ channel: 'telegram', chatId: '43' }, '43')).toBe(false)
     expect(user.isAdmin({ channel: 'slack', chatId: '42' }, '42')).toBe(false)
-    const group = new AccessPolicy(accessConfig({ admin: { channel: 'telegram', chatId: '-100' } }))
+    const group = policyOf(['g', 'admin', 'chat:telegram:-100'], ['b', 'operator', 'telegram:43'])
     expect(group.isAdmin({ channel: 'telegram', chatId: '-100' }, '43')).toBe(true)
-    expect(new AccessPolicy(accessConfig()).isAdmin({ channel: 'telegram', chatId: '42' }, '42')).toBe(false)
+    expect(group.isAdmin({ channel: 'telegram', chatId: '43' }, '43')).toBe(false)
+    // A stranger in the admin's group is not let in by being there.
+    expect(group.isAdmin({ channel: 'telegram', chatId: '-100' }, '44')).toBe(false)
   })
 
-  it('allows a listed user on a listed channel', () => {
-    const policy = new AccessPolicy(
-      accessConfig({ allowed_users: [{ channel: 'telegram', userId: '123' }] }),
-    )
+  it('allows a user only on the channel of their identity, or any with `*`', () => {
+    const policy = policyOf(['a', 'operator', 'telegram:123'], ['b', 'operator', '*:9'])
     expect(policy.isAllowed('telegram', '123')).toBe(true)
-  })
-
-  it('denies a listed user on a DIFFERENT channel', () => {
-    const policy = new AccessPolicy(
-      accessConfig({ allowed_users: [{ channel: 'telegram', userId: '123' }] }),
-    )
-    expect(policy.isAllowed('slack', '123')).toBe(false)
-    expect(policy.check('slack', '123').reason).toBe('not_listed')
-  })
-
-  it('honours a wildcard channel', () => {
-    const policy = new AccessPolicy(accessConfig({ allowed_users: [{ channel: '*', userId: '123' }] }))
-    expect(policy.isAllowed('telegram', '123')).toBe(true)
-    expect(policy.isAllowed('slack', '123')).toBe(true)
-  })
-
-  it('matches the user id EXACTLY', () => {
-    // The classic allowlist bug: a prefix or substring match would let `123`
-    // authorize `1234` and `91234`.
-    const policy = new AccessPolicy(
-      accessConfig({ allowed_users: [{ channel: 'telegram', userId: '123' }] }),
-    )
-    expect(policy.isAllowed('telegram', '1234')).toBe(false)
-    expect(policy.isAllowed('telegram', '12')).toBe(false)
-    expect(policy.isAllowed('telegram', '9123')).toBe(false)
-    expect(policy.isAllowed('telegram', '')).toBe(false)
-  })
-
-  it('is case-sensitive on the user id', () => {
-    const policy = new AccessPolicy(accessConfig({ allowed_users: [{ channel: 'c', userId: 'AbC' }] }))
-    expect(policy.isAllowed('c', 'abc')).toBe(false)
-  })
-
-  it('allows any listed user among several', () => {
-    const policy = new AccessPolicy(
-      accessConfig({
-        allowed_users: [
-          { channel: 'telegram', userId: '1' },
-          { channel: 'slack', userId: '2' },
-        ],
-      }),
-    )
-    expect(policy.isAllowed('telegram', '1')).toBe(true)
-    expect(policy.isAllowed('slack', '2')).toBe(true)
-    expect(policy.isAllowed('telegram', '2')).toBe(false)
+    expect(policy.check('slack', '123')).toEqual({ allowed: false, reason: 'not_listed' })
+    expect(policy.isAllowed('telegram', '9')).toBe(true)
+    expect(policy.isAllowed('slack', '9')).toBe(true)
     expect(policy.size).toBe(2)
   })
 
+  it('matches the user id EXACTLY, case included', () => {
+    // The classic allowlist bug: a prefix or substring match would let `123`
+    // authorize `1234` and `91234`.
+    const policy = policyOf(['a', 'operator', 'telegram:123', 'c:AbC'])
+    for (const id of ['1234', '12', '9123', '']) expect(policy.isAllowed('telegram', id)).toBe(false)
+    expect(policy.isAllowed('c', 'abc')).toBe(false)
+  })
+
   it('rate-limits the admin warning', () => {
-    const policy = new AccessPolicy(
-      accessConfig({ admin: { channel: 'c', chatId: 'a' }, warnIntervalMs: 60_000 }),
-    )
+    const policy = new AccessPolicy(accessConfig({ admin: { channel: 'c', chatId: 'a' }, warnIntervalMs: 60_000 }), usersStore().users)
     // The first warning is always sent, whatever the clock reads.
     expect(policy.shouldWarn(0)).toBe(true)
     expect(policy.shouldWarn(1_000)).toBe(false)
@@ -138,8 +129,7 @@ describe('AccessPolicy', () => {
   })
 
   it('never warns without an admin address', () => {
-    const policy = new AccessPolicy(accessConfig({ allowed_users: [{ channel: 'c', userId: '1' }] }))
-    expect(policy.shouldWarn(0)).toBe(false)
+    expect(policyOf(['a', 'operator', 'c:1']).shouldWarn(0)).toBe(false)
   })
 })
 
@@ -148,15 +138,16 @@ describe('warningText', () => {
     const text = warningText('telegram', '999', 'not_listed', 0)
     expect(text).toContain('telegram')
     expect(text).toContain('999')
-    expect(text).toContain('not in access.allowed_users')
+    expect(text).toContain('not a user of Argus')
   })
 
   it('reports the suppressed count', () => {
     expect(warningText('c', 'u', 'not_listed', 5)).toContain('5 further attempt(s)')
   })
 
-  it('explains an empty allowlist', () => {
-    expect(warningText('c', 'u', 'no_allowlist', 0)).toContain('No access.allowed_users')
+  it('explains an empty allowlist and a disabled user', () => {
+    expect(warningText('c', 'u', 'no_allowlist', 0)).toContain('no users yet')
+    expect(warningText('c', 'u', 'disabled', 0)).toContain('disabled')
   })
 
   it('never contains message content', () => {
@@ -487,7 +478,7 @@ describe('chunkText', () => {
   })
 })
 
-describe('adminOf and allowedWithAdmin', () => {
+describe('adminOf', () => {
   it('reads a bare id as a Telegram chat', () => {
     expect(adminOf(888878901)).toEqual({ channel: 'telegram', chatId: '888878901' })
     expect(adminOf('888878901')).toEqual({ channel: 'telegram', chatId: '888878901' })
@@ -495,16 +486,6 @@ describe('adminOf and allowedWithAdmin', () => {
     expect(adminOf('slack:U1')).toEqual({ channel: 'slack', chatId: 'U1' })
     expect(adminOf(null)).toBeUndefined()
     expect(adminOf(1.5)).toBeUndefined()
-  })
-
-  it('puts the admin on the allowlist once', () => {
-    const admin = { channel: 'telegram', chatId: '42' }
-    expect(allowedWithAdmin([], admin)).toEqual([{ channel: 'telegram', userId: '42' }])
-    const listed = [{ channel: '*', userId: '42' }]
-    expect(allowedWithAdmin(listed, admin)).toBe(listed)
-    // Same id on another channel is a different person.
-    expect(allowedWithAdmin([{ channel: 'slack', userId: '42' }], admin)).toHaveLength(2)
-    expect(allowedWithAdmin(listed, undefined)).toBe(listed)
   })
 })
 

@@ -20,6 +20,7 @@ export class UsersRepository {
   private readonly roleStmt
   private readonly demoteAdminStmt
   private readonly disableStmt
+  private readonly enableStmt
   private readonly identityStmt
   private readonly identitiesStmt
   private readonly linkStmt
@@ -33,6 +34,7 @@ export class UsersRepository {
     this.roleStmt = db.prepare('UPDATE users SET role = ? WHERE id = ?')
     this.demoteAdminStmt = db.prepare("UPDATE users SET role = 'operator' WHERE role = 'admin' AND id != ?")
     this.disableStmt = db.prepare('UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL')
+    this.enableStmt = db.prepare('UPDATE users SET disabled_at = NULL WHERE id = ? AND disabled_at IS NOT NULL')
     this.identityStmt = db.prepare('SELECT * FROM identities WHERE channel = ? AND external_id = ?')
     this.identitiesStmt = db.prepare('SELECT * FROM identities WHERE user_id = ? ORDER BY created_at, channel')
     this.linkStmt = db.prepare(`
@@ -95,6 +97,15 @@ export class UsersRepository {
    */
   disable(id: string, now: number): boolean {
     return this.disableStmt.run(now, id).changes > 0
+  }
+
+  /**
+   * Enable a disabled user again.
+   * @param id the user id.
+   * @returns whether a disabled user was enabled.
+   */
+  enable(id: string): boolean {
+    return this.enableStmt.run(id).changes > 0
   }
 
   /**

@@ -1,17 +1,18 @@
 // == ARGUS AGENT PROJECT ==
 /**
- * `@argus-agent/channel/access` — the allowlist.
+ * `@argus-agent/channel/access` — who may operate Argus.
  *
- * **Default deny.** With no `access.allowed_users`, every message is dropped. A
- * deployment that has not said who may operate the system has not authorized
- * anyone, and a monitoring system that spends money is not something to leave
- * open by accident.
+ * **Default deny.** Only an enabled user, found by one of their channel
+ * identities, is let in. A deployment that has not said who may operate the
+ * system has not authorized anyone, and a monitoring system that spends money is
+ * not something to leave open by accident.
  *
  * @module @argus-agent/channel/access
  */
 import type { ChannelAddress } from '@argus-agent/types'
+import type { UserRole, UsersRepository } from '@argus-agent/store'
 
-/** One authorized user. */
+/** One user listed in `access.allowed_users`: the seed of the `users` table. */
 export interface AllowedUser {
   /** The adapter name, or `*` for every channel. */
   readonly channel: string
@@ -21,73 +22,80 @@ export interface AllowedUser {
 
 /** The access configuration. */
 export interface AccessConfig {
-  readonly allowed_users: readonly AllowedUser[]
   /** Where warnings about rejected messages go. */
   readonly admin: ChannelAddress | undefined
   /** How often an admin warning may fire, in milliseconds. */
   readonly warnIntervalMs: number
 }
 
+/** The part of `store.users` access reads. */
+export type UserLookup = Pick<UsersRepository, 'resolve' | 'get' | 'list'>
+
+/** Who a message comes from, when they are a user. */
+export interface AccessUser {
+  readonly id: string
+  readonly role: UserRole
+}
+
 /** The result of an access check. */
 export interface AccessDecision {
   readonly allowed: boolean
   /** Why it was refused, for the log. Never contains message content. */
-  readonly reason?: 'no_allowlist' | 'not_listed'
+  readonly reason?: 'no_allowlist' | 'not_listed' | 'disabled'
+  /** The user, when allowed. */
+  readonly user?: AccessUser
 }
 
 /**
- * The allowlist.
+ * Access, by user.
  *
- * Immutable after construction: it is built once from configuration, and a
- * reload constructs a new one. That makes a check a pure lookup with no
- * invalidation to get wrong.
+ * Every check reads the `users` table, so adding, disabling or changing the role
+ * of a user applies to the next message.
  */
 export class AccessPolicy {
-  private readonly entries: readonly AllowedUser[]
   private lastWarningAt = Number.NEGATIVE_INFINITY
   private suppressedWarnings = 0
 
   /**
-   * @param config the configured access.
-   * @param added the users added at runtime (`/allow`), read on every check so an
-   *   addition or removal applies to the next message.
+   * @param config where warnings go and how often.
+   * @param users the users and their identities.
    */
   constructor(
     private readonly config: AccessConfig,
-    private readonly added: () => readonly AllowedUser[] = () => [],
-  ) {
-    this.entries = config.allowed_users
-  }
+    private readonly users: UserLookup,
+  ) {}
 
   /**
-   * Whether a message comes from the admin: the admin user, or the admin's chat
-   * when `access.admin` names a group.
+   * Whether a message comes from the admin: the admin user, or anyone allowed in a
+   * group chat that is the admin's identity.
    */
   isAdmin(address: ChannelAddress, userId: string): boolean {
-    const admin = this.config.admin
-    if (admin === undefined || admin.channel !== address.channel) return false
-    return admin.chatId === userId || admin.chatId === address.chatId
+    const sender = this.check(address.channel, userId)
+    if (!sender.allowed) return false
+    if (sender.user?.role === 'admin') return true
+    const chat = this.users.resolve(address.channel, address.chatId)
+    if (chat?.kind !== 'chat') return false
+    const owner = this.users.get(chat.user_id)
+    return owner?.role === 'admin' && owner.disabled_at === null
   }
 
   /**
-   * Whether a user may operate the system.
+   * Who may operate the system: an enabled user with this identity.
    *
-   * A `channel: '*'` entry authorizes the user on every adapter. The match is
-   * exact on the user id — a prefix or substring match would let `1234` authorize
-   * `12345`, which is the classic allowlist bug.
+   * The match is exact on the user id — a prefix or substring match would let
+   * `1234` authorize `12345`, which is the classic allowlist bug. An identity on
+   * channel `*` matches every adapter.
    *
    * @param channel the adapter the message arrived on.
    * @param userId the platform user id.
-   * @returns the decision.
+   * @returns the decision, with the user when allowed.
    */
   check(channel: string, userId: string): AccessDecision {
-    const entries = [...this.entries, ...this.added()]
-    if (entries.length === 0) return { allowed: false, reason: 'no_allowlist' }
-    for (const entry of entries) {
-      if (entry.userId !== userId) continue
-      if (entry.channel === channel || entry.channel === '*') return { allowed: true }
-    }
-    return { allowed: false, reason: 'not_listed' }
+    const identity = this.users.resolve(channel, userId)
+    const user = identity === undefined ? undefined : this.users.get(identity.user_id)
+    if (user === undefined) return { allowed: false, reason: this.isEmpty ? 'no_allowlist' : 'not_listed' }
+    if (user.disabled_at !== null) return { allowed: false, reason: 'disabled' }
+    return { allowed: true, user: { id: user.id, role: user.role } }
   }
 
   /**
@@ -104,14 +112,14 @@ export class AccessPolicy {
     return this.check(channel, userId).allowed
   }
 
-  /** Whether any user is authorized at all. For diagnostics and startup warnings. */
+  /** Whether no user is enabled. For diagnostics and startup warnings. */
   get isEmpty(): boolean {
     return this.size === 0
   }
 
-  /** How many entries are configured or added. */
+  /** How many users are enabled. */
   get size(): number {
-    return this.entries.length + this.added().length
+    return this.users.list().filter((user) => user.disabled_at === null).length
   }
 
   /**
@@ -170,8 +178,10 @@ export function warningText(
 ): string {
   const cause =
     reason === 'no_allowlist'
-      ? 'No access.allowed_users is configured, so every message is refused.'
-      : 'That user is not in access.allowed_users.'
+      ? 'Argus has no users yet, so every message is refused.'
+      : reason === 'disabled'
+        ? 'That user is disabled.'
+        : 'That user is not a user of Argus. /allow adds them.'
   const extra =
     suppressed > 0 ? `\n(${suppressed} further attempt(s) were not reported.)` : ''
   return (

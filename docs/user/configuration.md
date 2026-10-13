@@ -45,7 +45,7 @@ so the file can be copied, committed or shown without leaking anything.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `admin` | id or address | `null` | You. A bare id (`'99887766'`) is a Telegram chat. **Always allowed**; where reports, warnings and unaddressed output go. |
-| `allowed_users` | list | `[]` | More `{ channel, userId }` entries. **With no admin either, everyone is refused.** |
+| `allowed_users` | list | `[]` | More `{ channel, userId }` entries, made operators at the next start. **With no user at all, everyone is refused.** |
 | `warn_interval_minutes` | int | `15` | Rate limit for refusal warnings. |
 
 **Two roles.**
@@ -62,8 +62,13 @@ and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions or the memory stays open to everyone.
 
 From the dsh Web UI and Argus's own web interface, commands run as the admin: only the
-admin is given a web link, and only someone on the server reaches the dsh Web UI. Users
-added with `/allow` are allowed on top of `allowed_users`.
+admin is given a web link, and only someone on the server reaches the dsh Web UI.
+
+**`admin` and `allowed_users` are where Argus starts from.** Argus keeps its users in its
+database. At each start, an id here that Argus does not know yet becomes a user, and the
+id in `admin` becomes the admin; the previous admin stays, as an operator. Deleting an
+entry from `allowed_users` does **not** take the access away: `/allow remove <id>` does,
+on every channel.
 
 ```yaml
 access:

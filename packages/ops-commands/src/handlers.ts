@@ -8,6 +8,7 @@
  *
  * @module @argus-agent/commands/handlers
  */
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
@@ -30,10 +31,8 @@ import {
   truncate,
 } from './parse.js'
 import {
-  ADDED_USERS_KEY,
   errorResult,
   result,
-  type AddedUser,
   type CommandContext,
   type CommandResult,
   type CommandSpec,
@@ -1598,9 +1597,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         description: 'Let another user use the bot (admin)',
         syntax: '/allow [<user-id> | remove <user-id>]',
         detail:
-          'With no argument, lists the users added here. With a user id, lets that user on ' +
-          'this channel use the bot, after a confirmation. `remove` takes the access away. ' +
-          'Users listed in access.allowed_users in ops.yaml are changed there, not here. ' +
+          'With no argument, lists the users. With a user id, lets that user on this channel ' +
+          'use the bot, after a confirmation. `remove` disables the user on every channel; ' +
+          '/allow <user-id> enables them again. The admin cannot be removed. ' +
           'Only the admin can run it.',
         examples: ['/allow', '/allow 123456789', '/allow remove 123456789'],
         mutating: true,
@@ -1608,17 +1607,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
       run(input, context): CommandResult {
         const tokens = tokenize(input)
-        const added = store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
         if (tokens.length === 0) {
-          if (added.length === 0) {
-            return result('No user was added with /allow. The admin and access.allowed_users in ops.yaml can use the bot.')
-          }
           return result(
             [
-              'Added with /allow:',
-              ...added.map((user) => `  ${user.channel} ${user.userId}`),
-              '',
-              'Plus the admin and access.allowed_users in ops.yaml.',
+              'Users:',
+              ...store.users.list().map((user) => {
+                const identities = store.users.identities(user.id).map((identity) => `${identity.channel} ${identity.external_id}`)
+                return `  ${user.role.padEnd(8)} ${identities.join(', ') || user.id}${user.name === null ? '' : ` (${user.name})`}${user.disabled_at === null ? '' : '  disabled'}`
+              }),
             ].join('\n'),
           )
         }
@@ -1631,15 +1627,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           )
         }
         const channel = context.address.channel
-        const same = (user: AddedUser): boolean => user.channel === channel && user.userId === userId
+        const identity = store.users.resolve(channel, userId)
+        const user = identity === undefined ? undefined : store.users.get(identity.user_id)
         if (remove) {
-          if (!added.some(same)) {
-            return errorResult(`${userId} was not added with /allow. A user in access.allowed_users is removed in ops.yaml.`)
-          }
-          store.runtimeState.set(ADDED_USERS_KEY, added.filter((user) => !same(user)), context.now)
-          return result(`${userId} can no longer use the bot on ${channel}.`)
+          if (user === undefined || user.disabled_at !== null) return errorResult(`${userId} is not a user on ${channel}.`)
+          if (user.role === 'admin') return errorResult('The admin cannot be removed. Change access.admin in ops.yaml to hand the role over.')
+          store.users.disable(user.id, context.now)
+          return result(`${userId} can no longer use the bot, on any channel.`)
         }
-        if (added.some(same)) return result(`${userId} can already use the bot on ${channel}.`)
+        if (user !== undefined && user.disabled_at === null) return result(`${userId} can already use the bot on ${channel}.`)
         return deps.service.requestConfirmationFor(
           `/allow-confirm ${userId}`,
           context,
@@ -1662,10 +1658,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       run(input, context): CommandResult {
         const userId = tokenize(input)[0] ?? ''
         const channel = context.address.channel
-        const added = store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
-        if (!added.some((user) => user.channel === channel && user.userId === userId)) {
-          store.runtimeState.set(ADDED_USERS_KEY, [...added, { channel, userId }], context.now)
-        }
+        store.transaction(() => {
+          const identity = store.users.resolve(channel, userId)
+          if (identity !== undefined) {
+            store.users.enable(identity.user_id)
+            return
+          }
+          const id = randomUUID()
+          store.users.create({ id, role: 'operator' }, context.now)
+          store.users.link({ channel, external_id: userId, user_id: id }, context.now)
+        })()
         return result(`${userId} can now use the bot on ${channel}. /allow remove ${userId} takes it back.`)
       },
     },

@@ -762,7 +762,8 @@ To bring it back, move that file to /data/config/projects/site-firma.yaml and se
 ## `/allow [<user-id> | remove <user-id>]`  *(admin)*
 
 Lets someone else use the bot, without editing `ops.yaml`. Adding asks first; removing
-does not. The user is allowed on the channel you send the command from.
+does not. The user is allowed on the channel you send the command from. With no argument,
+it lists every user: role, ids, and whether they are disabled.
 
 ```
 /allow
@@ -773,8 +774,10 @@ does not. The user is allowed on the channel you send the command from.
 An added user is an **operator** (see [who may run what](#who-may-run-what)): they talk to
 every project, run and stop work, schedule it and answer approvals, which spends the
 budgets; they cannot create projects, change models, budgets or settings, or add users.
-The users added here are kept in the database (and in a backup); the ones in
-`access.allowed_users` are changed in `ops.yaml`.
+`remove` disables the user on every channel, whether they were added here or in
+`access.allowed_users`; `/allow <id>` enables them again. The admin cannot be removed:
+change `access.admin` in `ops.yaml` to hand the role over. Users are kept in the
+database (and in a backup).
 
 ---
 

@@ -13,8 +13,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ChannelAddress, Owner } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
+import { ADDED_USERS_KEY, type AddedUser } from '@argus-agent/commands'
 import { OpsChannel, type ChannelOptions } from './service.js'
-import { accessOf, accessSchema, adminOf, allowedWithAdmin, channelOf, channelSchema, parseAddress } from './config.js'
+import { accessOf, accessSchema, adminOf, channelOf, channelSchema, parseAddress } from './config.js'
 import { progressText, type OutputSubject } from './format.js'
 import './events.js'
 
@@ -84,16 +85,18 @@ export function apply(ctx: Context): void {
   const orchestratorOf = (): unknown => ctx.get('opsOrchestrator' as never)
 
   // ops.yaml's people seed the users table; a known identity is left as it is.
-  // ponytail: `/allow` users are re-seeded at each start until /allow writes users itself (0.4.0 step 2).
+  // The users 0.3's /allow kept in runtime_state are moved over once.
+  const legacy = ctx.opsStore.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
   const seeded = ctx.opsStore.seedUsers(
     {
       ...(admin === undefined
         ? {}
         : { admin: { channel: admin.channel, externalId: admin.chatId, kind: admin.chatId.startsWith('-') ? ('chat' as const) : ('user' as const) } }),
-      operators: [...access.allowed_users, ...ctx.opsCommands.addedUsers()].map((user) => ({ channel: user.channel, externalId: user.userId })),
+      operators: [...access.allowed_users, ...legacy].map((user) => ({ channel: user.channel, externalId: user.userId })),
     },
     Date.now(),
   )
+  ctx.opsStore.runtimeState.delete(ADDED_USERS_KEY)
   if (seeded.created > 0 || seeded.adminChanged) {
     logger.info('users from ops.yaml: %d created%s', seeded.created, seeded.adminChanged ? ', access.admin is the admin' : '')
   }
@@ -105,7 +108,6 @@ export function apply(ctx: Context): void {
     governor: ctx.opsGovernor,
     commands: ctx.opsCommands,
     access: {
-      allowed_users: allowedWithAdmin(access.allowed_users, admin),
       admin,
       warnIntervalMs: access.warn_interval_minutes * 60_000,
     },

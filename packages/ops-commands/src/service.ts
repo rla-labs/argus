@@ -18,10 +18,8 @@ import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
 import { buildHandlers } from './handlers.js'
 import {
-  ADDED_USERS_KEY,
   errorResult,
   result,
-  type AddedUser,
   type CommandContext,
   type CommandHandler,
   type CommandResult,
@@ -298,10 +296,10 @@ export class OpsCommands {
   private audit(context: CommandContext, action: string, target: string): void {
     this.options.store.audit.record(
       {
-        actor: context.userId,
+        actor: context.user?.id ?? context.userId,
         action,
         target: target.length === 0 ? null : truncate(target, 200),
-        details: { channel: context.address.channel, chatId: context.address.chatId },
+        details: { channel: context.address.channel, chatId: context.address.chatId, userId: context.userId },
       },
       context.now,
     )
@@ -332,10 +330,6 @@ export class OpsCommands {
     return row?.active_project_id ?? undefined
   }
 
-  /** The users `/allow` added, on top of `access.allowed_users`. Read by `ops-channel`. */
-  addedUsers(): AddedUser[] {
-    return this.options.store.runtimeState.get<AddedUser[]>(ADDED_USERS_KEY) ?? []
-  }
 
 }
 

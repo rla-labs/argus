@@ -244,6 +244,21 @@ describe('users from ops.yaml', () => {
   })
 })
 
+describe('access by user', () => {
+  it('audits a command under the user id, and refuses a user disabled since', async () => {
+    const booted = await bootChannel()
+    const admin = { address: { channel: 'console', chatId: 'admin-chat' }, userId: 'admin-chat' }
+    const adminId = booted.store.users.admin()!.id
+    await booted.channel.handleIncoming(message('/allow remove user-1', admin))
+    const row = booted.store.audit.byAction('command.allow').at(-1)
+    expect(row?.actor).toBe(adminId)
+    expect(row?.details_json).toContain('admin-chat')
+
+    const user1 = { address: { channel: 'console', chatId: 'chat-1' }, userId: 'user-1' }
+    expect(await booted.channel.handleIncoming(message('/projects', user1))).toEqual({ kind: 'rejected', reason: 'disabled' })
+  })
+})
+
 // ── routing ────────────────────────────────────────────────────────────────
 
 describe('routing', () => {

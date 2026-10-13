@@ -97,22 +97,6 @@ export function adminOf(value: string | number | null | undefined): ChannelAddre
 }
 
 /**
- * The allowlist with the admin in it.
- *
- * The admin operates the system by definition; listing them twice was the
- * redundancy that let a deployment name an admin who could not send a command.
- *
- * @param users the configured `allowed_users`.
- * @param admin the decoded admin address.
- * @returns the allowlist.
- */
-export function allowedWithAdmin(users: readonly AllowedUser[], admin: ChannelAddress | undefined): readonly AllowedUser[] {
-  if (admin === undefined) return users
-  const listed = users.some((user) => user.userId === admin.chatId && (user.channel === admin.channel || user.channel === '*'))
-  return listed ? users : [...users, { channel: admin.channel, userId: admin.chatId }]
-}
-
-/**
  * Decode a configured address string.
  *
  * Two forms are accepted, because an operator writing `ops.yaml` should not have

@@ -439,7 +439,7 @@ The admin (`access.admin`) can let someone else in from the chat:
 
 ```
 /allow 123456789          after a confirmation
-/allow                    who was added
+/allow                    every user
 /allow remove 123456789
 ```
 

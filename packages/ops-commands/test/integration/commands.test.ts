@@ -877,21 +877,33 @@ describe('admin-only commands', () => {
     expect(booted.store.projects.get('alpha')?.status).toBe('active')
   }, 30_000)
 
-  it('/allow lists, adds after a confirmation, and removes', async () => {
+  it('/allow lists users, adds one after a confirmation, disables and enables again', async () => {
     const booted = await bootCommands()
-    expect(await run(booted, '/allow', admin())).toContain('No user was added')
+    const users = booted.store.users
+    expect(await run(booted, '/allow', admin())).toBe('Users:')
     const asked = await booted.commands.runCommand('/allow 4242', admin())
     expect(asked.confirm?.prompt).toContain('Let 4242 use the bot on test?')
-    expect(booted.commands.addedUsers()).toEqual([])
+    expect(users.resolve('test', '4242')).toBeUndefined()
 
     await booted.commands.confirm(asked.confirm?.token as string, true, admin())
-    expect(booted.commands.addedUsers()).toEqual([{ channel: 'test', userId: '4242' }])
-    expect(await run(booted, '/allow', admin())).toContain('test 4242')
+    const id = users.resolve('test', '4242')!.user_id
+    expect(users.get(id)?.role).toBe('operator')
+    expect(await run(booted, '/allow', admin())).toContain('operator test 4242')
     expect(await run(booted, '/allow 4242', admin())).toContain('already')
 
     expect(await run(booted, '/allow remove 4242', admin())).toContain('can no longer')
-    expect(booted.commands.addedUsers()).toEqual([])
-    expect(await run(booted, '/allow remove 4242', admin())).toContain('was not added with /allow')
+    expect(users.get(id)?.disabled_at).not.toBeNull()
+    expect(await run(booted, '/allow', admin())).toContain('disabled')
+    expect(await run(booted, '/allow remove 4242', admin())).toContain('is not a user')
+
+    // Enabled again: the same user, not a second one.
+    const again = await booted.commands.runCommand('/allow 4242', admin())
+    await booted.commands.confirm(again.confirm?.token as string, true, admin())
+    expect(users.get(id)?.disabled_at).toBeNull()
+    expect(users.list()).toHaveLength(1)
+
+    users.setRole(id, 'admin')
+    expect(await run(booted, '/allow remove 4242', admin())).toContain('The admin cannot be removed')
     expect(await run(booted, '/allow bad/id', admin())).toContain('Syntax:')
   }, 30_000)
 })

@@ -86,8 +86,10 @@ export interface CommandResult {
 export interface CommandContext {
   /** Where the reply goes. */
   readonly address: ChannelAddress
-  /** The platform user id, for the audit log. */
+  /** The platform user id. */
   readonly userId: string
+  /** The Argus user, when the caller is one; the audit's actor. */
+  readonly user?: { readonly id: string; readonly role: 'admin' | 'operator' }
   /** The chat's active project, when one is set. */
   readonly activeProject?: string
   /** Whether the caller is the admin (`access.admin`), for the admin-only commands. */
@@ -129,13 +131,13 @@ export interface CommandHandler {
   run(input: string, context: CommandContext): CommandResult | Promise<CommandResult>
 }
 
-/** A user `/allow` added. */
+/** A user 0.3's `/allow` added, as `runtime_state` kept it. Read once, by the 0.4 seed. */
 export interface AddedUser {
   readonly channel: string
   readonly userId: string
 }
 
-/** The `runtime_state` key that holds the users `/allow` added. */
+/** The `runtime_state` key 0.3's `/allow` kept its users under. */
 export const ADDED_USERS_KEY = 'access.added_users'
 
 /** Build a successful result. */

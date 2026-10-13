@@ -38,7 +38,7 @@ import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
 import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsCommands } from '@argus-agent/commands'
-import { AccessPolicy, warningText, type AccessConfig } from './access.js'
+import { AccessPolicy, warningText, type AccessConfig, type AccessDecision } from './access.js'
 import { ChannelRegistry } from './registry.js'
 import { decideRoute, unroutableText } from './routing.js'
 import {
@@ -117,7 +117,7 @@ export class OpsChannel {
   private readonly seen = new Set<string>()
 
   constructor(private readonly options: ChannelOptions) {
-    this.policy = new AccessPolicy(options.access, () => options.commands.addedUsers())
+    this.policy = new AccessPolicy(options.access, options.store.users)
     this.registry = new ChannelRegistry({
       onMessage: (message) => {
         void this.handleIncoming(message)
@@ -156,6 +156,7 @@ export class OpsChannel {
   doctor(): DoctorFinding[] {
     const adapters = this.adapters().map((adapter) => adapter.name)
     const failure = this.registry.startFailure
+    const admin = this.options.store.users.admin()
     const findings: DoctorFinding[] = [
       adapters.length === 0
         ? { ok: false, check: 'the chat channel', detail: 'no channel is connected', fix: 'set TELEGRAM_BOT_TOKEN (from @BotFather) in .env, or secrets.env on a native install, then restart' }
@@ -164,9 +165,9 @@ export class OpsChannel {
           : { ok: true, check: 'the chat channel', detail: `connected: ${adapters.join(', ')}` },
     ]
     findings.push(
-      this.options.access.admin === undefined
-        ? { ok: false, check: 'the admin', detail: 'access.admin is not set, so nobody can run /set, /archive or /allow', fix: 'set access.admin in ops.yaml to your numeric Telegram id (from @userinfobot), then restart' }
-        : { ok: true, check: 'the admin', detail: `${this.options.access.admin.channel}:${this.options.access.admin.chatId}` },
+      admin === undefined
+        ? { ok: false, check: 'the admin', detail: 'there is no admin, so nobody can run /set, /archive or /allow', fix: 'set access.admin in ops.yaml to your numeric Telegram id (from @userinfobot), then restart' }
+        : { ok: true, check: 'the admin', detail: this.options.store.users.identities(admin.id).map((identity) => `${identity.channel}:${identity.external_id}`).join(', ') || admin.id },
     )
     return findings
   }
@@ -190,7 +191,7 @@ export class OpsChannel {
       }
     }
     if (this.policy.isEmpty) {
-      return { status: 'degraded', details: { ...details, reason: 'access.allowed_users is empty; every message is refused' } }
+      return { status: 'degraded', details: { ...details, reason: 'Argus has no enabled user; every message is refused' } }
     }
     return { status: 'ok', details }
   }
@@ -350,16 +351,19 @@ export class OpsChannel {
     const admin = this.policy.admin
     if (admin === undefined) return
     await this.send(admin, {
-      text: warningText(message.address.channel, message.userId, reason as 'not_listed', this.policy.suppressed),
+      text: warningText(message.address.channel, message.userId, reason as NonNullable<AccessDecision['reason']>, this.policy.suppressed),
     })
   }
 
   /** Run a command line and deliver its result. */
   private async runCommand(line: string, message: IncomingMessage): Promise<void> {
+    const identity = this.identityOf(message.address.channel)
+    const user = this.policy.check(identity, message.userId).user
     const out = await this.options.commands.runCommand(line, {
       address: message.address,
       userId: message.userId,
-      isAdmin: this.policy.isAdmin({ ...message.address, channel: this.identityOf(message.address.channel) }, message.userId),
+      ...(user === undefined ? {} : { user }),
+      isAdmin: this.policy.isAdmin({ ...message.address, channel: identity }, message.userId),
       ...(this.activeProjectOf(message.address) === undefined
         ? {}
         : { activeProject: this.activeProjectOf(message.address) as string }),
