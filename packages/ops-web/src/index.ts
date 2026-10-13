@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
-import { overview, settings, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
+import { overview, projectDetail, projectList, settings, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
 import { WebChannelAdapter } from './web-channel.js'
 
@@ -156,10 +156,20 @@ export async function apply(ctx: Context): Promise<void> {
       isAdmin: role === 'admin',
       now: Date.now(),
     })
+    // A file a command produced (`/get`) goes to the user's chat, which serves it.
+    const files =
+      out.files === undefined || out.files.length === 0
+        ? undefined
+        : chat.offer(
+            session.userId,
+            out.text,
+            out.files.map((file) => ('path' in file ? { name: file.name, path: file.path } : { name: file.name, bytes: new TextEncoder().encode(file.content), ...(file.contentType === undefined ? {} : { mimeType: file.contentType }) })),
+          )
     return {
       text: out.text,
       error: out.error === true,
       buttons: (out.buttons ?? []).map((button) => ({ label: button.label, command: button.command })),
+      ...(files === undefined ? {} : { files }),
     }
   }
 
@@ -181,6 +191,8 @@ export async function apply(ctx: Context): Promise<void> {
           login: login ?? null,
           hasPassword: login !== undefined,
           mayResetPassword: auth.mayResetPassword(session),
+          // Which buttons to show: what the role may not run is not offered.
+          adminOnly: ctx.opsCommands.specs().filter((spec) => spec.adminOnly === true).map((spec) => spec.name),
           channels: ctx.opsStore.users.identities(session.userId).filter((identity) => identity.channel !== 'web').map((identity) => `${identity.channel}:${identity.external_id}`),
           expiresAt: session.expiresAt,
         }
@@ -198,6 +210,9 @@ export async function apply(ctx: Context): Promise<void> {
         }))
       },
       overview: () => overview(sources),
+      projects: () => projectList(sources),
+      project: (id) => projectDetail(sources, id),
+      templates: () => ctx.opsCommands.templates(),
       settings: () => settings(sources),
       runCommand,
       answerApproval: (approvalId, value, session) =>

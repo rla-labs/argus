@@ -129,7 +129,7 @@ export function overview(sources: DataSources): Overview {
       id,
       description: config?.description ?? row?.description ?? null,
       status: row?.status ?? 'idle',
-      model: row?.model ?? (config === undefined ? '?' : `${config.provider}/${config.model}`),
+      model: config === undefined ? (row?.model ?? '?') : `${config.provider}/${config.model}`,
       running: running.has(`project:${id}`),
       waiting: waiting.has(id),
       dayPct: budgetOf(status, scope, 'day').pct,
@@ -203,6 +203,97 @@ export function settings(sources: DataSources): Settings {
         ? []
         : [{ id, model: `${config.provider}/${config.model}`, tools: config.tools, mcp: Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })), instructions: sources.memory()?.readInstructions(id) ?? null, dayUsd: config.budget.day_usd, monthUsd: config.budget.month_usd }]
     }),
+  }
+}
+
+/** A project in the Projects page's list. */
+export interface ProjectRow extends ProjectView {
+  readonly monthMicros: number
+  readonly dayLimitMicros: number | null
+  readonly monthLimitMicros: number | null
+}
+
+/** One run, as the pages list it. */
+export interface RunView {
+  readonly runId: string
+  readonly who: string
+  readonly status: string
+  readonly model: string
+  readonly steps: number
+  readonly startedAt: number
+  readonly endedAt: number | null
+  readonly micros: number
+  readonly stopReason: string | null
+}
+
+/** One project, for its page. */
+export interface ProjectDetail extends ProjectRow {
+  readonly tools: ToolPolicy | null
+  readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string }>
+  readonly instructions: string | null
+  readonly runs: readonly RunView[]
+  readonly approvals: Overview['approvals']
+  readonly schedules: Overview['schedules']
+}
+
+/** Runs shown on a project's page. */
+const PROJECT_RUNS = 20
+
+/** A run row, with its cost. */
+function runView(sources: DataSources, row: { id: string; owner_key: string; status: string; provider: string; model: string; steps: number; started_at: number; ended_at: number | null; stop_reason: string | null }): RunView {
+  const who = row.owner_key.startsWith('project:') ? row.owner_key.slice('project:'.length) : row.owner_key.startsWith('adhoc:') ? 'task' : 'front desk'
+  return {
+    runId: row.id,
+    who,
+    status: row.status,
+    model: `${row.provider}/${row.model}`,
+    steps: row.steps,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    micros: Number(sources.meter.runTotals(row.id).costMicros),
+    stopReason: row.stop_reason,
+  }
+}
+
+/**
+ * The projects, with this month's spending and their budgets.
+ *
+ * @param sources the services.
+ * @returns one row per project that is not archived.
+ */
+export function projectList(sources: DataSources): ProjectRow[] {
+  const status = sources.governor.status()
+  return overview(sources).projects.map((project) => {
+    const scope = `project:${project.id}` as Scope
+    return {
+      ...project,
+      monthMicros: Number(sources.meter.spending(scope).monthMicros),
+      dayLimitMicros: budgetOf(status, scope, 'day').limit,
+      monthLimitMicros: budgetOf(status, scope, 'month').limit,
+    }
+  })
+}
+
+/**
+ * One project, for its page.
+ *
+ * @param sources the services.
+ * @param id the project id.
+ * @returns the project, or `undefined` when there is none (or it is archived).
+ */
+export function projectDetail(sources: DataSources, id: string): ProjectDetail | undefined {
+  const row = projectList(sources).find((project) => project.id === id)
+  if (row === undefined) return undefined
+  const config = sources.projects.configOf(id)
+  const all = overview(sources)
+  return {
+    ...row,
+    tools: config?.tools ?? null,
+    mcp: config === undefined ? [] : Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })),
+    instructions: sources.memory()?.readInstructions(id) ?? null,
+    runs: sources.store.runs.byOwner(`project:${id}`, PROJECT_RUNS).map((run) => runView(sources, run)),
+    approvals: all.approvals.filter((approval) => approval.projectId === id),
+    schedules: all.schedules.filter((schedule) => schedule.who === id),
   }
 }
 

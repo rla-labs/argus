@@ -17,6 +17,7 @@ import type { OpsMeter } from '@argus-agent/meter'
 import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
 import { buildHandlers } from './handlers.js'
+import { loadTemplates } from './templates.js'
 import {
   errorResult,
   result,
@@ -185,6 +186,17 @@ export class OpsCommands {
   }
 
 
+
+  /**
+   * The project templates `/new` offers: the built-in ones and the deployment's.
+   *
+   * @returns each template's name and one-line summary, by name.
+   */
+  templates(): Array<{ name: string; summary: string }> {
+    return [...loadTemplates(this.options.templatesDir).templates.values()]
+      .map((template) => ({ name: template.name, summary: template.summary }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
 
   /** Every registered command, sorted by name. */
   specs(): CommandSpec[] {

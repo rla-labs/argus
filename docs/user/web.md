@@ -10,13 +10,15 @@ settings, and a chat. It is built for **one person on a private network**.
 |---|---|
 | **Overview** | Your projects around the front desk: which are running, which wait for you, how much of today's budget each used. Spending today and this month, with the last 14 days. The runs going on now (with a Stop button), the approvals waiting, the next 24 hours of schedules, and the latest actions. It updates by itself. |
 | **Approvals** | Every pending approval, whichever chat asked it, with Approve, Deny and "All of this kind, this run". An answer here closes the question in Telegram: its buttons give way to who answered. ("Always allow" is offered in the chat.) |
+| **Projects** | Every project: state, model, today's and this month's spending against its budget. **New project** (an id, a template, a model). A project's own page: its status with Stop, Reset and Archive; spending and its day/month budget; its model; what it may use (tools, MCP servers); its runs; its schedules; its instructions; its memory (and forgetting a section); its files, with a download. |
 | **Chat** | The same chat as Telegram: plain text goes to the active project or the front desk, `/commands` run, approval buttons and files appear in it. |
 | **Users** (admin) | Every user: role, channels, web login. Invite someone (a 24-hour link to send them), reset a password, disable or enable. The same as [`/users`](commands.md#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin). |
 | **Settings** | The models for tasks and the front desk, the API keys (checked before they are saved), what each project may use (`read`, `write`, `shell`, `web`, `agents`, `other`, its MCP servers), and each project's [instructions](commands.md#instructions-project-id--project-id-text). Your web password, and your channels (**Connect Telegram**). |
 
 The interface is in English and Romanian; the buttons at the top switch. It changes
 nothing in its own way: each action runs the same command you would type in Telegram
-(`/defaults`, `/key`, `/set`, `/stop`), so the checks and the audit log are the same.
+(`/new`, `/model`, `/budget`, `/set`, `/stop`, `/get`…), so the checks and the audit log are the
+same; a button for something your role may not do is not shown.
 It runs as you, with your role: what an operator may not do in Telegram, they may not
 do here either. The chat is one of your channels: notices and approvals meant for you
 arrive in it as they do in Telegram. Its history (the last 500 messages, with their

@@ -31,6 +31,7 @@ interface Booted {
   readonly store: OpsStore
   /** The admin's Argus user id. */
   readonly admin: string
+  readonly dataDir: string
 }
 
 async function bootWeb(): Promise<Booted> {
@@ -77,7 +78,7 @@ async function bootWeb(): Promise<Booted> {
   const ctx = boot.ctx as unknown as { opsChannel: OpsChannel; opsCommands: OpsCommands; opsWeb: OpsWeb; opsStore: OpsStore }
   await waitFor(() => ctx.opsWeb?.port !== undefined, { timeoutMs: 10_000, label: 'web listening' })
   const admin = ctx.opsStore.users.admin()?.id ?? ''
-  return { boot, base: `http://127.0.0.1:${ctx.opsWeb.port}`, channel: ctx.opsChannel, commands: ctx.opsCommands, web: ctx.opsWeb, store: ctx.opsStore, admin }
+  return { boot, base: `http://127.0.0.1:${ctx.opsWeb.port}`, channel: ctx.opsChannel, commands: ctx.opsCommands, web: ctx.opsWeb, store: ctx.opsStore, admin, dataDir }
 }
 
 /** Sign in as the admin (Telegram user 42) through `/web`, returning the cookie. */
@@ -290,5 +291,35 @@ describe('the web interface', () => {
     await asked
     expect(tg.closed).toEqual([{ id: 'approval:n1', note: 'Answered by Romeo on web: Approve' }])
     expect(booted.channel.answeredBy('approval:n1')).toBe(booted.admin)
+  }, 60_000)
+
+  it('serves the Projects pages: the list, a project, the templates, and 404 for an unknown one', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const json = async (path: string): Promise<Record<string, unknown>> => (await (await fetch(`${booted.base}${path}`, { headers: { cookie } })).json()) as Record<string, unknown>
+    const list = (await json('/api/projects'))['projects'] as Array<Record<string, unknown>>
+    expect(list).toEqual([expect.objectContaining({ id: 'alpha', description: 'The test site', monthMicros: 0 })])
+    const alpha = await json('/api/projects/alpha')
+    expect(alpha).toMatchObject({ id: 'alpha', model: 'fake/fake-model', runs: [], approvals: [], schedules: [] })
+    expect(alpha['tools']).toMatchObject({ agents: 'off' })
+    expect((await fetch(`${booted.base}/api/projects/nope`, { headers: { cookie } })).status).toBe(404)
+    const templates = (await json('/api/templates'))['templates'] as Array<{ name: string; summary: string }>
+    expect(templates.map((template) => template.name)).toContain('site')
+    expect((await json('/api/me'))['adminOnly']).toEqual(expect.arrayContaining(['users', 'archive', 'set']))
+  }, 60_000)
+
+  it('gives a file a command produced (/get) as a download link', async () => {
+    const booted = await bootWeb()
+    writeFileSync(join(booted.dataDir, 'projects', 'alpha', 'report.md'), '# Report\n')
+    const cookie = await signIn(booted)
+    const out = (await (await fetch(`${booted.base}/api/command`, {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' },
+      body: JSON.stringify({ line: '/get alpha report.md' }),
+    })).json()) as { files?: Array<{ id: string; name: string }> }
+    expect(out.files?.map((file) => file.name)).toEqual(['report.md'])
+    const download = await fetch(`${booted.base}/api/files/${out.files?.[0]?.id ?? ''}`, { headers: { cookie } })
+    expect(download.status).toBe(200)
+    expect(await download.text()).toBe('# Report\n')
   }, 60_000)
 })

@@ -28,6 +28,8 @@ export interface CommandOutcome {
   readonly text: string
   readonly error: boolean
   readonly buttons: ReadonlyArray<{ label: string; command: string }>
+  /** Files the command produced (`/get`), downloadable at `/api/files/:id`. */
+  readonly files?: ReadonlyArray<{ id: string; name: string }>
 }
 
 /** What the server needs from the rest of the plugin. */
@@ -44,6 +46,10 @@ export interface ServerDeps {
   /** Every user, for the admin; `undefined` for anyone else. */
   readonly users: (session: Session) => unknown
   readonly overview: () => unknown
+  readonly projects: () => unknown
+  /** One project, or `undefined` when there is none. */
+  readonly project: (id: string) => unknown
+  readonly templates: () => unknown
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
@@ -186,6 +192,13 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     if (method === 'GET' && path === '/api/users') {
       const users = deps.users(session)
       return users === undefined ? send(response, 403, { error: 'only the admin' }) : send(response, 200, { users })
+    }
+    if (method === 'GET' && path === '/api/projects') return send(response, 200, { projects: deps.projects() })
+    if (method === 'GET' && path === '/api/templates') return send(response, 200, { templates: deps.templates() })
+    const projectPath = /^\/api\/projects\/([^/]+)$/.exec(path)
+    if (method === 'GET' && projectPath !== null) {
+      const project = deps.project(decodeURIComponent(projectPath[1] as string))
+      return project === undefined ? send(response, 404, { error: 'no such project' }) : send(response, 200, project)
     }
     if (method === 'GET' && path === '/api/overview') return send(response, 200, deps.overview())
     if (method === 'GET' && path === '/api/settings') return send(response, 200, deps.settings())

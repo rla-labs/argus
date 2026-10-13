@@ -10,6 +10,8 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { command, get, listen, post, SignedOut, type CommandOutcome } from './api.js'
 import { clock, initialLanguage, lang, LANGUAGES, money, since, t, loadLanguage, type Language } from './i18n.js'
 import { Constellation, Dial, Gauge, Trend } from './svg.js'
+import { Notice, type PageProps } from './ui.js'
+import { ProjectsView, ProjectView } from './pages/projects.js'
 
 // ── the server's shapes ────────────────────────────────────────────────────
 
@@ -51,6 +53,8 @@ interface Me {
   hasPassword: boolean
   mayResetPassword: boolean
   channels: string[]
+  /** Commands only the admin may run; their buttons are not offered to an operator. */
+  adminOnly: string[]
 }
 
 interface UserRow {
@@ -62,8 +66,14 @@ interface UserRow {
   channels: string[]
 }
 
-type View = 'overview' | 'approvals' | 'chat' | 'settings' | 'users'
-const VIEWS: readonly View[] = ['overview', 'approvals', 'chat', 'settings', 'users']
+type View = 'overview' | 'approvals' | 'projects' | 'chat' | 'settings' | 'users'
+const VIEWS: readonly View[] = ['overview', 'approvals', 'projects', 'chat', 'settings', 'users']
+
+/** The page and its part (`#projects/site-firma`) the address names. */
+function fromHash(): { view: View; sub: string } {
+  const [view, ...rest] = location.hash.slice(1).split('/')
+  return { view: VIEWS.find((each) => each === view) ?? 'overview', sub: decodeURIComponent(rest.join('/')) }
+}
 const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
@@ -75,21 +85,12 @@ function Icon({ view }: { view: View }): VNode {
     approvals: 'M12 2 20 5v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5zM8.5 12l2.5 2.5 4.5-5',
     chat: 'M4 5h16v11H9l-5 4z',
     settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 6a2 2 0 1 0 0 .1M10 12a2 2 0 1 0 0 .1M18 18a2 2 0 1 0 0 .1',
+    projects: 'M3 7h7l2 2h9v10H3zM3 7V5h6l2 2',
     users: 'M9 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8M2 21c0-4 3-7 7-7s7 3 7 7M16 3.5a4 4 0 0 1 0 7M18 14c2.5.8 4 3.5 4 7',
   }
   return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d=${paths[view]}></path></svg>`
 }
 
-/** The answer to the last command, when there is one. */
-function Notice({ outcome, onButton }: { outcome: CommandOutcome | undefined; onButton: (line: string) => void }): VNode | null {
-  if (outcome === undefined) return null
-  return html`<div class=${`notice${outcome.error ? ' err' : ''}`} role="status">
-    ${outcome.text}
-    ${outcome.buttons.length === 0
-      ? null
-      : html`<div class="btns" style="margin-top:8px">${outcome.buttons.map((button) => html`<button class="btn ghost" type="button" onClick=${() => onButton(button.command)}>${button.label}</button>`)}</div>`}
-  </div>`
-}
 
 /** Approve / deny buttons for one pending approval. */
 function ApprovalCard({ approval, onDone }: { approval: Overview['approvals'][number]; onDone: (message?: string) => void }): VNode {
@@ -426,12 +427,12 @@ function App(): VNode {
   const [, setLang] = useState<Language>(lang())
   const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined)
   const [me, setMe] = useState<Me | undefined>()
-  const [view, setView] = useState<View>(() => (VIEWS.find((v) => `#${v}` === location.hash) ?? 'overview'))
+  const [{ view, sub }, setPlace] = useState(fromHash)
   const [overviewData, setOverview] = useState<Overview | undefined>()
   const [settingsData, setSettings] = useState<Settings | undefined>()
   const [chatVersion, setChatVersion] = useState(0)
   const [unread, setUnread] = useState(0)
-  const [usersVersion, setUsersVersion] = useState(0)
+  const [pageVersion, setPageVersion] = useState(0)
   const [connected, setConnected] = useState(true)
   const [outcome, setOutcome] = useState<CommandOutcome | undefined>()
   const [failure, setFailure] = useState<string | undefined>()
@@ -452,7 +453,9 @@ function App(): VNode {
     (line: string) =>
       void guard(async () => {
         setOutcome(await command(line))
-        setUsersVersion((v) => v + 1)
+        setPageVersion((v) => v + 1)
+        // The answer shows at the top of the page.
+        window.scrollTo({ top: 0 })
         await Promise.all([loadOverview(), loadSettings()])
       }),
     [guard, loadOverview, loadSettings],
@@ -479,6 +482,7 @@ function App(): VNode {
     const tick = setInterval(() => void loadOverview(), 60_000)
     const stop = listen(
       (topic) => {
+        if (topic === 'overview' || topic === 'settings') setPageVersion((v) => v + 1)
         if (topic === 'overview') void loadOverview()
         else if (topic === 'settings') {
           // A command run anywhere may have changed you (a /link from Telegram).
@@ -498,11 +502,22 @@ function App(): VNode {
     }
   }, [signedIn, loadOverview, loadSettings, loadUnread, loadMe])
 
+  // A link (`#projects/site-firma`) moves between pages as the menu does.
+  useEffect(() => {
+    const follow = (): void => {
+      setPlace(fromHash())
+      setOutcome(undefined)
+    }
+    window.addEventListener('hashchange', follow)
+    return () => window.removeEventListener('hashchange', follow)
+  }, [])
   const go = (next: View): void => {
-    setView(next)
+    setPlace({ view: next, sub: '' })
     setOutcome(undefined)
     history.replaceState(null, '', `#${next}`)
   }
+  const can = (name: string): boolean => me?.role === 'admin' || !(me?.adminOnly ?? []).includes(name)
+  const page: PageProps = { version: pageVersion, run, outcome: html`<${Notice} outcome=${outcome} onButton=${run} />`, can }
   const switchLanguage = (next: Language): void => void loadLanguage(next).then(() => setLang(next))
 
   if (signedIn === undefined) return html`<p class="empty" style="padding:40px">${t('common.loading')}</p>`
@@ -549,7 +564,8 @@ function App(): VNode {
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}
         ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
             account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}
-        ${view === 'users' && me?.role === 'admin' ? html`<${UsersView} version=${usersVersion} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`} />` : null}
+        ${view === 'users' && me?.role === 'admin' ? html`<${UsersView} ...${page} />` : null}
+        ${view === 'projects' ? (sub.length === 0 ? html`<${ProjectsView} ...${page} />` : html`<${ProjectView} key=${sub} id=${sub} ...${page} />`) : null}
       </main>
     </div>`
 }

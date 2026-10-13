@@ -103,13 +103,7 @@ export class WebChannelAdapter implements ChannelAdapter {
       await this.edit(message.editOf, message)
       return message.editOf
     }
-    const files = (message.files ?? []).map((file) => ({
-      id: randomUUID(),
-      name: file.name,
-      mime_type: file.mimeType ?? null,
-      path: file.path ?? null,
-      bytes: file.bytes ?? null,
-    }))
+    const files = storedFiles(message.files ?? [])
     const buttons = message.buttons !== undefined && message.buttons.length > 0 ? message.buttons : undefined
     const id = this.push(to.chatId, 'argus', message.text, { buttons }, files)
     return { channel: this.name, chatId: to.chatId, messageId: id }
@@ -204,6 +198,21 @@ export class WebChannelAdapter implements ChannelAdapter {
     return this.store.history(userId).map(({ row, files }) => toEntry(row, files))
   }
 
+  /**
+   * Put files a page asked for (a command's, such as `/get`) in a person's chat, so
+   * they can be downloaded and stay in the history.
+   *
+   * @param userId the Argus user id.
+   * @param text the entry's text.
+   * @param files the files.
+   * @returns their ids and names, for download links.
+   */
+  offer(userId: string, text: string, files: readonly StoredFile[]): ChatFile[] {
+    const stored = storedFiles(files)
+    this.push(userId, 'argus', text, {}, stored)
+    return stored.map((file) => ({ id: file.id, name: file.name }))
+  }
+
   /** How many entries from Argus a person has not seen. */
   unread(userId: string): number {
     return this.store.unread(userId)
@@ -257,6 +266,11 @@ export class WebChannelAdapter implements ChannelAdapter {
     this.changed(chatId)
     return id
   }
+}
+
+/** Files as the store keeps them, each with a new id. */
+function storedFiles(files: ReadonlyArray<{ name: string; path?: string; bytes?: Uint8Array; mimeType?: string }>): Parameters<WebChatRepository['append']>[1] {
+  return files.map((file) => ({ id: randomUUID(), name: file.name, mime_type: file.mimeType ?? null, path: file.path ?? null, bytes: file.bytes ?? null }))
 }
 
 /** A stored row as the browser gets it. */

@@ -30,6 +30,7 @@ export interface CommandOutcome {
   readonly text: string
   readonly error: boolean
   readonly buttons: ReadonlyArray<{ label: string; command: string }>
+  readonly files?: ReadonlyArray<{ id: string; name: string }>
 }
 
 /** Run a command line as the signed-in person. */
