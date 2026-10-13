@@ -444,7 +444,7 @@ describe('outgoing messages', () => {
     })
     expect(await asked).toEqual({ kind: 'button', value: 'always' })
     // `answeredByAdmin` reads the same record, so the admin's "Always allow" now counts.
-    expect(booted.channel.answeredBy('approval:q2')).toBe('99887766')
+    expect(booted.channel.answeredBy('approval:q2')).toBe(booted.store.users.resolve('telegram', '99887766')?.user_id)
   }, 30_000)
 
   it('edits a message rather than sending a new one', async () => {

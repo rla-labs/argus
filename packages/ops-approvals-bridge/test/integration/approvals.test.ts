@@ -132,6 +132,11 @@ function fakeAgent(id: string): never {
 }
 
 /** Answer whatever the bridge is currently asking. */
+/** The Argus user a console id belongs to: `decided_by` and the audit's actor are by user. */
+function userOf(booted: Booted, consoleId: string): string | undefined {
+  return booted.store.users.resolve('console', consoleId)?.user_id
+}
+
 async function answerNext(booted: Booted, value: string, userId = 'dev'): Promise<void> {
   await waitFor(() => consoleOf(booted).pendingCount > 0, { timeoutMs: 10_000, label: 'a question' })
   consoleOf(booted).answer(value, userId)
@@ -422,7 +427,7 @@ describe('the gate', () => {
     await waitFor(() => ran === 1 && booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'first run' })
     // A whole command, its trailing option aside, never a prefix.
     expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['git push origin main'])
-    expect(booted.store.approvals.recent(1)[0]).toMatchObject({ status: 'granted', decided_by: 'dev' })
+    expect(booted.store.approvals.recent(1)[0]).toMatchObject({ status: 'granted', decided_by: userOf(booted, 'dev') })
     // Saved through /set, so audited like any change.
     expect(booted.store.audit.recent(20).some((row) => row.action === 'command.set')).toBe(true)
 
@@ -578,7 +583,7 @@ describe('decisions', () => {
     expect(await promise).toBe('allowed-once')
     const row = booted.store.approvals.recent(1)[0]
     expect(row?.status).toBe('granted')
-    expect(row?.decided_by).toBe('dev')
+    expect(row?.decided_by).toBe(userOf(booted, 'dev'))
   }, 60_000)
 
   it('refuses on Deny', async () => {
@@ -904,7 +909,7 @@ describe('persistence and audit', () => {
 
     const rows = booted.store.audit.byAction('approval.decided')
     expect(rows).toHaveLength(1)
-    expect(rows[0]?.actor).toBe('dev')
+    expect(rows[0]?.actor).toBe(userOf(booted, 'dev'))
     // `details_json` is stored as JSON, so a reader parses it.
     const details = JSON.parse(rows[0]?.details_json ?? '{}') as Record<string, unknown>
     expect(details['ending']).toBe('approved')
@@ -926,7 +931,7 @@ describe('persistence and audit', () => {
     await promise
 
     const row = booted.store.approvals.recent(1)[0]
-    expect(row?.decided_by).toBe('operator-7')
+    expect(row?.decided_by).toBe(userOf(booted, 'operator-7'))
     expect(row?.decided_at).toBeGreaterThanOrEqual(before)
   }, 60_000)
 

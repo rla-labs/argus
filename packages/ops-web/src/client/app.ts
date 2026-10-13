@@ -50,10 +50,20 @@ interface Me {
   login: string | null
   hasPassword: boolean
   mayResetPassword: boolean
+  channels: string[]
 }
 
-type View = 'overview' | 'approvals' | 'chat' | 'settings'
-const VIEWS: readonly View[] = ['overview', 'approvals', 'chat', 'settings']
+interface UserRow {
+  id: string
+  name: string | null
+  role: 'admin' | 'operator'
+  disabled: boolean
+  login: string | null
+  channels: string[]
+}
+
+type View = 'overview' | 'approvals' | 'chat' | 'settings' | 'users'
+const VIEWS: readonly View[] = ['overview', 'approvals', 'chat', 'settings', 'users']
 const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
@@ -65,6 +75,7 @@ function Icon({ view }: { view: View }): VNode {
     approvals: 'M12 2 20 5v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5zM8.5 12l2.5 2.5 4.5-5',
     chat: 'M4 5h16v11H9l-5 4z',
     settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 6a2 2 0 1 0 0 .1M10 12a2 2 0 1 0 0 .1M18 18a2 2 0 1 0 0 .1',
+    users: 'M9 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8M2 21c0-4 3-7 7-7s7 3 7 7M16 3.5a4 4 0 0 1 0 7M18 14c2.5.8 4 3.5 4 7',
   }
   return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d=${paths[view]}></path></svg>`
 }
@@ -154,6 +165,57 @@ function PasswordSection({ me, onChanged }: { me: Me; onChanged: () => void }): 
       <button class="btn ghost" type="submit">${t('settings.save')}</button>
     </form>
   </section>`
+}
+
+/** The signed-in user's channels, and a code to connect another. */
+function ChannelsSection({ me, run }: { me: Me; run: (line: string) => void }): VNode {
+  return html`<section class="hud">
+    <h2>${t('channels.title')}</h2>
+    <p class="muted" style="margin:0">${me.channels.length === 0 ? t('channels.none') : t('channels.list', { channels: me.channels.join(', ') })}</p>
+    <p class="muted" style="margin:0">${t('channels.hint')}</p>
+    <div><button class="btn ghost" type="button" onClick=${() => run('/link')}>${t('channels.connect')}</button></div>
+  </section>`
+}
+
+function UsersView({ version, run, outcome }: { version: number; run: (line: string) => void; outcome: VNode | null }): VNode {
+  const [users, setUsers] = useState<UserRow[] | undefined>()
+  const [name, setName] = useState('')
+  useEffect(() => {
+    void get<{ users: UserRow[] }>('/api/users').then((body) => setUsers(body.users))
+  }, [version])
+  return html`
+    ${outcome}
+    <section class="hud">
+      <h2>${t('users.invite')}</h2>
+      <p class="muted" style="margin:0">${t('users.inviteHint')}</p>
+      <form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); if (name.trim().length > 0) { run(`/users invite ${name.trim()}`); setName('') } }}>
+        <div class="field" style="flex:1 1 220px"><label class="lbl" for="u-name">${t('users.name')}</label><input id="u-name" required maxlength="64" value=${name} onInput=${(e: Event) => setName((e.target as HTMLInputElement).value)} /></div>
+        <button class="btn primary" type="submit">${t('users.inviteButton')}</button>
+      </form>
+    </section>
+    <section class="hud">
+      <h2>${t('users.title')}</h2>
+      ${users === undefined
+        ? html`<p class="empty">${t('common.loading')}</p>`
+        : html`<div class="scroll"><table>
+            <thead><tr><th scope="col" class="lbl">${t('users.name')}</th><th scope="col" class="lbl">${t('users.role')}</th><th scope="col" class="lbl">${t('users.channels')}</th><th scope="col" class="lbl">${t('users.login')}</th><th></th></tr></thead>
+            <tbody>${users.map(
+              (user) => html`<tr class=${user.disabled ? 'muted' : ''}>
+                <td>${user.name ?? user.login ?? user.id}${user.disabled ? html`<br /><span class="faint">${t('users.disabled')}</span>` : null}</td>
+                <td>${t(`users.${user.role}`)}</td>
+                <td class="mono">${user.channels.join(', ') || '—'}</td>
+                <td class="mono">${user.login ?? '—'}</td>
+                <td class="num">${user.role === 'admin'
+                  ? null
+                  : html`<div class="btns" style="justify-content:flex-end">
+                      ${user.disabled
+                        ? html`<button class="btn ghost" type="button" onClick=${() => run(`/users enable ${user.id}`)}>${t('users.enable')}</button>`
+                        : html`<button class="btn ghost" type="button" onClick=${() => run(`/users reset ${user.id}`)}>${t('users.reset')}</button>
+                            <button class="btn danger" type="button" onClick=${() => run(`/users remove ${user.id}`)}>${t('users.remove')}</button>`}
+                    </div>`}</td>
+              </tr>`,
+            )}</tbody></table></div>`}
+    </section>`
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
@@ -369,6 +431,7 @@ function App(): VNode {
   const [settingsData, setSettings] = useState<Settings | undefined>()
   const [chatVersion, setChatVersion] = useState(0)
   const [unread, setUnread] = useState(0)
+  const [usersVersion, setUsersVersion] = useState(0)
   const [connected, setConnected] = useState(true)
   const [outcome, setOutcome] = useState<CommandOutcome | undefined>()
   const [failure, setFailure] = useState<string | undefined>()
@@ -389,6 +452,7 @@ function App(): VNode {
     (line: string) =>
       void guard(async () => {
         setOutcome(await command(line))
+        setUsersVersion((v) => v + 1)
         await Promise.all([loadOverview(), loadSettings()])
       }),
     [guard, loadOverview, loadSettings],
@@ -416,7 +480,11 @@ function App(): VNode {
     const stop = listen(
       (topic) => {
         if (topic === 'overview') void loadOverview()
-        else if (topic === 'settings') void loadSettings()
+        else if (topic === 'settings') {
+          // A command run anywhere may have changed you (a /link from Telegram).
+          void loadSettings()
+          loadMe()
+        }
         else if (topic === 'chat') {
           setChatVersion((v) => v + 1)
           void loadUnread()
@@ -428,7 +496,7 @@ function App(): VNode {
       clearInterval(tick)
       stop()
     }
-  }, [signedIn, loadOverview, loadSettings, loadUnread])
+  }, [signedIn, loadOverview, loadSettings, loadUnread, loadMe])
 
   const go = (next: View): void => {
     setView(next)
@@ -459,7 +527,7 @@ function App(): VNode {
   return html`${header}
     <div class="layout">
       <nav class="rail" aria-label=${t('nav.label')}>
-        ${VIEWS.map(
+        ${VIEWS.filter((each) => each !== 'users' || me?.role === 'admin').map(
           (each) => html`<button type="button" aria-current=${view === each ? 'page' : undefined} onClick=${() => go(each)}>
             <${Icon} view=${each} />${t(`nav.${each}`)}${each === 'approvals' && pending > 0 ? html`<span class="count">${pending}</span>` : null}
             ${each === 'chat' && unread > 0 && view !== 'chat' ? html`<span class="count" aria-label=${t('chat.unread', { count: unread })}>${unread}</span>` : null}
@@ -480,7 +548,8 @@ function App(): VNode {
         ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} />` : null}
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}
         ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
-            account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} />`} />`) : null}
+            account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}
+        ${view === 'users' && me?.role === 'admin' ? html`<${UsersView} version=${usersVersion} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`} />` : null}
       </main>
     </div>`
 }

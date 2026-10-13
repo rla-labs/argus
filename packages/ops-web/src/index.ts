@@ -12,7 +12,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
-import { WebAuth } from './auth.js'
+import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
 import { overview, settings, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
@@ -47,6 +47,13 @@ export interface OpsWeb {
    * @returns the link.
    */
   loginLink(userId: string): string
+  /**
+   * A one-time sign-in link valid 24 hours, for an invitation or a password reset.
+   *
+   * @param userId the Argus user id.
+   * @returns the link.
+   */
+  inviteLink(userId: string): string
   /** The port the server listens on, once it does. */
   readonly port: number | undefined
 }
@@ -120,6 +127,7 @@ export async function apply(ctx: Context): Promise<void> {
   const auth = new WebAuth(ctx.opsStore, config.session_hours * 3_600_000)
   const web: { -readonly [K in keyof OpsWeb]: OpsWeb[K] } = {
     loginLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId)}`,
+    inviteLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId, INVITE_TTL_MS)}`,
     port: undefined,
   }
   ctx.provide('opsWeb', web)
@@ -173,8 +181,21 @@ export async function apply(ctx: Context): Promise<void> {
           login: login ?? null,
           hasPassword: login !== undefined,
           mayResetPassword: auth.mayResetPassword(session),
+          channels: ctx.opsStore.users.identities(session.userId).filter((identity) => identity.channel !== 'web').map((identity) => `${identity.channel}:${identity.external_id}`),
           expiresAt: session.expiresAt,
         }
+      },
+      users: (session) => {
+        if (ctx.opsStore.users.get(session.userId)?.role !== 'admin') return undefined
+        return ctx.opsStore.users.list().map((user) => ({
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          disabled: user.disabled_at !== null,
+          login: auth.loginOf(user.id) ?? null,
+          channels: ctx.opsStore.users.identities(user.id).filter((identity) => identity.channel !== 'web').map((identity) => `${identity.channel}:${identity.external_id}`),
+          createdAt: user.created_at,
+        }))
       },
       overview: () => overview(sources),
       settings: () => settings(sources),

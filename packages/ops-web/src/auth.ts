@@ -17,6 +17,8 @@ import type { OpsStore, WebSessionVia } from '@argus-agent/store'
 
 /** How long a `/web` link stays valid, and how long after using one a password may be reset with it. */
 export const LOGIN_TOKEN_TTL_MS = 10 * 60_000
+/** How long an invitation (or an admin's password reset) link stays valid. */
+export const INVITE_TTL_MS = 24 * 3_600_000
 /** The shortest password accepted. */
 export const MIN_PASSWORD_LENGTH = 10
 /** Failed sign-ins allowed, per address and per user, before a pause. */
@@ -90,16 +92,18 @@ export class WebAuth {
   ) {}
 
   /**
-   * A one-time sign-in token for a user, valid {@link LOGIN_TOKEN_TTL_MS}.
+   * A one-time sign-in token for a user.
    *
    * @param userId the Argus user id.
+   * @param ttlMs how long it is valid: {@link LOGIN_TOKEN_TTL_MS} for `/web`,
+   *   {@link INVITE_TTL_MS} for an invitation.
    * @returns the token.
    */
-  issueToken(userId: string): string {
+  issueToken(userId: string, ttlMs = LOGIN_TOKEN_TTL_MS): string {
     const now = this.now()
     for (const [key, entry] of this.tokens) if (entry.expiresAt < now) this.tokens.delete(key)
     const token = randomBytes(24).toString('base64url')
-    this.tokens.set(token, { userId, expiresAt: now + LOGIN_TOKEN_TTL_MS })
+    this.tokens.set(token, { userId, expiresAt: now + ttlMs })
     return token
   }
 

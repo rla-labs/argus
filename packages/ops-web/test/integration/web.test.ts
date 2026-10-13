@@ -205,4 +205,90 @@ describe('the web interface', () => {
     await fetch(`${booted.base}/api/chat/read`, { method: 'POST', headers: { cookie, 'x-argus': '1' } })
     expect(((await (await fetch(`${booted.base}/api/chat/unread`, { headers: { cookie } })).json()) as { count: number }).count).toBe(0)
   }, 60_000)
+
+  it('/users invites an operator who sets a password; reset and remove sign them out; only the admin sees /api/users', async () => {
+    const booted = await bootWeb()
+    const admin = await signIn(booted)
+    const json = (cookie: string) => ({ cookie, 'content-type': 'application/json', 'x-argus': '1' })
+    const run = async (cookie: string, line: string): Promise<{ text: string; error: boolean }> =>
+      (await (await fetch(`${booted.base}/api/command`, { method: 'POST', headers: json(cookie), body: JSON.stringify({ line }) })).json()) as { text: string; error: boolean }
+    const follow = async (text: string): Promise<string> => {
+      const token = /token=([\w-]+)/.exec(text)?.[1] ?? ''
+      const login = await fetch(`${booted.base}/login?token=${token}`, { redirect: 'manual' })
+      expect(login.status).toBe(303)
+      return (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    }
+    const me = async (cookie: string): Promise<Response> => fetch(`${booted.base}/api/me`, { headers: { cookie } })
+
+    const invited = await run(admin, '/users invite Ana Pop')
+    expect(invited.text).toContain('Ana Pop is an operator')
+    const ana = await follow(invited.text)
+    expect(await (await me(ana)).json()).toMatchObject({ name: 'Ana Pop', role: 'operator', hasPassword: false })
+    expect((await fetch(`${booted.base}/api/password`, { method: 'POST', headers: json(ana), body: JSON.stringify({ login: 'ana', password: 'a long password' }) })).status).toBe(200)
+    expect((await fetch(`${booted.base}/api/users`, { headers: { cookie: ana } })).status).toBe(403)
+    const users = ((await (await fetch(`${booted.base}/api/users`, { headers: { cookie: admin } })).json()) as { users: Array<{ id: string; name: string | null; login: string | null; role: string }> }).users
+    expect(users).toContainEqual(expect.objectContaining({ name: 'Ana Pop', login: 'ana', role: 'operator' }))
+    expect((await run(admin, '/users')).text).toContain('Ana Pop  operator')
+
+    const reset = await run(admin, '/users reset ana')
+    expect(reset.text).toContain('password is removed')
+    expect((await me(ana)).status).toBe(401)
+    const again = await follow(reset.text)
+    expect(await (await me(again)).json()).toMatchObject({ hasPassword: false, mayResetPassword: true })
+
+    const id = users.find((user) => user.name === 'Ana Pop')?.id ?? ''
+    expect((await run(admin, `/users remove ${id}`)).text).toContain('can no longer use Argus')
+    expect((await me(again)).status).toBe(401)
+    expect((await run(admin, `/users enable ${id}`)).text).toContain('can use Argus again')
+    expect((await run(admin, `/users name ${id} Ana P.`)).text).toContain('is called Ana P. now')
+    expect(booted.store.users.get(id)).toMatchObject({ name: 'Ana P.', disabled_at: null })
+    expect((await run(admin, `/users reset telegram:42`)).error).toBe(true)
+  }, 60_000)
+
+  it('/link connects a channel the user did not have; nothing else from a stranger runs', async () => {
+    const booted = await bootWeb()
+    const tg = new ConsoleChannelAdapter({ name: 'tg' })
+    booted.channel.register(tg)
+    booted.store.users.create({ id: 'ana', name: 'Ana', role: 'operator' }, Date.now())
+    const token = /token=([\w-]+)/.exec(booted.web.loginLink('ana'))?.[1] ?? ''
+    const cookie = ((await fetch(`${booted.base}/login?token=${token}`, { redirect: 'manual' })).headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const out = (await (await fetch(`${booted.base}/api/command`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ line: '/link' }) })).json()) as { text: string }
+    const code = /\/link (\w+)/.exec(out.text)?.[1] ?? ''
+    expect(code).toMatch(/^[A-Z0-9]{8}$/)
+
+    const say = async (text: string, userId = 'stranger-7'): Promise<string> => {
+      const before = tg.sent.length
+      await tg.receive({ text, userId, chatId: userId })
+      await waitFor(() => tg.sent.length > before, { timeoutMs: 10_000, label: 'a reply' })
+      return tg.lastSent?.message.text ?? ''
+    }
+    // A stranger is refused (no answer, an audit row), except for /link.
+    await tg.receive({ text: '/projects', userId: 'stranger-7', chatId: 'stranger-7' })
+    await waitFor(() => booted.store.audit.byAction('channel.refused').length > 0, { timeoutMs: 10_000, label: 'refused' })
+    expect(tg.sent.filter((sent) => sent.to.chatId === 'stranger-7')).toEqual([])
+    expect(await say('/link WRONG123')).toContain('not valid')
+    expect(await say(`/link ${code.toLowerCase()}`)).toContain("Connected: this tg account is Ana's")
+    expect(booted.store.users.identity('tg', 'stranger-7')?.user_id).toBe('ana')
+    expect(await say('/projects')).toContain('alpha')
+    // A code works once.
+    expect(await say(`/link ${code}`, 'stranger-8')).toContain('not valid')
+    // Five wrong codes from one sender lock it out.
+    for (let i = 0; i < 4; i++) await say(`/link BAD${i}CODE`, 'stranger-8')
+    expect(await say('/link BADXCODE', 'stranger-8')).toContain('Too many wrong codes')
+  }, 60_000)
+
+  it('names the person who answered, in the note on the other copies', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    booted.store.users.setName(booted.admin, 'Romeo')
+    const tg = new ConsoleChannelAdapter({ name: 'telegram' })
+    booted.channel.register(tg)
+    const asked = booted.channel.ask({ channel: 'user', chatId: booted.admin }, 'Run it?', [{ value: 'approve', label: 'Approve' }], 60_000, 'approval:n1')
+    await waitFor(() => tg.pendingCount > 0, { timeoutMs: 10_000, label: 'asked on telegram' })
+    const answer = await fetch(`${booted.base}/api/approvals/n1`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ value: 'approve' }) })
+    expect(answer.status).toBe(200)
+    await asked
+    expect(tg.closed).toEqual([{ id: 'approval:n1', note: 'Answered by Romeo on web: Approve' }])
+    expect(booted.channel.answeredBy('approval:n1')).toBe(booted.admin)
+  }, 60_000)
 })

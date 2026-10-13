@@ -41,6 +41,8 @@ export interface ServerDeps {
   readonly chat: WebChannelAdapter
   /** Who the session's user is, for `/api/me`. */
   readonly me: (session: Session) => unknown
+  /** Every user, for the admin; `undefined` for anyone else. */
+  readonly users: (session: Session) => unknown
   readonly overview: () => unknown
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
@@ -180,6 +182,10 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       response.writeHead(204, { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` })
       response.end()
       return
+    }
+    if (method === 'GET' && path === '/api/users') {
+      const users = deps.users(session)
+      return users === undefined ? send(response, 403, { error: 'only the admin' }) : send(response, 200, { users })
     }
     if (method === 'GET' && path === '/api/overview') return send(response, 200, deps.overview())
     if (method === 'GET' && path === '/api/settings') return send(response, 200, deps.settings())

@@ -8,7 +8,7 @@
  *
  * @module @argus-agent/commands/handlers
  */
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
@@ -37,6 +37,7 @@ import {
   type CommandResult,
   type CommandSpec,
 } from './types.js'
+import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
 import { loadTemplates } from './templates.js'
 import type { CommandHandler } from './types.js'
@@ -70,6 +71,32 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
   // Resolved lazily: `/help` must list every command, including ones registered
   // after this closure was built.
   const specs = (): readonly CommandSpec[] => deps.service.specs()
+
+  /** `/link` codes: a code attaches the channel it is sent from to the user who asked for it. */
+  const linkCodes = new Map<string, { userId: string; expiresAt: number }>()
+  /** Wrong `/link` codes per sender, for the lock-out. */
+  const linkFails = new Map<string, number[]>()
+
+  /** Find a user by id, `channel:id`, name or web login name (case ignored). */
+  function findUser(reference: string): UserRow | undefined {
+    const byId = store.users.get(reference)
+    if (byId !== undefined) return byId
+    const colon = reference.indexOf(':')
+    if (colon > 0) {
+      const identity = store.users.identity(reference.slice(0, colon), reference.slice(colon + 1))
+      if (identity !== undefined) return store.users.get(identity.user_id)
+    }
+    const lower = reference.toLowerCase()
+    const named = store.users.list().filter((user) => user.name?.toLowerCase() === lower)
+    if (named.length === 1) return named[0]
+    const login = store.webAuth.loginByName(reference)
+    return login === undefined ? undefined : store.users.get(login.user_id)
+  }
+
+  /** How a user is shown: their name, else their web login, else the id. */
+  function userLabel(user: UserRow): string {
+    return user.name ?? store.webAuth.login(user.id)?.login ?? user.id
+  }
 
   /** Resolve the project a command acts on: the argument, else the chat's active one. */
   function projectOf(argument: string | undefined, context: CommandContext): string | undefined {
@@ -1367,7 +1394,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'web',
-        description: 'A sign-in link for the web interface (admin)',
+        description: 'A sign-in link for the web interface',
         syntax: '/web',
         detail:
           'Sends a link that signs you in to the web interface. It works once and for ten ' +
@@ -1376,7 +1403,6 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'private network: open it through tailscale serve, a VPN or an SSH tunnel.',
         examples: ['/web'],
         mutating: false,
-        adminOnly: true,
       },
       run(_input, context): CommandResult {
         const web = options.web?.()
@@ -1674,6 +1700,134 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           store.users.link({ channel, external_id: userId, user_id: id }, context.now)
         })()
         return result(`${userId} can now use the bot on ${channel}. /allow remove ${userId} takes it back.`)
+      },
+    },
+
+    // ── /users ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'users',
+        description: 'List, invite, disable and reset users (admin)',
+        syntax: '/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name>]',
+        detail:
+          'With no argument, lists the users: name, role, channels, web login, disabled. ' +
+          '`invite <name>` creates an operator and gives a sign-in link valid 24 hours, to send ' +
+          'them; with it they set a web password. `remove` disables a user on every channel and ' +
+          'signs them out; `enable` takes them back. `reset` removes their web password, signs ' +
+          'them out and gives a new 24-hour link. A <user> is a name, a web login name, an id, ' +
+          'or channel:id (telegram:123456789). The admin is the one in access.admin.',
+        examples: ['/users', '/users invite Ana', '/users reset Ana', '/users remove telegram:123456789'],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input, context): CommandResult {
+        const tokens = tokenize(input)
+        const verb = tokens[0]?.toLowerCase()
+        if (verb === undefined) {
+          return result(
+            [
+              'Users:',
+              ...store.users.list().map((user) => {
+                const channels = store.users.identities(user.id).filter((identity) => identity.channel !== 'web').map((identity) => `${identity.channel}:${identity.external_id}`)
+                const login = store.webAuth.login(user.id)?.login
+                return (
+                  `  ${userLabel(user)}  ${user.role}` +
+                  `${channels.length === 0 ? '' : `  ${channels.join(', ')}`}` +
+                  `${login === undefined ? '' : `  web: ${login}`}` +
+                  `${user.disabled_at === null ? '' : '  disabled'}` +
+                  `  (${user.id})`
+                )
+              }),
+            ].join('\n'),
+          )
+        }
+        const web = options.web?.()
+        if (verb === 'invite') {
+          const name = input.trim().slice('invite'.length).trim()
+          if (name.length === 0 || name.length > 64) return failWith(this.spec, 'Give the person a name, up to 64 characters.')
+          if (web === undefined) return errorResult('The web interface is not running (web.enabled in ops.yaml): an invitation is a web sign-in.')
+          const id = randomUUID()
+          store.users.create({ id, name, role: 'operator' }, context.now)
+          return result(
+            `${name} is an operator now. Send them this link; it works once, within 24 hours, and lets them set a web password:\n${web.inviteLink(id)}\n` +
+              'On Telegram, they can then connect with /link from the web.',
+          )
+        }
+        if (!['remove', 'enable', 'reset', 'name'].includes(verb)) return failWith(this.spec, `Unknown /users ${verb}.`)
+        const reference = tokens[1]
+        const user = reference === undefined ? undefined : findUser(reference)
+        if (user === undefined) return errorResult(`No user ${reference ?? ''}. /users lists them.`.replace('  ', ' '))
+        const label = userLabel(user)
+        if (verb === 'name') {
+          const name = input.trim().replace(/^name\s+\S+\s*/i, '').trim()
+          if (name.length === 0 || name.length > 64) return failWith(this.spec, 'A name is 1 to 64 characters.')
+          store.users.setName(user.id, name)
+          return result(`${label} is called ${name} now.`)
+        }
+        if (verb === 'enable') {
+          return store.users.enable(user.id) ? result(`${label} can use Argus again.`) : result(`${label} is not disabled.`)
+        }
+        if (user.role === 'admin') return errorResult(`The admin cannot be ${verb === 'remove' ? 'removed' : 'reset'} here.`)
+        if (verb === 'remove') {
+          if (!store.users.disable(user.id, context.now)) return result(`${label} is already disabled.`)
+          store.webAuth.deleteUserSessions(user.id)
+          return result(`${label} can no longer use Argus, on any channel, and is signed out of the web.`)
+        }
+        if (web === undefined) return errorResult('The web interface is not running (web.enabled in ops.yaml).')
+        if (user.disabled_at !== null) return errorResult(`${label} is disabled; /users enable ${reference ?? ''} first.`)
+        store.transaction(() => {
+          store.webAuth.deleteLogin(user.id)
+          store.webAuth.deleteUserSessions(user.id)
+        })()
+        return result(`${label}'s web password is removed and they are signed out. Send them this link; it works once, within 24 hours, and lets them set a new one:\n${web.inviteLink(user.id)}`)
+      },
+    },
+
+    // ── /link ──────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'link',
+        description: 'Connect another channel (Telegram) to your user',
+        syntax: '/link [<code>]',
+        detail:
+          'Without a code, gives a code valid 10 minutes. Send `/link <code>` from the other ' +
+          'channel (to the bot in Telegram, for instance): that account becomes yours, with ' +
+          'your role. It is the one message Argus accepts from an account it does not know yet. ' +
+          'An account that is already someone else\'s is not moved.',
+        examples: ['/link', '/link K7QX2M9P'],
+        mutating: true,
+      },
+      run(input, context): CommandResult {
+        const code = tokenize(input)[0]?.toUpperCase()
+        const now = context.now
+        for (const [key, entry] of linkCodes) if (entry.expiresAt < now) linkCodes.delete(key)
+        if (code === undefined) {
+          if (context.user === undefined) return errorResult('Only a user of Argus can ask for a code.')
+          const alphabet = 'ABCDEFGHJKMNPQRSTVWXYZ23456789'
+          const fresh = Array.from(randomBytes(8), (byte) => alphabet[byte % alphabet.length]).join('')
+          linkCodes.set(fresh, { userId: context.user.id, expiresAt: now + 10 * 60_000 })
+          return result(`Send this from the account to connect (to the bot in Telegram, for instance) within 10 minutes:\n/link ${fresh}`)
+        }
+        const sender = `${context.address.channel}:${context.userId}`
+        const fails = (linkFails.get(sender) ?? []).filter((at) => at > now - 15 * 60_000)
+        if (fails.length >= 5) return errorResult('Too many wrong codes. Wait a quarter of an hour.')
+        const entry = linkCodes.get(code)
+        if (entry === undefined) {
+          linkFails.set(sender, [...fails, now])
+          return errorResult('That code is not valid: it was used already, or it is older than 10 minutes. Ask for a new one with /link.')
+        }
+        linkCodes.delete(code)
+        linkFails.delete(sender)
+        const owner = store.users.get(entry.userId)
+        if (owner === undefined || owner.disabled_at !== null) return errorResult('The user who asked for that code cannot use Argus any more.')
+        const existing = store.users.identity(context.address.channel, context.userId)
+        if (existing !== undefined) {
+          return existing.user_id === owner.id
+            ? result(`This ${context.address.channel} account is already ${userLabel(owner)}'s.`)
+            : errorResult(`This ${context.address.channel} account belongs to another user; it is not moved. The admin can /users remove that user first.`)
+        }
+        store.users.link({ channel: context.address.channel, external_id: context.userId, user_id: owner.id }, now)
+        return result(`Connected: this ${context.address.channel} account is ${userLabel(owner)}'s, with the ${owner.role}'s rights. Notices and approvals for you arrive here too.`)
       },
     },
 

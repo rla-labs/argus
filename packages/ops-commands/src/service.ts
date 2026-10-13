@@ -83,8 +83,10 @@ export interface MemoryPort {
 
 /** What `/web` needs from `ops-web`. */
 export interface WebPort {
-  /** A one-time sign-in link for an Argus user. */
+  /** A one-time sign-in link for an Argus user, valid 10 minutes. */
   loginLink(userId: string): string
+  /** The same, valid 24 hours: an invitation or a password reset. */
+  inviteLink(userId: string): string
 }
 
 /** What `/defaults` needs from `ops-orchestrator`. */

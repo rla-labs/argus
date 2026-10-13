@@ -324,6 +324,12 @@ export class OpsChannel {
     this.lastSeen = message.address
 
     const access = this.policy.check(message.address.channel, message.userId)
+    // `/link <code>` is how someone not yet known here attaches this identity to
+    // their user; the command checks the code. Nothing else from a stranger runs.
+    if (!access.allowed && access.reason === 'not_listed' && LINK_COMMAND.test(message.text.trim())) {
+      await this.runCommand(message.text.trim(), message)
+      return { kind: 'command' }
+    }
     if (!access.allowed) {
       await this.refuse(message, access.reason ?? 'not_listed')
       return { kind: 'rejected', reason: access.reason ?? 'not_listed' }
@@ -683,7 +689,7 @@ export class OpsChannel {
       if (answer !== 'timeout') {
         // The other copies still show live buttons: say who answered, and where.
         const label = buttons.find((button) => button.value === answer.value)?.label ?? answer.value
-        const who = this.lastAnswer?.questionId === id ? ` by ${this.lastAnswer.userId} on ${this.lastAnswer.address.channel}` : ''
+        const who = this.lastAnswer?.questionId === id ? ` by ${this.displayName(this.lastAnswer)} on ${this.lastAnswer.address.channel}` : ''
         targets.forEach((target, index) => {
           if (index === from) return
           // A failed close leaves the old buttons, which change nothing now: not worth more.
@@ -733,10 +739,21 @@ export class OpsChannel {
    * exists for.
    *
    * @param questionId the question id passed to {@link ask}.
-   * @returns the answering user's id, or `undefined`.
+   * @returns the answering Argus user's id (the platform id for a group member who is no user), or `undefined`.
    */
   answeredBy(questionId: string): string | undefined {
-    return this.lastAnswer?.questionId === questionId ? this.lastAnswer.userId : undefined
+    return this.lastAnswer?.questionId === questionId ? this.userOf(this.lastAnswer) : undefined
+  }
+
+  /** The Argus user who gave an answer; the platform id when it is no user's (a group member). */
+  private userOf(answer: ButtonAnswer): string {
+    return this.policy.check(answer.address.channel, answer.userId).user?.id ?? answer.userId
+  }
+
+  /** How the person who answered is named in a note: their name, their web login, else the id they answered with. */
+  private displayName(answer: ButtonAnswer): string {
+    const userId = this.userOf(answer)
+    return this.options.store.users.get(userId)?.name ?? this.options.store.webAuth.login(userId)?.login ?? answer.userId
   }
 
   /**
@@ -1085,6 +1102,8 @@ const execFileAsync = promisify(execFile)
 
 /** `/key <provider> <key>`: the form that carries a key (not `/key remove <provider>`). */
 const KEY_COMMAND = /^\/key(@\S+)?\s+(?!remove\s)\S+\s+\S+/i
+/** `/link <code>`: the one command a sender not yet known may send. */
+const LINK_COMMAND = /^\/link(@\S+)?\s+\S+$/i
 
 /** A size in megabytes, for a message. */
 function megabytes(bytes: number): string {

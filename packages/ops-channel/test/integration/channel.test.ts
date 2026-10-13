@@ -297,7 +297,7 @@ describe('a person on several channels', () => {
     expect(second.pendingQuestion?.id).toBe('approval:q1')
     second.answer('yes', 'admin-2')
     expect(await asked).toEqual({ kind: 'button', value: 'yes' })
-    expect(booted.channel.answeredBy('approval:q1')).toBe('admin-2')
+    expect(booted.channel.answeredBy('approval:q1')).toBe(booted.store.users.resolve('second', 'admin-2')?.user_id)
     expect(booted.adapter.closed).toEqual([{ id: 'approval:q1', note: 'Answered by admin-2 on second: Yes' }])
     expect(booted.adapter.pendingCount).toBe(0)
     expect(second.closed).toEqual([])

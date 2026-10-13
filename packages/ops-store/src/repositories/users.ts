@@ -18,6 +18,7 @@ export class UsersRepository {
   private readonly adminStmt
   private readonly insertStmt
   private readonly roleStmt
+  private readonly nameStmt
   private readonly demoteAdminStmt
   private readonly disableStmt
   private readonly enableStmt
@@ -32,6 +33,7 @@ export class UsersRepository {
     this.adminStmt = db.prepare("SELECT * FROM users WHERE role = 'admin' AND disabled_at IS NULL")
     this.insertStmt = db.prepare('INSERT INTO users (id, name, role, created_at) VALUES (?, ?, ?, ?)')
     this.roleStmt = db.prepare('UPDATE users SET role = ? WHERE id = ?')
+    this.nameStmt = db.prepare('UPDATE users SET name = ? WHERE id = ?')
     this.demoteAdminStmt = db.prepare("UPDATE users SET role = 'operator' WHERE role = 'admin' AND id != ?")
     this.disableStmt = db.prepare('UPDATE users SET disabled_at = ? WHERE id = ? AND disabled_at IS NULL')
     this.enableStmt = db.prepare('UPDATE users SET disabled_at = NULL WHERE id = ? AND disabled_at IS NOT NULL')
@@ -87,6 +89,16 @@ export class UsersRepository {
       if (role === 'admin') this.demoteAdminStmt.run(id)
       return this.roleStmt.run(role, id).changes > 0
     })()
+  }
+
+  /**
+   * Rename a user.
+   * @param id the user id.
+   * @param name the new name, or `null`.
+   * @returns whether the user exists.
+   */
+  setName(id: string, name: string | null): boolean {
+    return this.nameStmt.run(name, id).changes > 0
   }
 
   /**

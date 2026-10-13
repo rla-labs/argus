@@ -27,6 +27,8 @@ describe('WebAuthRepository', () => {
     // A new password clears the failures.
     expect(store.webAuth.setLogin({ userId: 'a', login: 'ana', passwordHash: 'h3' }, T0 + 2)).toBe(true)
     expect(store.webAuth.login('a')).toMatchObject({ login: 'ana', password_hash: 'h3', failed_count: 0, locked_until: null })
+    expect(store.webAuth.deleteLogin('a')).toBe(true)
+    expect(store.webAuth.login('a')).toBeUndefined()
   })
 
   it('stores sessions, ends all of a user\'s but one, and prunes the expired', () => {

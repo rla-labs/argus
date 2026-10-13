@@ -14,13 +14,13 @@ For which command fits which moment, read
 
 | Group | Commands |
 |---|---|
-| Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) |
+| Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) · [`/web`](#web) · [`/link`](#link-code) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/web`](#web--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -32,7 +32,7 @@ For which command fits which moment, read
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
 `/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
-and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
+and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions or the memory stays open to everyone.
 
 ---
@@ -663,13 +663,34 @@ A change of `model`, `preset` or `fallback_model` reaches a running agent only a
 
 ---
 
-## `/web`  *(admin)*
+## `/web`
 
 Sends a link that signs you in to the [web interface](web.md). It works once, for ten
 minutes; the sign-in then lasts `web.session_hours`. Open it on a device that reaches
 the server through Tailscale, a VPN or an SSH tunnel. During those ten minutes you can
 set or reset your web password (Settings → Web password), to sign in without a link
-afterwards.
+afterwards. Every user can ask for one.
+
+---
+
+## `/link [<code>]`
+
+Connects another channel to your user, so you are the same person on both: one role,
+and notices and approvals reach you on each.
+
+1. On the web (Settings → Your channels → **Connect Telegram**), or by sending `/link`
+   where you are already known, you get a code valid 10 minutes.
+2. Send `/link <code>` from the account to connect, to the bot in Telegram for instance.
+
+```
+/link
+/link K7QX2M9P
+```
+
+It is the one message Argus accepts from an account it does not know yet; anything
+else from one is refused as before. A code works once; five wrong codes from one account
+pause it for a quarter of an hour. An account that already belongs to another user is
+not moved.
 
 ---
 
@@ -779,7 +800,37 @@ budgets; they cannot create projects, change models, budgets or settings, or add
 `remove` disables the user on every channel, whether they were added here or in
 `access.allowed_users`; `/allow <id>` enables them again. The admin cannot be removed:
 change `access.admin` in `ops.yaml` to hand the role over. Users are kept in the
-database (and in a backup).
+database (and in a backup). To invite someone who has no Telegram account, or to manage
+users by name, see [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin).
+
+---
+
+## `/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name>]`  *(admin)*
+
+Every user: name, role, channels, web login, and whether they are disabled. The web
+interface's **Users** page shows the same, with buttons.
+
+```
+/users
+/users invite Ana Pop
+/users reset ana
+/users remove telegram:123456789
+/users enable Ana Pop
+/users name telegram:123456789 Mihai
+```
+
+- **`invite <name>`** creates an operator and answers with a sign-in link that works
+  once, within 24 hours. Send it to them: with it they set a web password, and from the
+  web they can connect Telegram with [`/link`](#link-code).
+- **`remove`** disables a user on every channel and signs them out of the web;
+  **`enable`** takes them back.
+- **`reset`** removes a user's web password, signs them out, and gives a new 24-hour
+  link to set another.
+- A `<user>` is a name, a web login name, an id, or `channel:id`.
+
+The admin is `access.admin` in `ops.yaml`; it cannot be removed or reset here.
+Invitation links live in memory: after a restart of Argus, give a new one (`/users
+reset`).
 
 ---
 

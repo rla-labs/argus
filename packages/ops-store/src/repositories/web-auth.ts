@@ -17,6 +17,7 @@ export class WebAuthRepository {
   private readonly byNameStmt
   private readonly upsertLoginStmt
   private readonly failuresStmt
+  private readonly deleteLoginStmt
   private readonly insertSessionStmt
   private readonly sessionStmt
   private readonly touchStmt
@@ -32,6 +33,7 @@ export class WebAuthRepository {
       ON CONFLICT(user_id) DO UPDATE SET login = excluded.login, password_hash = excluded.password_hash,
         updated_at = excluded.updated_at, failed_count = 0, locked_until = NULL
     `)
+    this.deleteLoginStmt = db.prepare('DELETE FROM web_logins WHERE user_id = ?')
     this.failuresStmt = db.prepare('UPDATE web_logins SET failed_count = ?, locked_until = ? WHERE user_id = ?')
     this.insertSessionStmt = db.prepare(`
       INSERT INTO web_sessions (id_hash, user_id, via, created_at, expires_at, last_seen_at, user_agent)
@@ -75,6 +77,15 @@ export class WebAuthRepository {
       this.upsertLoginStmt.run(login.userId, login.login, login.passwordHash, now)
       return true
     })()
+  }
+
+  /**
+   * Remove a user's login name and password (an admin's reset).
+   * @param userId the user id.
+   * @returns whether there was one.
+   */
+  deleteLogin(userId: string): boolean {
+    return this.deleteLoginStmt.run(userId).changes > 0
   }
 
   /**

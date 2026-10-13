@@ -8,7 +8,7 @@ What this deployment defends against, and what it explicitly does not.
 
 | Threat | In scope | Control |
 |---|---|---|
-| A stranger messaging the bot | **Yes** | The allowlist (the admin, `allowed_users`, and users added with `/allow`), checked on every inbound path. Nobody until an admin is set. |
+| A stranger messaging the bot | **Yes** | The users (the admin, `allowed_users`, users added with `/allow`, `/users` or `/link`), checked on every inbound path. Nobody until an admin is set. The one message accepted from a stranger is `/link <code>`, with a code a user asked for in the last 10 minutes; five wrong codes pause that account. |
 | An allowed user spending or widening access | **Yes** | Two roles: operators run and stop work and answer approvals; spending (`/new`, `/model`, budgets, free models), permissions (`/set`, `/key`, `/allow`, instructions) and deletion are the admin's ([configuration](configuration.md#access--who-may-operate-the-system)). |
 | An allowed user's mistake | **Partly** | Approvals (`ask` by default), per-project budgets, sandbox modes. |
 | A prompt-injected agent | **Partly** | Sandbox per call, approvals, the allowlist is unaffected — but an approved command does what it does. |
@@ -171,6 +171,8 @@ Argus's own interface (the dashboard, approvals, settings and chat) is for a
   set or a forgotten one reset.
   - Passwords are stored as scrypt hashes, each with its own salt; at least 10
     characters.
+  - An invitation or an admin's password reset is a link valid 24 hours, once; it
+    lives in memory, so a restart cancels it.
   - Five wrong passwords lock the login for 15 minutes; five failed sign-ins from
     one address pause that address as long. A wrong name and a wrong password get the
     same answer.
