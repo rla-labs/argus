@@ -131,6 +131,14 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 | `sudo tailscale serve status` | Is port 3091 served? |
 | `grep 'web interface'` | The line says where it listens, or why it could not start (a port in use) |
 
+### A command fails with "permission denied" or SANDBOX_UNAVAILABLE
+
+| Check | Fix |
+|---|---|
+| `argus doctor` → `the command sandbox` | `err`: the kernel has no Landlock. Use a kernel 5.13 or newer with it enabled; until then agents cannot run commands |
+| The path in the error | A command reads and writes only its project's folder and its own temp folder. A file the project needs goes **into** its folder (send it in the chat, or `/get` it from another project) |
+| A tool wants `~/.something` | `HOME` is a private folder per project, emptied with the container's `/tmp`; put lasting settings in the project's folder |
+
 ### A risky action was refused
 
 | Check | Fix |

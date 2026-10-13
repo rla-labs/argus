@@ -38,6 +38,13 @@
     - id: ops-providers
       name: '@argus-agent/argus-agent/providers-row'
 
+    # Command confinement. Replaces the base's `sandbox` row (below), whose Landlock
+    # profile confines writes only: an agent's shell could read the database, the
+    # other projects and every conversation. This one grants the system, the
+    # session's workspace and a private temp folder, and nothing else.
+    - id: ops-sandbox
+      name: '@argus-agent/argus-agent/sandbox-row'
+
     # ── foundation ───────────────────────────────────────────────────────────
     # Filled in as each plugin lands, in this order.
     #
@@ -117,6 +124,12 @@
 # route for every catalog provider and every one declared in ops.yaml → providers:,
 # so the base's is switched off: two instances would advertise the same providers.
 - id: llm-pi-ai
+  disabled: true
+
+# ── command confinement ──────────────────────────────────────────────────────
+# The base's provider confines writes only; `ops-sandbox` (above) replaces it.
+# Two providers would both claim `ctx.sandbox`.
+- id: sandbox
   disabled: true
 
 # ── the app ──────────────────────────────────────────────────────────────────

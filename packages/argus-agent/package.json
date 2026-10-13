@@ -27,7 +27,11 @@
       "default": "./lib/providers-row.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./sandbox-row": {
+      "types": "./lib/sandbox-row.d.ts",
+      "default": "./lib/sandbox-row.js"
+    }
   },
   "files": [
     "lib/**/*.js",
@@ -47,10 +51,13 @@
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.0-rc.2",
     "@earendil-works/pi-ai": "0.87.1",
     "@argus-agent/types": "workspace:*",
-    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-sandbox": "0.2.0-rc.2",
+    "@deepseek-ai/node-addon-system": "0.1.2"
   },
   "devDependencies": {
-    "@deepseek-ai/dsh-credentials-local": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-credentials-local": "0.2.0-rc.2",
+    "@argus-agent/testkit": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.4",

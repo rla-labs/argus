@@ -15,7 +15,7 @@ What this deployment defends against, and what it explicitly does not.
 | A leaked bot token | **Partly** | Revoke with BotFather. The token grants the bot's identity, not the host. |
 | A compromised provider | **No** | Every prompt and file the agent sends reaches the provider. |
 | A local attacker with root | **No** | Root reads `/data` and the secrets. Nothing here defends against root. |
-| A malicious project workspace | **Partly** | A project asks before it reads outside its own folder (another project's files, the database, the keys); code it runs is confined by the sandbox mode. |
+| A malicious project workspace | **Partly** | A project asks before its file tools read outside its own folder; the commands it runs cannot read outside it at all ([Sandbox](#sandbox)). |
 | A web page steering the agent's commands | **Partly** | `web` and `shell` ask by default; `argus doctor` warns about a project that allows both unasked. |
 | An MCP server, or what it returns | **Partly** | Off until the admin adds it to one project; its tools ask until allowed. It runs as Argus's user, outside the sandbox ([below](#mcp-servers)). |
 | One project steering another | **Partly** | `ask_project` is off by default; a question runs as ordinary work in the other project, on its budget and rules, and a project answering cannot ask in turn. |
@@ -190,64 +190,60 @@ surface with a chat window.
 
 ## Sandbox
 
-`ctx.sandbox` confines a project's processes. Modes are carried **per call**:
+Every command an agent runs (its `bash`) runs under **Landlock**, the Linux kernel's
+file-access sandbox. Argus grants each command exactly this, and nothing else:
 
-| Mode | Means |
+| What | Access |
 |---|---|
-| `read-only` | Only the required sinks, such as `/dev/null`. |
-| `workspace-write` | The workspace, plus a backend-defined temp area. |
-| `danger-full-access` | No confinement. |
+| The project's own folder (a task's scratch folder) | read and write |
+| A private home and temp folder for that project, outside its folder | read and write |
+| The system: `/usr`, `/bin`, `/lib`, `/etc`, `/opt`, `/proc`, `/sys`, `/dev`, and Node | read |
+| **The data directory**: the database, the other projects, the conversations, the configuration, the keys | **none** |
+| **The application** (`/app`) | **none** |
 
-**`workspace-write` for every project, with the project's `cwd` as the root.** That
-is what the plan requires: an agent works inside its own folder and cannot read
-another project's files or the host's.
+So a command cannot read another project's files or the conversations, even if the
+agent was talked into trying, and cannot write anywhere but its own folder. The keys are
+not in a command's environment either, and Landlock refuses a command another process's
+environment (`/proc/<pid>/environ`).
 
-### Without a backend, dsh fails closed
+**What it does not confine: the network.** A command can reach whatever the server can.
+The approvals for `shell` and `web` are what stand between an agent and the internet.
 
-A sandbox provider with no backend **refuses to run** the process
-(`SANDBOX_UNAVAILABLE`) rather than running it unconfined. So a missing backend
-breaks work loudly instead of silently removing confinement — the right failure.
+### Without Landlock, commands do not run
 
-Set it up if you can:
+On a kernel without Landlock (older than 5.13, or with it switched off), Argus **refuses
+to run** commands (`SANDBOX_UNAVAILABLE`) rather than running them unconfined.
+`argus doctor` says which it is:
 
-| Platform | Backend |
-|---|---|
-| Linux | Landlock, which needs a kernel with it enabled |
-| Inside Docker | A backend may be unavailable; see below |
+```
+  ok the command sandbox: Landlock: a project reads and writes only its own folder
+```
 
-### Inside Docker
+Landlock works inside the Docker container with the settings the compose file ships
+(`read_only`, `cap_drop: ALL`, `no-new-privileges`); it needs no capability.
 
-**The container is the primary barrier.** Two consequences:
+### The container is a second wall
 
-1. **A sandbox backend may be unavailable inside a container** — a Landlock-capable
-   kernel is not guaranteed, and a container's own seccomp profile can block the
-   syscall the backend needs. When that happens, dsh refuses to run confined
-   processes rather than running them unconfined.
-2. **The container's isolation is what remains.** So it must be real:
+In a Docker install the container is the outer boundary, so it must be real. The shipped
+compose file does this; keep it that way:
 
 ```yaml
 services:
   ops:
     read_only: true
-    tmpfs: ['/tmp:size=1G']
-    volumes:
-      - /srv/argus-agent/data:/data          # the data tree, rw
-      - /srv/argus-agent/state:/data/state   # secrets, rw, NOT under a project cwd
+    tmpfs: ['/tmp:size=256m,mode=1777,exec']
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
-    user: '1000:1000'
     ports:
-      - '127.0.0.1:3080:3080'            # loopback, for the SSH tunnel
+      - '127.0.0.1:3091:3091'            # loopback only
 ```
 
-**Mount the data tree, not the host's home.** A container that mounts `/home` or
-`/` has given every project the host's files, and no per-process confinement is
-going to take them back.
+**Mount the data tree, not the host's home.** A container that mounts `/home` or `/`
+has given the agents' commands everything the container can read.
 
-**The honest summary:** with a backend, a project's processes are confined to its
-`cwd`. Without one, the container is the boundary and dsh will not run the process
-at all. Neither is a substitute for the other, and the approval allowlist is a convenience,
-not a sandbox.
+**The honest summary:** a project's commands are confined to its folder by the kernel;
+the container bounds the rest; the approvals decide the network. The approval allowlist
+is a convenience, not a sandbox.
 
 ## The host
 

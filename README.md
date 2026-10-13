@@ -123,7 +123,7 @@ not patch dsh. Like an OS kernel, it rests on a few rules that are never bent:
 | **Deterministic control.** Commands, schedules, budgets and cancellation are code. | The controls still work when a model is wrong, slow or offline. |
 | **Your words, verbatim.** No component rewrites what you send a project. | An agent cannot be steered by a paraphrase it never asked for. |
 | **Fail closed.** An unpriced model, an unanswered approval or an unknown user is a *no*. | Mistakes cost a retry, not money or a deleted file. |
-| **Separation.** A project is a top-level agent with its own folder, session, model, memory and budget. | Projects never share a conversation, a memory or a budget, and memory lives outside every workspace. Filesystem confinement comes from the dsh sandbox, or from the container in a Docker install. |
+| **Separation.** A project is a top-level agent with its own folder, session, model, memory and budget. | Projects never share a conversation, a memory or a budget, and memory lives outside every workspace. An agent's commands run under Landlock: they read and write only their own project's folder, never the database, the other projects or the conversations. |
 
 Each rule is enforced by tests, not only stated here.
 

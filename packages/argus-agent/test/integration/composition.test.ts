@@ -134,6 +134,14 @@ describe('Argus Agent bundle composition', () => {
     expect(byId.get('ops-health')?.disabled).toBeFalsy()
   })
 
+  it("confines commands with Argus's sandbox, not the base's write-only one", () => {
+    const { entries } = composedEntries()
+    const byId = new Map(entries.map((entry) => [entry.id, entry]))
+    expect(byId.get('sandbox')?.disabled).toBe(true)
+    expect(byId.get('ops-sandbox')?.name).toBe('@argus-agent/argus-agent/sandbox-row')
+    expect(byId.get('ops-sandbox')?.disabled).toBeFalsy()
+  })
+
   it('boots a tree composed from the same layers and publishes ctx.opsConfig', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'argus-agent-boot-'))
     try {
