@@ -84,10 +84,10 @@ export function looksLikeToken(token: string | null): boolean {
  */
 export function tokenWarning(token: string | null): string | undefined {
   if (token === null || token.trim().length === 0) {
-    return 'telegram.bot_token is not set, so the adapter will not start. Set it to ${TELEGRAM_BOT_TOKEN} and export that variable.'
+    return 'There is no Telegram bot token, so the adapter does not start. Save one with /key telegram <token>.'
   }
   if (!looksLikeToken(token)) {
-    return 'telegram.bot_token does not look like a BotFather token (<digits>:<secret>). It may be an unexpanded ${TELEGRAM_BOT_TOKEN}.'
+    return 'The Telegram bot token (telegram.bot_token, or TELEGRAM_BOT_TOKEN) does not look like a BotFather token (<digits>:<secret>), so the adapter does not start. It may be an unexpanded ${TELEGRAM_BOT_TOKEN}.'
   }
   return undefined
 }

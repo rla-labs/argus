@@ -289,7 +289,7 @@ describe('registration', () => {
     expect(warning).toBeDefined()
     // A token in a log is a leaked token, so the warning carries no part of it.
     expect(warning ?? '').not.toContain('AAHdq')
-    expect(tokenWarning(null)).toContain('TELEGRAM_BOT_TOKEN')
+    expect(tokenWarning(null)).toContain('/key telegram')
   }, 30_000)
 })
 

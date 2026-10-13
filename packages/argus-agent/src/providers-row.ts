@@ -289,6 +289,7 @@ export class OpsProviders {
     return [...this.routes.values()]
       .filter((route) => route.keyEnv !== null && route.error === undefined)
       .map((route) => ({ provider: route.provider, name: route.keyEnv as string, ...this.keys.info(route.keyEnv as string) }))
+      .concat({ provider: TELEGRAM, name: TELEGRAM_KEY, ...this.keys.info(TELEGRAM_KEY) })
       .sort((a, b) => Number(b.configured) - Number(a.configured) || a.provider.localeCompare(b.provider))
   }
 
@@ -307,6 +308,7 @@ export class OpsProviders {
   async setKey(provider: string, key: string): Promise<KeyChange> {
     const value = key.trim()
     if (SECRET_NAME.test(provider)) return this.setSecret(provider, value)
+    if (provider === TELEGRAM) return this.setTelegram(value)
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
     if (refusal !== undefined) return { ok: false, message: refusal }
@@ -334,6 +336,13 @@ export class OpsProviders {
    */
   async removeKey(provider: string): Promise<KeyChange> {
     if (SECRET_NAME.test(provider)) return this.removeSecret(provider)
+    if (provider === TELEGRAM) {
+      if (!this.keys.has(TELEGRAM_KEY)) return { ok: false, message: 'Telegram has no bot token.' }
+      const fixed = this.envRefusal(TELEGRAM_KEY)
+      if (fixed !== undefined) return { ok: false, message: fixed }
+      const removed = await this.removeSecret(TELEGRAM_KEY)
+      return removed.ok ? { ok: true, message: 'telegram: bot token removed; the bot stops now.' } : removed
+    }
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
     if (refusal !== undefined) return { ok: false, message: refusal }
@@ -369,6 +378,36 @@ export class OpsProviders {
     return { ok: true, message: `${name}: ${keyTail(value)} saved. A project's MCP servers read it when its agent next starts (/reload).` }
   }
 
+  /**
+   * Save the Telegram bot token, after Telegram accepts it (`getMe`). `ops-telegram`
+   * starts the bot when the credential appears.
+   */
+  private async setTelegram(token: string): Promise<KeyChange> {
+    if (!looksLikeToken(token)) return { ok: false, message: 'That is not a bot token: @BotFather gives one like 123456789:AA… (digits, a colon, then the secret). Nothing was saved.' }
+    const fixed = this.envRefusal(TELEGRAM_KEY)
+    if (fixed !== undefined) return { ok: false, message: fixed }
+    let username: string | undefined
+    try {
+      const response = await this.fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
+      if (response.status === 401 || response.status === 404) return { ok: false, message: `Telegram did not accept the token ${keyTail(token)} (HTTP ${response.status}). Nothing was saved.` }
+      if (!response.ok) return { ok: false, message: `Telegram answered HTTP ${response.status}. Nothing was saved; try again.` }
+      username = ((await response.json().catch(() => ({}))) as { result?: { username?: string } }).result?.username
+    } catch (error) {
+      return { ok: false, message: `Telegram could not be reached (${errorText(error)}). Nothing was saved.` }
+    }
+    try {
+      await this.keys.set(TELEGRAM_KEY, token)
+    } catch (error) {
+      return { ok: false, message: `The token could not be saved: ${errorText(error)}` }
+    }
+    return {
+      ok: true,
+      message:
+        `telegram: token ${keyTail(token)} accepted${username === undefined ? '' : ` (@${username})`}; the bot starts now. ` +
+        'Connect your Telegram account to your user: /link on the web (Settings → Your channels), then send the code to the bot.',
+    }
+  }
+
   /** Remove a secret saved with {@link setSecret}. */
   private async removeSecret(name: string): Promise<KeyChange> {
     try {
@@ -395,6 +434,12 @@ export class OpsProviders {
     return `${name} is set in the server's environment (.env, or secrets.env on a native install), which wins over a key saved here. Delete that line on the server and restart once; after that the key is managed from here.`
   }
 }
+
+/** `/key telegram`: the bot token, saved where `ops-telegram` reads it. */
+const TELEGRAM = 'telegram'
+const TELEGRAM_KEY = 'TELEGRAM_BOT_TOKEN'
+/** A BotFather token: the same check as `ops-telegram`'s `looksLikeToken`. */
+const looksLikeToken = (token: string): boolean => /^\d+:[A-Za-z0-9_-]{20,}$/.test(token)
 
 /** A name in capitals is a secret for an MCP server, not a provider (provider names are lower case). */
 const SECRET_NAME = /^[A-Z][A-Z0-9_]{1,63}$/
@@ -494,7 +539,7 @@ export async function apply(ctx: Context): Promise<void> {
 
   // The snapshot is taken BEFORE the service is published, so the first project
   // load already sees a key saved in the store, not only one in the environment.
-  const names = [...new Set([...routes.values()].flatMap((route) => (route.keyEnv === null ? [] : [route.keyEnv])))]
+  const names = [...new Set([...routes.values()].flatMap((route) => (route.keyEnv === null ? [] : [route.keyEnv])).concat(TELEGRAM_KEY))]
   const keys = await credentialKeys(ctx, names)
   const service = new OpsProviders(routes, keys)
   ctx.provide('opsProviders', service)

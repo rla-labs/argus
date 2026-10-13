@@ -124,15 +124,13 @@ describe('templates/ops.yaml.example', () => {
       expect(channel.default_address).toBeNull()
     })
 
-    it('leaves the token as an unexpanded reference', () => {
-      // `parseRawConfig` is the loader every plugin reads through. Running the template's
-      // text through it asserts the interpolation survives parsing as a string rather
-      // than being read as a mapping — `telegram:123` unquoted would parse as a map.
-      const parsed = parseRawConfig(templatePath('ops.yaml.example'), {
-        TELEGRAM_BOT_TOKEN: 'placeholder-value',
-      }) as Record<string, unknown>
-      const telegram = parsed['telegram'] as { bot_token: string }
-      expect(typeof telegram.bot_token).toBe('string')
+    it('loads without TELEGRAM_BOT_TOKEN, and pins no token', () => {
+      // Telegram is optional: an unset variable must not stop the file from loading
+      // (an unresolved `${…}` is an error), and an unpinned token is what lets
+      // `/key telegram` start the bot with no restart.
+      const parsed = parseRawConfig(templatePath('ops.yaml.example'), {}) as Record<string, unknown>
+      const telegram = parsed['telegram'] as { bot_token?: string }
+      expect(telegram.bot_token).toBeUndefined()
     })
 
     it('leaves default_address a STRING when an operator sets one', () => {

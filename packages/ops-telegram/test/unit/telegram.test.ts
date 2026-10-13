@@ -34,6 +34,7 @@ import {
 } from '../../src/convert.js'
 import { OutgoingQueue, reconnectDelayMs } from '../../src/queue.js'
 import { looksLikeToken, telegramOf, tokenWarning } from '../../src/config.js'
+import { TelegramSwitch } from '../../src/index.js'
 
 /** A Telegram message, with defaults. */
 function message(overrides: Partial<TelegramMessageLike> = {}): TelegramMessageLike {
@@ -794,7 +795,7 @@ describe('token validation', () => {
   })
 
   it('warns about a missing token', () => {
-    expect(tokenWarning(null)).toContain('TELEGRAM_BOT_TOKEN')
+    expect(tokenWarning(null)).toContain('/key telegram')
   })
 
   it('warns about an unexpanded token, naming the variable', () => {
@@ -821,5 +822,31 @@ describe('menu command names', () => {
     expect(fromMenuCommand('/resume_all')).toBe('/resume-all')
     expect(fromMenuCommand('/allow_free openrouter/x/y_z')).toBe('/allow-free openrouter/x/y_z')
     expect(fromMenuCommand('snake_case is not a command')).toBe('snake_case is not a command')
+  })
+})
+
+describe('TelegramSwitch', () => {
+  it('starts with a token, restarts on a change, stops when it goes; changes apply in order', async () => {
+    const log: string[] = []
+    const telegram = new TelegramSwitch((token) => {
+      log.push(`start ${token}`)
+      return async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        log.push(`stop ${token}`)
+      }
+    })
+    await telegram.set(undefined)
+    expect(log).toEqual([])
+    await telegram.set('a')
+    await telegram.set('a')
+    expect(log).toEqual(['start a'])
+    // Two quick changes: the second waits for the first, so one bot runs at a time.
+    void telegram.set('b')
+    await telegram.set('c')
+    expect(log).toEqual(['start a', 'stop a', 'start b', 'stop b', 'start c'])
+    expect(telegram.token).toBe('c')
+    await telegram.set(undefined)
+    expect(log.at(-1)).toBe('stop c')
+    expect(telegram.token).toBeUndefined()
   })
 })

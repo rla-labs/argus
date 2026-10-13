@@ -720,6 +720,7 @@ Manages the model providers' API keys, and the secrets of MCP servers, from the 
 /key
 /key openrouter sk-or-v1-…
 /key GITHUB_TOKEN ghp_…
+/key telegram 8123456789:AAH…
 /key remove groq
 ```
 
@@ -733,6 +734,11 @@ Manages the model providers' API keys, and the secrets of MCP servers, from the 
   [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) reads as
   `${NAME}`. Nothing can check it, so it is saved as given; the project's agent reads it
   when it next starts (`/reset <project>`).
+- **`/key telegram <token>`** saves the Telegram bot token from `@BotFather`, after
+  Telegram accepts it. The bot starts at once, with no restart; this is how an install
+  without Telegram adds it later (from the web's Settings → API keys, or this chat).
+  Then connect your Telegram account with [`/link`](#link-code). `/key remove telegram`
+  stops the bot.
 - **`/key remove <provider>`** (or `NAME`) removes a saved key.
 
 Keys are saved in dsh's credentials store (`.credentials.yaml` under the dsh home,

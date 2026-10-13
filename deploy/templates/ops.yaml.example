@@ -63,11 +63,13 @@ channel:
 
 # ── telegram ────────────────────────────────────────────────────────────────────
 #
-# The token is almost always an environment interpolation, so the secret lives in the
-# environment rather than in a file that gets committed. It is NEVER logged.
+# Telegram is optional. The bot token is read from TELEGRAM_BOT_TOKEN in the
+# environment, or saved with `/key telegram <token>` (from the web), and the bot starts
+# as soon as it is there, with no restart. Name it here only to pin it: then it changes
+# only with a restart. It is NEVER logged.
 
 telegram:
-  bot_token: ${TELEGRAM_BOT_TOKEN}
+  # bot_token: ${TELEGRAM_BOT_TOKEN}
   # Below Telegram's own 4096, because HTML escaping expands the text: a message that
   # fits before escaping can exceed the limit after, and Telegram rejects it whole.
   max_text_length: 4000

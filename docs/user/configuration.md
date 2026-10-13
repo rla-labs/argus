@@ -105,7 +105,7 @@ silently — but nothing is delivered either.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `bot_token` | string | `TELEGRAM_BOT_TOKEN` | From `@BotFather`. Unset, read from the environment; never write the value here. |
+| `bot_token` | string | `TELEGRAM_BOT_TOKEN` | From `@BotFather`. Leave it unset: the token is then `TELEGRAM_BOT_TOKEN` from the environment or saved with `/key telegram`, and the bot starts, restarts or stops as it appears, changes or goes. Set (`${OTHER_VARIABLE}`), it is fixed until a restart. Never write the value here. Without any token, Telegram is simply off. |
 | `max_text_length` | int | `4000` | Below Telegram's 4096 because HTML escaping expands text. |
 | `max_file_bytes` | int | `52428800` | Telegram's bot upload limit (50 MB). |
 | `allow_groups` | boolean | `false` | Whether group messages are processed at all. |

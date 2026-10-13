@@ -24,6 +24,7 @@
   "dependencies": {
     "@argus-agent/types": "workspace:*",
     "@argus-agent/channel": "workspace:*",
+    "@deepseek-ai/dsh-credentials": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "3.18.4",
     "grammy": "1.46.0",
     "@argus-agent/commands": "workspace:*"

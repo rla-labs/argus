@@ -100,9 +100,9 @@ do not add `AmbientCapabilities`, and treat `scratch/` as hostile input.
 TELEGRAM_BOT_TOKEN=123456789:AAH…
 ```
 
-- In the environment, never in a file that gets committed.
-- Referenced in `ops.yaml` as `${TELEGRAM_BOT_TOKEN}`, so the composition file holds
-  the variable name rather than the value.
+- In the environment, or saved with `/key telegram` in dsh's credentials store
+  (`0600`); never in a file that gets committed. `ops.yaml` names at most the variable,
+  never the value.
 - **Never logged.** The adapter's config warning names the variable, and a test
   asserts that no part of the value appears in any output.
 - Revoke with BotFather's `/revoke` if it leaks.

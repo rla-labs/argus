@@ -435,9 +435,11 @@ Three things must all be true for a message to be answered:
 ### 6.2 The token
 
 The token is read from the `TELEGRAM_BOT_TOKEN` environment variable, which systemd
-supplies from `/srv/argus-agent/secrets.env`. `ops.yaml` does not mention it, so the
-configuration file can be copied, shown or committed without leaking anything. (To read
-it from another variable, set `telegram.bot_token: ${OTHER_VARIABLE}`.)
+supplies from `/srv/argus-agent/secrets.env`, or from dsh's credentials store, where
+`/key telegram <token>` saves it (the bot then starts with no restart). `ops.yaml` does
+not mention it, so the configuration file can be copied, shown or committed without
+leaking anything. (To read it from another variable, set `telegram.bot_token:
+${OTHER_VARIABLE}`.)
 
 **The token is never logged**, not even truncated. A leaked token is a system anyone can
 drive as your bot. If it leaks, revoke it with BotFather's `/revoke` and update

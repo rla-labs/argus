@@ -192,4 +192,35 @@ describe('saving and removing a key', () => {
     expect((await service.setKey('PINNED_TOKEN', 'y')).message).toContain('environment')
     expect(keys.saved['PINNED_TOKEN']).toBeUndefined()
   })
+
+  it('saves a Telegram bot token Telegram accepts, refuses a malformed or rejected one, and lists telegram', async () => {
+    const token = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw'
+    const urls: string[] = []
+    const ok = (async (url: string) => {
+      urls.push(url)
+      return new Response(JSON.stringify({ ok: true, result: { username: 'argus_bot' } }), { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const keys = memoryKeys()
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, keys, ok)
+    expect(service.keyStatus().map((entry) => entry.provider)).toContain('telegram')
+
+    expect((await service.setKey('telegram', 'not-a-token')).message).toContain('not a bot token')
+    expect(urls).toEqual([])
+    const change = await service.setKey('telegram', token)
+    expect(change.ok).toBe(true)
+    expect(change.message).toContain('@argus_bot')
+    expect(change.message).not.toContain('AAHdqTcvCH1vGWJ')
+    expect(urls).toEqual([`https://api.telegram.org/bot${token}/getMe`])
+    expect(keys.saved['TELEGRAM_BOT_TOKEN']).toBe(token)
+    expect(service.keyStatus().find((entry) => entry.provider === 'telegram')).toMatchObject({ configured: true, writable: true })
+    expect((await service.removeKey('telegram')).message).toContain('the bot stops')
+    expect(keys.saved['TELEGRAM_BOT_TOKEN']).toBeUndefined()
+
+    const rejected = memoryKeys()
+    const refusing = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, rejected, answer(401))
+    expect((await refusing.setKey('telegram', token)).message).toContain('did not accept')
+    expect(rejected.saved).toEqual({})
+    const pinned = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, memoryKeys({}, { TELEGRAM_BOT_TOKEN: token }), ok)
+    expect((await pinned.setKey('telegram', token)).message).toContain('environment')
+  })
 })

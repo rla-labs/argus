@@ -36,7 +36,7 @@ log instead.
 | Check | Fix |
 |---|---|
 | `grep 'telegram connected'` | Absent: the adapter never reached Telegram. The next log line says why. |
-| `grep 'bot_token'` | A warning naming `TELEGRAM_BOT_TOKEN` means the variable is unset or unexpanded |
+| `grep -i 'telegram is off\|bot token'` | "Telegram is off" means there is no token (save one with `/key telegram <token>`); "does not look like a BotFather token" means it is malformed or unexpanded |
 | Is your user id `access.admin`, or in `access.allowed_users` for `channel: telegram`? | The most common cause of a bot that works but ignores you |
 | `grep 'channel.refused'` | The audit row names the id it saw — put **that** in the allowlist |
 | `/health` → `opsChannel` | `degraded` with "a channel adapter failed to start: …" names the Telegram error; a 401 is a wrong token |
