@@ -73,8 +73,8 @@ describe('migrate', () => {
     closers.push(() => db.close())
 
     const applied = migrate(db)
-    expect(applied).toEqual([1])
-    expect(appliedMigrations(db).map((row) => row.version)).toEqual([1])
+    expect(applied).toEqual([1, 2])
+    expect(appliedMigrations(db).map((row) => row.version)).toEqual([1, 2])
     expect(appliedMigrations(db)[0]?.name).toBe('0001_init.sql')
 
     // Every table the schema promises exists.
@@ -88,6 +88,7 @@ describe('migrate', () => {
       'audit_log',
       'budgets',
       'chat_context',
+      'identities',
       'inbound',
       'projects',
       'runs',
@@ -96,6 +97,7 @@ describe('migrate', () => {
       'schema_migrations',
       'usage_daily',
       'usage_events',
+      'users',
     ]) {
       expect(tables, `missing table ${table}`).toContain(table)
     }
@@ -105,18 +107,18 @@ describe('migrate', () => {
     const db = openDatabase({ path: join(tempDir(), 'ops.sqlite') })
     closers.push(() => db.close())
 
-    expect(migrate(db)).toEqual([1])
+    expect(migrate(db)).toEqual([1, 2])
     // Re-running applies nothing and does not fail: every process start calls it.
     expect(migrate(db)).toEqual([])
-    expect(appliedMigrations(db)).toHaveLength(1)
+    expect(appliedMigrations(db)).toHaveLength(2)
   })
 
   it('applies only the pending migrations', () => {
     const db = openDatabase({ path: join(tempDir(), 'ops.sqlite') })
     closers.push(() => db.close())
 
-    // Simulate a database already at version 1, with version 2 now available.
-    const real = loadMigrations()
+    // Simulate a database at version 1, with a version 2 now available.
+    const real = loadMigrations().filter((migration) => migration.version === 1)
     migrate(db, { migrations: real })
 
     const extended = [
@@ -222,8 +224,8 @@ describe('OpsStore startup', () => {
     closers.push(() => store.close())
 
     expect(store.isOpen).toBe(true)
-    expect(store.migrationsApplied).toEqual([1])
-    expect(store.appliedMigrations()).toHaveLength(1)
+    expect(store.migrationsApplied).toEqual([1, 2])
+    expect(store.appliedMigrations()).toHaveLength(2)
     // A project can be written immediately, so the schema is really there.
     store.projects.upsert({ id: 'a', cwd: '/p/a', provider: 'fake', model: 'm' }, 0)
     expect(store.projects.get('a')).toBeDefined()

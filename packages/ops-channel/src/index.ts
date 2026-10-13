@@ -83,6 +83,21 @@ export function apply(ctx: Context): void {
   // not know where that goes" for the rest of the process. `ctx.get` is cheap.
   const orchestratorOf = (): unknown => ctx.get('opsOrchestrator' as never)
 
+  // ops.yaml's people seed the users table; a known identity is left as it is.
+  // ponytail: `/allow` users are re-seeded at each start until /allow writes users itself (0.4.0 step 2).
+  const seeded = ctx.opsStore.seedUsers(
+    {
+      ...(admin === undefined
+        ? {}
+        : { admin: { channel: admin.channel, externalId: admin.chatId, kind: admin.chatId.startsWith('-') ? ('chat' as const) : ('user' as const) } }),
+      operators: [...access.allowed_users, ...ctx.opsCommands.addedUsers()].map((user) => ({ channel: user.channel, externalId: user.userId })),
+    },
+    Date.now(),
+  )
+  if (seeded.created > 0 || seeded.adminChanged) {
+    logger.info('users from ops.yaml: %d created%s', seeded.created, seeded.adminChanged ? ', access.admin is the admin' : '')
+  }
+
   const service = new OpsChannel({
     store: ctx.opsStore,
     projects: ctx.opsProjects,

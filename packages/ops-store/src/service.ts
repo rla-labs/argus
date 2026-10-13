@@ -8,6 +8,7 @@
  *
  * @module @argus-agent/store/service
  */
+import { randomUUID } from 'node:crypto'
 import { OpsError } from '@argus-agent/types'
 import { integrityCheck, openDatabase, type DatabaseHandle, type OpenOptions } from './connection.js'
 import { appliedMigrations, migrate, type AppliedMigration, type Migration } from './migrations.js'
@@ -21,7 +22,8 @@ import { RunsRepository, type RunInput } from './repositories/runs.js'
 import { RuntimeStateRepository } from './repositories/runtime-state.js'
 import { SchedulesRepository } from './repositories/schedules.js'
 import { UsageRepository } from './repositories/usage.js'
-import type { RunRow } from './types.js'
+import { UsersRepository } from './repositories/users.js'
+import type { IdentityKind, RunRow } from './types.js'
 
 /** Options for constructing the store. */
 export interface StoreOptions extends OpenOptions {
@@ -55,6 +57,22 @@ export interface AdmissionResult {
   readonly admitted: boolean
   /** The run row, present when admitted. */
   readonly run?: RunRow
+}
+
+/** The users `ops.yaml` names: the seed of the `users` table. */
+export interface UserSeed {
+  /** `access.admin`, decoded. */
+  readonly admin?: { readonly channel: string; readonly externalId: string; readonly kind: IdentityKind }
+  /** `access.allowed_users` and the users added with `/allow`. */
+  readonly operators: readonly { readonly channel: string; readonly externalId: string }[]
+}
+
+/** What a seed changed. */
+export interface SeedResult {
+  /** Users created. */
+  readonly created: number
+  /** Whether the admin identity was made the admin (created or promoted). */
+  readonly adminChanged: boolean
 }
 
 /**
@@ -92,6 +110,8 @@ export class OpsStore {
   readonly approvals: ApprovalsRepository
   /** The `runtime_state` repository. */
   readonly runtimeState: RuntimeStateRepository
+  /** The `users` / `identities` repository. */
+  readonly users: UsersRepository
 
   /** The migrations applied by this process at open time. */
   readonly migrationsApplied: readonly number[]
@@ -120,6 +140,48 @@ export class OpsStore {
     this.audit = new AuditRepository(this.db)
     this.approvals = new ApprovalsRepository(this.db)
     this.runtimeState = new RuntimeStateRepository(this.db)
+    this.users = new UsersRepository(this.db)
+  }
+
+  /**
+   * Create a user for every seeded identity that has none, in one transaction.
+   *
+   * Idempotent: a known identity is left alone, so a user's later changes (a role,
+   * a name, a disable) survive restarts. The one exception is the admin: the
+   * identity `ops.yaml` names as admin is made the admin, demoting the previous
+   * one, so changing `access.admin` keeps working as it always has.
+   *
+   * @param seed the identities `ops.yaml` names.
+   * @param now the current time.
+   * @param newId the id generator, for tests.
+   * @returns what changed.
+   */
+  seedUsers(seed: UserSeed, now: number, newId: () => string = randomUUID): SeedResult {
+    return this.db.transaction((): SeedResult => {
+      let created = 0
+      let adminChanged = false
+      if (seed.admin !== undefined) {
+        const known = this.users.identity(seed.admin.channel, seed.admin.externalId)
+        if (known === undefined) {
+          const id = newId()
+          this.users.create({ id, role: 'admin' }, now)
+          this.users.link({ channel: seed.admin.channel, external_id: seed.admin.externalId, kind: seed.admin.kind, user_id: id }, now)
+          created += 1
+          adminChanged = true
+        } else if (this.users.get(known.user_id)?.role !== 'admin') {
+          this.users.setRole(known.user_id, 'admin')
+          adminChanged = true
+        }
+      }
+      for (const operator of seed.operators) {
+        if (this.users.identity(operator.channel, operator.externalId) !== undefined) continue
+        const id = newId()
+        this.users.create({ id, role: 'operator' }, now)
+        this.users.link({ channel: operator.channel, external_id: operator.externalId, user_id: id }, now)
+        created += 1
+      }
+      return { created, adminChanged }
+    })()
   }
 
   /**

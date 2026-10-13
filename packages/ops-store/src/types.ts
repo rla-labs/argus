@@ -219,3 +219,31 @@ export interface RunAttribution {
 
 /** Decode a stored address, or `undefined` when it is malformed. */
 export type { ChannelAddress }
+
+/** What a user may do. Exactly one enabled user is the admin. */
+export type UserRole = 'admin' | 'operator'
+
+/** A row of `users`. */
+export interface UserRow {
+  readonly id: string
+  readonly name: string | null
+  readonly role: UserRole
+  readonly created_at: number
+  readonly disabled_at: number | null
+}
+
+/**
+ * How an identity matches a message: `user` by the sender's id, `chat` by the
+ * sender's id or the chat's (a group whose members act as the user).
+ */
+export type IdentityKind = 'user' | 'chat'
+
+/** A row of `identities`: one way a user reaches Argus. */
+export interface IdentityRow {
+  /** The adapter name, or `*` for every channel. */
+  readonly channel: string
+  readonly external_id: string
+  readonly kind: IdentityKind
+  readonly user_id: string
+  readonly created_at: number
+}

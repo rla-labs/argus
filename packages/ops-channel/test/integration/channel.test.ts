@@ -214,6 +214,36 @@ describe('end to end with the console adapter', () => {
   }, 60_000)
 })
 
+// ── users from ops.yaml ────────────────────────────────────────────────────
+
+describe('users from ops.yaml', () => {
+  it('seeds the admin, allowed_users and /allow users once, across restarts', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-chan-'))
+    dirs.push(dataDir)
+    const close = async (entry: Booted): Promise<void> => {
+      open.splice(open.indexOf(entry), 1)
+      await entry.channel.dispose()
+      entry.governor.dispose()
+      await entry.meter.stop()
+      await entry.boot.dispose()
+    }
+    const first = await bootChannel({ dataDir })
+    // A user added with /allow in 0.3 lives in runtime_state; the next start makes it a user.
+    first.store.runtimeState.set('access.added_users', [{ channel: 'console', userId: 'user-2' }], 0)
+    await close(first)
+
+    for (let start = 0; start < 2; start += 1) {
+      const booted = await bootChannel({ dataDir })
+      const users = booted.store.users
+      expect(users.list()).toHaveLength(3)
+      expect(users.get(users.resolve('console', 'admin-chat')!.user_id)?.role).toBe('admin')
+      expect(users.get(users.resolve('console', 'user-1')!.user_id)?.role).toBe('operator')
+      expect(users.get(users.resolve('console', 'user-2')!.user_id)?.role).toBe('operator')
+      await close(booted)
+    }
+  })
+})
+
 // ── routing ────────────────────────────────────────────────────────────────
 
 describe('routing', () => {
