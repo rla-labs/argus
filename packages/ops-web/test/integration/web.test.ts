@@ -201,5 +201,8 @@ describe('the web interface', () => {
     await booted.channel.send({ channel: 'user', chatId: booted.admin }, { text: 'budget reached' })
     const entries = ((await (await fetch(`${booted.base}/api/chat`, { headers: { cookie } })).json()) as { entries: Array<{ text: string }> }).entries
     expect(entries.map((entry) => entry.text)).toContain('budget reached')
+    expect(((await (await fetch(`${booted.base}/api/chat/unread`, { headers: { cookie } })).json()) as { count: number }).count).toBe(1)
+    await fetch(`${booted.base}/api/chat/read`, { method: 'POST', headers: { cookie, 'x-argus': '1' } })
+    expect(((await (await fetch(`${booted.base}/api/chat/unread`, { headers: { cookie } })).json()) as { count: number }).count).toBe(0)
   }, 60_000)
 })

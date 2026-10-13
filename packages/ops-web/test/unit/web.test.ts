@@ -156,7 +156,7 @@ describe('webOf', () => {
 describe('WebChannelAdapter', () => {
   it('keeps a person\'s conversation, answers its own question by a press, and serves only their files', async () => {
     const changed: string[] = []
-    const chat = new WebChannelAdapter((id) => changed.push(id))
+    const chat = new WebChannelAdapter((id) => changed.push(id), storeWith().webChat)
     const received: string[] = []
     const buttons: string[] = []
     await chat.start((message) => received.push(message.text), (answer) => buttons.push(answer.value))
@@ -180,14 +180,14 @@ describe('WebChannelAdapter', () => {
   })
 
   it('answers timeout when nobody presses in time', async () => {
-    const chat = new WebChannelAdapter(() => undefined)
+    const chat = new WebChannelAdapter(() => undefined, storeWith().webChat)
     await chat.start(() => undefined, () => undefined)
     expect(await chat.ask({ channel: 'web', chatId: '42' }, { id: 'q', text: '?', buttons: [{ value: 'a', label: 'A' }], timeoutMs: 10 })).toBe('timeout')
     expect(chat.history('42')[0]?.answered).toBe('timeout')
   })
 
   it('closes a question answered on another channel: no buttons, a note, no press', async () => {
-    const chat = new WebChannelAdapter(() => undefined)
+    const chat = new WebChannelAdapter(() => undefined, storeWith().webChat)
     await chat.start(() => undefined, () => undefined)
     const question = { id: 'q', text: '?', buttons: [{ value: 'a', label: 'A' }], timeoutMs: 60_000 }
     const asked = chat.ask({ channel: 'web', chatId: '42' }, question)
@@ -196,5 +196,38 @@ describe('WebChannelAdapter', () => {
     const entry = chat.history('42')[0]
     expect(entry?.note).toBe('Answered by 7 on telegram: A')
     expect(chat.press('42', entry?.id ?? '', 'a')).toBe(false)
+  })
+
+  it('keeps the conversation and its files across a restart, and closes the questions left open', async () => {
+    const store = storeWith()
+    const first = new WebChannelAdapter(() => undefined, store.webChat)
+    await first.start(() => undefined, () => undefined)
+    await first.send({ channel: 'web', chatId: 'u1' }, { text: 'report', files: [{ name: 'r.txt', bytes: new TextEncoder().encode('hi') }] })
+    void first.ask({ channel: 'web', chatId: 'u1' }, { id: 'q', text: 'Run it?', buttons: [{ value: 'a', label: 'A' }] })
+
+    const second = new WebChannelAdapter(() => undefined, store.webChat)
+    await second.start(() => undefined, () => undefined)
+    const [report, question] = second.history('u1')
+    expect(report?.text).toBe('report')
+    expect(Buffer.from(second.file('u1', report?.files?.[0]?.id ?? '')?.bytes ?? []).toString()).toBe('hi')
+    expect(question).toMatchObject({ text: 'Run it?', answered: 'timeout', buttons: [{ value: 'a', label: 'A' }] })
+    expect(second.press('u1', question?.id ?? '', 'a')).toBe(false)
+  })
+
+  it('counts what Argus said that the person has not seen', async () => {
+    const changed: string[] = []
+    const chat = new WebChannelAdapter((id) => changed.push(id), storeWith().webChat)
+    await chat.start(() => undefined, () => undefined)
+    chat.receive('u1', 'hello')
+    await chat.send({ channel: 'web', chatId: 'u1' }, { text: 'one' })
+    await chat.send({ channel: 'web', chatId: 'u1' }, { text: 'two' })
+    expect(chat.unread('u1')).toBe(2)
+    changed.length = 0
+    chat.markRead('u1')
+    expect(chat.unread('u1')).toBe(0)
+    expect(changed).toEqual(['u1'])
+    // Nothing new: no change to announce, so an open page does not loop.
+    chat.markRead('u1')
+    expect(changed).toEqual(['u1'])
   })
 })

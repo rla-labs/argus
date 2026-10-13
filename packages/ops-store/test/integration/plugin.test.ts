@@ -41,7 +41,7 @@ describe('ops-store plugin', () => {
       expect(boot.ctx.opsStore).toBeDefined()
       const store = boot.ctx.opsStore as OpsStore
       expect(store.isOpen).toBe(true)
-      expect(store.migrationsApplied).toEqual([1, 2, 3])
+      expect(store.migrationsApplied).toEqual([1, 2, 3, 4])
       expect(existsSync(store.db.name)).toBe(true)
     } finally {
       await boot.dispose()

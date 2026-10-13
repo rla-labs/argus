@@ -24,6 +24,7 @@ import { SchedulesRepository } from './repositories/schedules.js'
 import { UsageRepository } from './repositories/usage.js'
 import { UsersRepository } from './repositories/users.js'
 import { WebAuthRepository } from './repositories/web-auth.js'
+import { WebChatRepository } from './repositories/web-chat.js'
 import type { IdentityKind, RunRow } from './types.js'
 
 /** Options for constructing the store. */
@@ -115,6 +116,8 @@ export class OpsStore {
   readonly users: UsersRepository
   /** The `web_logins` / `web_sessions` repository. */
   readonly webAuth: WebAuthRepository
+  /** The `web_chat` / `web_chat_files` repository. */
+  readonly webChat: WebChatRepository
 
   /** The migrations applied by this process at open time. */
   readonly migrationsApplied: readonly number[]
@@ -145,6 +148,7 @@ export class OpsStore {
     this.runtimeState = new RuntimeStateRepository(this.db)
     this.users = new UsersRepository(this.db)
     this.webAuth = new WebAuthRepository(this.db)
+    this.webChat = new WebChatRepository(this.db)
   }
 
   /**

@@ -7,12 +7,15 @@
  * and `ask`. It holds no business logic. A chat is a signed-in user's: its id is
  * the Argus user id, which is also the user's `web` identity.
  *
- * The conversation is kept in memory, the last {@link HISTORY_CAP} entries per
- * person; a restart starts it empty, as a new Telegram chat would not.
+ * The conversation is kept in `ops-store` (`web_chat`), the last
+ * {@link HISTORY_CAP} entries per person, with the files it offered; it survives a
+ * restart. Only the questions waiting for an answer are in memory: they are this
+ * process's promises, so at start the ones a previous process left open are closed.
  *
  * @module @argus-agent/web/web-channel
  */
 import { randomUUID } from 'node:crypto'
+import type { WebChatRepository, WebChatRow } from '@argus-agent/store'
 import type {
   AdapterLimits,
   AnswerOrTimeout,
@@ -27,7 +30,7 @@ import type {
 } from '@argus-agent/types'
 
 /** Entries kept per person. */
-export const HISTORY_CAP = 200
+export const HISTORY_CAP = 500
 
 /** A file the chat offers for download. */
 export interface ChatFile {
@@ -51,9 +54,8 @@ export interface ChatEntry {
   note?: string
 }
 
-/** Where a downloadable file is. */
-interface StoredFile {
-  readonly chatId: string
+/** A downloadable file: on disk, or its bytes. */
+export interface StoredFile {
   readonly name: string
   readonly path?: string
   readonly bytes?: Uint8Array
@@ -67,22 +69,24 @@ export class WebChannelAdapter implements ChannelAdapter {
 
   private onMessage: ((message: IncomingMessage) => void) | undefined
   private onButton: ((answer: ButtonAnswer) => void) | undefined
-  private readonly chats = new Map<string, ChatEntry[]>()
-  private readonly files = new Map<string, StoredFile>()
   private readonly questions = new Map<string, { chatId: string; resolve: (answer: AnswerOrTimeout) => void; close: (note: string) => void; timer?: NodeJS.Timeout }>()
 
   /**
    * @param changed called with a person's chat id whenever their conversation changes.
+   * @param store where the conversations are.
    * @param now reads the current time.
    */
   constructor(
     private readonly changed: (chatId: string) => void,
+    private readonly store: WebChatRepository,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
   async start(onMessage: (message: IncomingMessage) => void, onButton: (answer: ButtonAnswer) => void): Promise<() => Promise<void>> {
     this.onMessage = onMessage
     this.onButton = onButton
+    // Whoever asked them is gone: their buttons must not look alive.
+    this.store.expireOpenQuestions()
     return async () => {
       this.onMessage = undefined
       this.onButton = undefined
@@ -99,54 +103,46 @@ export class WebChannelAdapter implements ChannelAdapter {
       await this.edit(message.editOf, message)
       return message.editOf
     }
-    const entry = this.push(to.chatId, { from: 'argus', text: message.text })
-    if (message.files !== undefined && message.files.length > 0) {
-      entry.files = message.files.map((file) => {
-        const id = randomUUID()
-        this.files.set(id, { chatId: to.chatId, name: file.name, ...(file.path === undefined ? {} : { path: file.path }), ...(file.bytes === undefined ? {} : { bytes: file.bytes }), ...(file.mimeType === undefined ? {} : { mimeType: file.mimeType }) })
-        return { id, name: file.name }
-      })
-    }
-    if (message.buttons !== undefined && message.buttons.length > 0) entry.buttons = message.buttons
-    this.changed(to.chatId)
-    return { channel: this.name, chatId: to.chatId, messageId: entry.id }
+    const files = (message.files ?? []).map((file) => ({
+      id: randomUUID(),
+      name: file.name,
+      mime_type: file.mimeType ?? null,
+      path: file.path ?? null,
+      bytes: file.bytes ?? null,
+    }))
+    const buttons = message.buttons !== undefined && message.buttons.length > 0 ? message.buttons : undefined
+    const id = this.push(to.chatId, 'argus', message.text, { buttons }, files)
+    return { channel: this.name, chatId: to.chatId, messageId: id }
   }
 
   async edit(ref: MessageRef, message: OutgoingMessage): Promise<void> {
-    const entry = this.chats.get(ref.chatId)?.find((candidate) => candidate.id === ref.messageId)
-    if (entry === undefined) return
-    entry.text = message.text
+    if (this.store.entry(ref.messageId)?.chat_id !== ref.chatId) return
+    this.store.update(ref.messageId, { text: message.text })
     this.changed(ref.chatId)
   }
 
   async delete(ref: MessageRef): Promise<void> {
-    const chat = this.chats.get(ref.chatId)
-    if (chat === undefined) return
-    const at = chat.findIndex((entry) => entry.id === ref.messageId)
-    if (at >= 0) chat.splice(at, 1)
+    if (this.store.entry(ref.messageId)?.chat_id !== ref.chatId) return
+    this.store.delete(ref.messageId)
     this.changed(ref.chatId)
   }
 
   async ask(to: ChannelAddress, question: Question): Promise<AnswerOrTimeout> {
-    const entry = this.push(to.chatId, { from: 'argus', text: question.text })
-    entry.buttons = question.buttons
-    entry.questionId = question.id
-    this.changed(to.chatId)
+    const entryId = this.push(to.chatId, 'argus', question.text, { buttons: question.buttons, questionId: question.id })
     return new Promise<AnswerOrTimeout>((resolve) => {
       const settle = (answer: AnswerOrTimeout): void => {
         const pending = this.questions.get(question.id)
         if (pending === undefined) return
         clearTimeout(pending.timer)
         this.questions.delete(question.id)
-        entry.answered = answer === 'timeout' ? 'timeout' : answer.value
+        this.store.update(entryId, { answered: answer === 'timeout' ? 'timeout' : answer.value })
         this.changed(to.chatId)
         resolve(answer)
       }
       // Answered on another channel: the buttons go, the note says by whom.
       const close = (note: string): void => {
+        this.store.update(entryId, { note })
         settle('timeout')
-        entry.note = note
-        this.changed(to.chatId)
       }
       const timer = question.timeoutMs === undefined ? undefined : setTimeout(() => settle('timeout'), question.timeoutMs)
       this.questions.set(question.id, { chatId: to.chatId, resolve: settle, close, ...(timer === undefined ? {} : { timer }) })
@@ -171,9 +167,8 @@ export class WebChannelAdapter implements ChannelAdapter {
    * @param text what they wrote, verbatim.
    */
   receive(userId: string, text: string): void {
-    const entry = this.push(userId, { from: 'you', text })
-    this.changed(userId)
-    this.onMessage?.({ id: entry.id, address: { channel: this.name, chatId: userId }, userId, text, timestamp: entry.at })
+    const id = this.push(userId, 'you', text)
+    this.onMessage?.({ id, address: { channel: this.name, chatId: userId }, userId, text, timestamp: this.now() })
   }
 
   /**
@@ -189,14 +184,16 @@ export class WebChannelAdapter implements ChannelAdapter {
    * @returns whether the message had that button.
    */
   press(userId: string, entryId: string, value: string): boolean {
-    const entry = this.chats.get(userId)?.find((candidate) => candidate.id === entryId)
-    if (entry?.buttons?.some((button) => button.value === value) !== true || entry.answered !== undefined) return false
+    const row = this.store.entry(entryId)
+    if (row === undefined || row.chat_id !== userId || row.answered !== null) return false
+    const entry = toEntry(row, [])
+    if (entry.buttons?.some((button) => button.value === value) !== true) return false
     const questionId = entry.questionId ?? entry.id
     this.onButton?.({ questionId, value, address: { channel: this.name, chatId: userId }, userId, timestamp: this.now() })
     const pending = this.questions.get(questionId)
     if (pending !== undefined) pending.resolve({ kind: 'button', value })
     else {
-      entry.answered = value
+      this.store.update(entryId, { answered: value })
       this.changed(userId)
     }
     return true
@@ -204,7 +201,17 @@ export class WebChannelAdapter implements ChannelAdapter {
 
   /** A person's conversation, oldest first. */
   history(userId: string): readonly ChatEntry[] {
-    return this.chats.get(userId) ?? []
+    return this.store.history(userId).map(({ row, files }) => toEntry(row, files))
+  }
+
+  /** How many entries from Argus a person has not seen. */
+  unread(userId: string): number {
+    return this.store.unread(userId)
+  }
+
+  /** A person saw their conversation. */
+  markRead(userId: string): void {
+    if (this.store.markRead(userId, this.now()) > 0) this.changed(userId)
   }
 
   /**
@@ -214,21 +221,55 @@ export class WebChannelAdapter implements ChannelAdapter {
    * @param fileId the id in the chat entry.
    * @returns the file, or `undefined`.
    */
-  file(userId: string, fileId: string): Omit<StoredFile, 'chatId'> | undefined {
-    const file = this.files.get(fileId)
-    return file === undefined || file.chatId !== userId ? undefined : file
+  file(userId: string, fileId: string): StoredFile | undefined {
+    const row = this.store.file(userId, fileId)
+    if (row === undefined) return undefined
+    return {
+      name: row.name,
+      ...(row.path === null ? {} : { path: row.path }),
+      ...(row.bytes === null ? {} : { bytes: row.bytes }),
+      ...(row.mime_type === null ? {} : { mimeType: row.mime_type }),
+    }
   }
 
-  /** Append an entry, dropping the oldest past the cap. */
-  private push(chatId: string, entry: Pick<ChatEntry, 'from' | 'text'>): ChatEntry {
-    const chat = this.chats.get(chatId) ?? []
-    const full: ChatEntry = { id: randomUUID(), at: this.now(), ...entry }
-    chat.push(full)
-    while (chat.length > HISTORY_CAP) {
-      const dropped = chat.shift()
-      for (const file of dropped?.files ?? []) this.files.delete(file.id)
-    }
-    this.chats.set(chatId, chat)
-    return full
+  /** Append an entry, dropping the oldest past the cap; returns its id. */
+  private push(
+    chatId: string,
+    from: ChatEntry['from'],
+    text: string,
+    extra: { buttons?: readonly Button[] | undefined; questionId?: string } = {},
+    files: Parameters<WebChatRepository['append']>[1] = [],
+  ): string {
+    const id = randomUUID()
+    this.store.append(
+      {
+        id,
+        chat_id: chatId,
+        at: this.now(),
+        sender: from,
+        text,
+        buttons_json: extra.buttons === undefined ? null : JSON.stringify(extra.buttons),
+        question_id: extra.questionId ?? null,
+      },
+      files,
+      HISTORY_CAP,
+    )
+    this.changed(chatId)
+    return id
+  }
+}
+
+/** A stored row as the browser gets it. */
+function toEntry(row: WebChatRow, files: ChatFile[]): ChatEntry {
+  return {
+    id: row.id,
+    at: row.at,
+    from: row.sender,
+    text: row.text,
+    ...(files.length === 0 ? {} : { files }),
+    ...(row.buttons_json === null ? {} : { buttons: JSON.parse(row.buttons_json) as Button[] }),
+    ...(row.question_id === null ? {} : { questionId: row.question_id }),
+    ...(row.answered === null ? {} : { answered: row.answered }),
+    ...(row.note === null ? {} : { note: row.note }),
   }
 }

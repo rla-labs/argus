@@ -198,6 +198,11 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       return send(response, ok ? 200 : 409, ok ? { ok } : { error: 'that question is no longer waiting' })
     }
     if (method === 'GET' && path === '/api/chat') return send(response, 200, { entries: deps.chat.history(session.userId) })
+    if (method === 'GET' && path === '/api/chat/unread') return send(response, 200, { count: deps.chat.unread(session.userId) })
+    if (method === 'POST' && path === '/api/chat/read') {
+      deps.chat.markRead(session.userId)
+      return send(response, 200, { ok: true })
+    }
     if (method === 'POST' && path === '/api/chat') {
       const body = await readJson(request)
       const text = typeof body['text'] === 'string' ? body['text'] : ''

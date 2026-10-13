@@ -235,7 +235,11 @@ function ChatView({ version }: { version: number }): VNode {
   const [text, setText] = useState('')
   const end = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    void get<{ entries: ChatEntry[] }>('/api/chat').then((body) => setEntries(body.entries))
+    // Open on the screen means seen.
+    void get<{ entries: ChatEntry[] }>('/api/chat').then((body) => {
+      setEntries(body.entries)
+      void post('/api/chat/read', {})
+    })
   }, [version])
   useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [entries.length])
   const sendText = async (): Promise<void> => {
@@ -364,6 +368,7 @@ function App(): VNode {
   const [overviewData, setOverview] = useState<Overview | undefined>()
   const [settingsData, setSettings] = useState<Settings | undefined>()
   const [chatVersion, setChatVersion] = useState(0)
+  const [unread, setUnread] = useState(0)
   const [connected, setConnected] = useState(true)
   const [outcome, setOutcome] = useState<CommandOutcome | undefined>()
   const [failure, setFailure] = useState<string | undefined>()
@@ -379,6 +384,7 @@ function App(): VNode {
   }, [])
   const loadOverview = useCallback(() => guard(async () => setOverview(await get<Overview>('/api/overview'))), [guard])
   const loadSettings = useCallback(() => guard(async () => setSettings(await get<Settings>('/api/settings'))), [guard])
+  const loadUnread = useCallback(() => guard(async () => setUnread((await get<{ count: number }>('/api/chat/unread')).count)), [guard])
   const run = useCallback(
     (line: string) =>
       void guard(async () => {
@@ -404,13 +410,17 @@ function App(): VNode {
     if (signedIn !== true) return undefined
     void loadOverview()
     void loadSettings()
+    void loadUnread()
     // A minute's tick keeps the clocks honest between events.
     const tick = setInterval(() => void loadOverview(), 60_000)
     const stop = listen(
       (topic) => {
         if (topic === 'overview') void loadOverview()
         else if (topic === 'settings') void loadSettings()
-        else if (topic === 'chat') setChatVersion((v) => v + 1)
+        else if (topic === 'chat') {
+          setChatVersion((v) => v + 1)
+          void loadUnread()
+        }
       },
       setConnected,
     )
@@ -418,7 +428,7 @@ function App(): VNode {
       clearInterval(tick)
       stop()
     }
-  }, [signedIn, loadOverview, loadSettings])
+  }, [signedIn, loadOverview, loadSettings, loadUnread])
 
   const go = (next: View): void => {
     setView(next)
@@ -452,6 +462,7 @@ function App(): VNode {
         ${VIEWS.map(
           (each) => html`<button type="button" aria-current=${view === each ? 'page' : undefined} onClick=${() => go(each)}>
             <${Icon} view=${each} />${t(`nav.${each}`)}${each === 'approvals' && pending > 0 ? html`<span class="count">${pending}</span>` : null}
+            ${each === 'chat' && unread > 0 && view !== 'chat' ? html`<span class="count" aria-label=${t('chat.unread', { count: unread })}>${unread}</span>` : null}
           </button>`,
         )}
         <button type="button" onClick=${() => void post('/api/logout', {}).then(() => setSignedIn(false))}>${t('nav.signout')}</button>

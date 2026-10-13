@@ -273,3 +273,31 @@ export interface WebSessionRow {
   readonly last_seen_at: number
   readonly user_agent: string | null
 }
+
+/** A row of `web_chat`: one entry of a user's web conversation. */
+export interface WebChatRow {
+  readonly seq: number
+  readonly id: string
+  /** The Argus user id. */
+  readonly chat_id: string
+  readonly at: number
+  readonly sender: 'you' | 'argus'
+  readonly text: string
+  /** JSON array of `{ value, label }`, or `null`. */
+  readonly buttons_json: string | null
+  readonly question_id: string | null
+  readonly answered: string | null
+  readonly note: string | null
+  readonly read_at: number | null
+}
+
+/** A row of `web_chat_files`: a file an entry offered. */
+export interface WebChatFileRow {
+  readonly id: string
+  readonly entry_id: string
+  readonly chat_id: string
+  readonly name: string
+  readonly mime_type: string | null
+  readonly path: string | null
+  readonly bytes: Uint8Array | null
+}

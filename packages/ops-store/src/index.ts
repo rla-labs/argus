@@ -37,7 +37,9 @@ export {
   UsageRepository,
   UsersRepository,
   WebAuthRepository,
+  WebChatRepository,
 } from './repositories/index.js'
+export type { WebChatFileInput, WebChatInput } from './repositories/web-chat.js'
 export type { InboundInput } from './repositories/inbound.js'
 export type { RunInput } from './repositories/runs.js'
 export type { BudgetInput } from './repositories/budgets.js'

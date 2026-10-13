@@ -18,9 +18,10 @@ nothing in its own way: each action runs the same command you would type in Tele
 (`/defaults`, `/key`, `/set`, `/stop`), so the checks and the audit log are the same.
 It runs as you, with your role: what an operator may not do in Telegram, they may not
 do here either. The chat is one of your channels: notices and approvals meant for you
-arrive in it as they do in Telegram. The chat's
-history is kept in memory: after a restart it starts empty (the projects remember, as
-always).
+arrive in it as they do in Telegram. Its history (the last 500 messages, with their
+files) survives a restart, and **Chat** in the menu shows how many messages from Argus
+you have not seen yet. A question still waiting when Argus restarts shows "No answer
+in time": ask again, or answer the new one.
 
 ## Reach it: Tailscale (recommended)
 

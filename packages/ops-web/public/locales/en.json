@@ -64,6 +64,7 @@
   "chat.download": "Download",
   "chat.answered": "Answered: {value}",
   "chat.expired": "No answer in time.",
+  "chat.unread": "{count} unread",
   "settings.title": "Settings",
   "settings.defaults": "Default models",
   "settings.tasks": "Tasks",

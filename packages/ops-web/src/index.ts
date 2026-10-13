@@ -112,7 +112,7 @@ export async function apply(ctx: Context): Promise<void> {
   for (const event of SETTINGS_EVENTS) ctx.on(event as never, (() => soon('settings')) as never)
 
   // ── the chat channel ─────────────────────────────────────────────────────
-  const chat = new WebChannelAdapter((chatId) => notify(`chat:${chatId}`))
+  const chat = new WebChannelAdapter((chatId) => notify(`chat:${chatId}`), ctx.opsStore.webChat)
   const unregister = ctx.opsChannel.register(chat)
   ctx.effect(() => () => void unregister())
 

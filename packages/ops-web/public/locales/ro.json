@@ -64,6 +64,7 @@
   "chat.download": "Descarcă",
   "chat.answered": "Răspuns: {value}",
   "chat.expired": "Fără răspuns la timp.",
+  "chat.unread": "{count} necitite",
   "settings.title": "Setări",
   "settings.defaults": "Modele implicite",
   "settings.tasks": "Task-uri",
