@@ -303,9 +303,9 @@ export class OpsApprovalsBridge {
       this.ctx.logger('ops-approvals').warn('no reply address for run %s; refusing %s', base.runId, base.toolName)
       return toOutcome(this.finish(id, base, 'unavailable', 'unavailable', 'no channel is available to ask'))
     }
-    if (!this.options.channel.adapters().some((adapter) => adapter.name === address.channel)) {
-      this.ctx.logger('ops-approvals').warn('no adapter "%s"; refusing %s', address.channel, base.toolName)
-      return toOutcome(this.finish(id, base, 'unavailable', 'unavailable', `no channel adapter named ${address.channel}`))
+    if (!this.options.channel.canReach(address)) {
+      this.ctx.logger('ops-approvals').warn('nothing reaches "%s:%s"; refusing %s', address.channel, address.chatId, base.toolName)
+      return toOutcome(this.finish(id, base, 'unavailable', 'unavailable', `no connected channel reaches ${address.channel}:${address.chatId}`))
     }
 
     const timeoutMinutes = this.timeoutMinutesFor(projectId)
@@ -442,7 +442,8 @@ export class OpsApprovalsBridge {
     const stored = row?.reply_chat
     if (typeof stored === 'string' && stored.length > 0) {
       const decoded = safeDecode(stored)
-      if (decoded !== undefined) return decoded
+      // The person who asked, on every channel they use; a group stays the group.
+      if (decoded !== undefined) return this.options.channel.personOf(decoded)
     }
     // Fall back to the channel's default, so a project whose address is unknown
     // still reaches the operator rather than being refused for want of a chat.

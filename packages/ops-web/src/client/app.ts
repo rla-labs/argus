@@ -40,6 +40,7 @@ interface ChatEntry {
   buttons?: Array<{ value: string; label: string }>
   questionId?: string
   answered?: string
+  note?: string
 }
 
 type View = 'overview' | 'approvals' | 'chat' | 'settings'
@@ -189,7 +190,7 @@ function ChatView({ version }: { version: number }): VNode {
           ${entry.buttons === undefined
             ? null
             : entry.answered !== undefined
-              ? html`<div class="lbl" style="margin-top:8px">${entry.answered === 'timeout' ? t('chat.expired') : t('chat.answered', { value: entry.answered })}</div>`
+              ? html`<div class="lbl" style="margin-top:8px">${entry.note ?? (entry.answered === 'timeout' ? t('chat.expired') : t('chat.answered', { value: entry.answered }))}</div>`
               : html`<div class="btns" style="margin-top:8px">${entry.buttons.map((button) => html`<button class="btn ghost" type="button" onClick=${() => post('/api/chat/press', { entryId: entry.id, value: button.value })}>${button.label}</button>`)}</div>`}
         </div>`,
       )}

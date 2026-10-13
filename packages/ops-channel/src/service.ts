@@ -96,6 +96,9 @@ export interface OrchestratorInput {
   readonly attachments: readonly string[]
 }
 
+/** The pseudo-channel of a person's address, `user:<id>`: every chat they use. */
+export const USER_CHANNEL = 'user'
+
 /**
  * The channel service.
  *
@@ -221,7 +224,62 @@ export class OpsChannel {
    * @returns the address, or `undefined` when nothing can be addressed.
    */
   defaultAddress(): ChannelAddress | undefined {
-    return this.configuredDefault ?? this.lastSeen
+    return this.configuredDefault ?? this.adminAddress() ?? this.lastSeen
+  }
+
+  /** The admin, as a person: every channel they use. */
+  private adminAddress(): ChannelAddress | undefined {
+    const admin = this.options.store.users.admin()
+    return admin === undefined ? undefined : { channel: USER_CHANNEL, chatId: admin.id }
+  }
+
+  /**
+   * The concrete chats an address stands for.
+   *
+   * A chat address is itself. A person (`user:<id>`) is each of their identities, on
+   * the adapter of that channel and on every adapter that borrows its identities; a
+   * disabled or unknown user is nobody.
+   *
+   * @param address the address.
+   * @returns the chats, in identity order; only those an adapter can reach.
+   */
+  targets(address: ChannelAddress): ChannelAddress[] {
+    if (address.channel !== USER_CHANNEL) return this.registry.get(address.channel) === undefined ? [] : [address]
+    const user = this.options.store.users.get(address.chatId)
+    if (user === undefined || user.disabled_at !== null) return []
+    const adapters = this.registry.adapters()
+    const out: ChannelAddress[] = []
+    for (const identity of this.options.store.users.identities(user.id)) {
+      for (const adapter of adapters) {
+        const channel = adapter.identityChannel ?? adapter.name
+        if (identity.channel !== '*' && identity.channel !== channel) continue
+        if (!out.some((target) => target.channel === adapter.name && target.chatId === identity.external_id)) {
+          out.push({ channel: adapter.name, chatId: identity.external_id })
+        }
+      }
+    }
+    return out
+  }
+
+  /** Whether anything can be delivered to an address. */
+  canReach(address: ChannelAddress): boolean {
+    return this.targets(address).length > 0
+  }
+
+  /**
+   * The person behind a chat: `user:<id>` when the chat is a user's private chat,
+   * so notices and questions about their work reach them on every channel. A group,
+   * or a chat of nobody known, stays itself.
+   *
+   * @param address a chat, or already a person.
+   * @returns the address to notify.
+   */
+  personOf(address: ChannelAddress): ChannelAddress {
+    if (address.channel === USER_CHANNEL) return address
+    const identity = this.options.store.users.resolve(this.identityOf(address.channel), address.chatId)
+    if (identity?.kind !== 'user' || address.threadId !== undefined) return address
+    const user = this.options.store.users.get(identity.user_id)
+    return user === undefined || user.disabled_at !== null ? address : { channel: USER_CHANNEL, chatId: user.id }
   }
 
   /** Set from configuration at load. */
@@ -348,7 +406,7 @@ export class OpsChannel {
 
     const now = this.options.now()
     if (!this.policy.shouldWarn(now)) return
-    const admin = this.policy.admin
+    const admin = this.adminAddress() ?? this.policy.admin
     if (admin === undefined) return
     await this.send(admin, {
       text: warningText(message.address.channel, message.userId, reason as NonNullable<AccessDecision['reason']>, this.policy.suppressed),
@@ -593,34 +651,48 @@ export class OpsChannel {
     /** The id to correlate the answer by, when the caller needs to look up WHO answered. */
     questionId?: string,
   ): Promise<AnswerOrTimeout> {
-    const adapter = this.registry.get(address.channel)
-    if (adapter === undefined) {
-      throw new Error(`no channel adapter named "${address.channel}" is registered`)
+    const targets = this.targets(address)
+    if (targets.length === 0) {
+      throw new Error(address.channel === USER_CHANNEL ? `user ${address.chatId} has no connected channel` : `no channel adapter named "${address.channel}" is registered`)
     }
     const id = questionId ?? randomUUID()
-    // The ADAPTER owns the question and its deadline, so it is the one that
-    // resolves. Registering a second promise here would mean two things racing to
-    // answer the same question, and the channel's would never be resolved by a
-    // press that the adapter handled itself.
+    // Each ADAPTER owns its copy of the question and its deadline. A person is asked
+    // on every chat they have; the first answer wins and the other copies are closed.
     this.outstanding.add(id)
-    // A second way in, for `answerQuestion`: another surface (the web dashboard)
-    // may answer what this adapter asked. The adapter's own deadline still applies.
-    let answeredElsewhere = false
-    const elsewhere = new Promise<AnswerOrTimeout>((resolve) =>
-      this.answerers.set(id, (answer) => {
-        answeredElsewhere = true
-        resolve(answer)
-      }),
+    // Another way in, for `answerQuestion`: a surface that asked nothing (the web
+    // dashboard) may answer too. The adapters' own deadlines still apply.
+    const elsewhere = new Promise<{ answer: AnswerOrTimeout; from: number }>((resolve) =>
+      this.answerers.set(id, (answer) => resolve({ answer, from: -1 })),
     )
     const asked = { id, text: question, buttons, timeoutMs }
+    let failures = 0
+    let firstError: unknown
+    const copies = targets.map(
+      (target, index) =>
+        new Promise<{ answer: AnswerOrTimeout; from: number }>((resolve, reject) => {
+          this.registry
+            .get(target.channel)!
+            .ask(target, asked)
+            .then((answer) => resolve({ answer, from: index }))
+            .catch((error: unknown) => {
+              // One chat that cannot be asked is not a failure while another was.
+              failures += 1
+              firstError ??= error
+              if (failures === targets.length) reject(firstError)
+            })
+        }),
+    )
     try {
-      const answer = await Promise.race([adapter.ask(address, asked), elsewhere])
-      if (answeredElsewhere && answer !== 'timeout' && adapter.closeQuestion !== undefined) {
-        // The asking chat still shows live buttons: say who answered, and where.
+      const { answer, from } = await Promise.race([...copies, elsewhere])
+      if (answer !== 'timeout') {
+        // The other copies still show live buttons: say who answered, and where.
         const label = buttons.find((button) => button.value === answer.value)?.label ?? answer.value
         const who = this.lastAnswer?.questionId === id ? ` by ${this.lastAnswer.userId} on ${this.lastAnswer.address.channel}` : ''
-        // A failed close leaves the old buttons, which change nothing now: not worth more.
-        adapter.closeQuestion(asked, `Answered${who}: ${label}`).catch(() => undefined)
+        targets.forEach((target, index) => {
+          if (index === from) return
+          // A failed close leaves the old buttons, which change nothing now: not worth more.
+          this.registry.get(target.channel)?.closeQuestion?.(asked, `Answered${who}: ${label}`).catch(() => undefined)
+        })
       }
       return answer
     } finally {
@@ -703,9 +775,19 @@ export class OpsChannel {
    * @returns the handle, or `undefined` when no adapter can reach it.
    */
   async send(address: ChannelAddress, message: OutgoingMessage): Promise<MessageRef | undefined> {
-    const adapter = this.registry.get(address.channel)
-    if (adapter === undefined) return undefined
-    return adapter.send(address, message)
+    const targets = this.targets(address)
+    if (address.channel !== USER_CHANNEL) {
+      const adapter = this.registry.get(address.channel)
+      return adapter === undefined ? undefined : adapter.send(address, message)
+    }
+    // A person: every chat, each on its own, so one channel that fails does not keep
+    // the message from the others. It fails only when every one did.
+    const sent = await Promise.allSettled(targets.map((target) => this.registry.get(target.channel)!.send(target, message)))
+    const ok = sent.find((result) => result.status === 'fulfilled')
+    if (ok !== undefined) return (ok as PromiseFulfilledResult<MessageRef>).value
+    const failed = sent.find((result) => result.status === 'rejected')
+    if (failed !== undefined) throw (failed as PromiseRejectedResult).reason
+    return undefined
   }
 
   /**
@@ -755,17 +837,24 @@ export class OpsChannel {
    * reach the operator.
    */
   private addressFor(runId: string, subject: OutputSubject): ChannelAddress | undefined {
-    const remembered = this.replyTo.get(runId)
-    if (remembered !== undefined) return remembered
+    void subject
+    const address = this.requestChatOf(runId) ?? this.defaultAddress()
+    // Output is one conversation: the chat it was asked from, or a person's first chat.
+    return address?.channel === USER_CHANNEL ? this.targets(address)[0] : address
+  }
+
+  /** Where notices about a run go: the person who asked it, or the default. */
+  private requestAddressFor(runId: string): ChannelAddress | undefined {
+    const chat = this.requestChatOf(runId)
+    return chat === undefined ? this.defaultAddress() : this.personOf(chat)
+  }
+
+  /** The chat a run's request came from, when known. */
+  private requestChatOf(runId: string): ChannelAddress | undefined {
     // A run id is the inbound request id, so the stored reply address is the
     // durable record — it survives a restart that the in-memory map does not.
     const stored = this.options.store.inbound.get(runId)?.reply_chat
-    if (stored !== null && stored !== undefined) {
-      const address = decodeAddressSafe(stored)
-      if (address !== undefined) return address
-    }
-    void subject
-    return this.defaultAddress()
+    return this.replyTo.get(runId) ?? (stored === null || stored === undefined ? undefined : decodeAddressSafe(stored))
   }
 
   /**
@@ -799,7 +888,8 @@ export class OpsChannel {
 
     const run = this.options.store.runs.active().find((row) => row.owner_key === ownerKey(owner))
     const stored = run?.reply_chat
-    const address = (stored === null || stored === undefined ? undefined : decodeAddressSafe(stored)) ?? this.defaultAddress()
+    const requested = (stored === null || stored === undefined ? undefined : decodeAddressSafe(stored)) ?? this.defaultAddress()
+    const address = requested?.channel === USER_CHANNEL ? this.targets(requested)[0] : requested
     if (address === undefined) return 'There is no chat to send to.'
     const adapter = this.registry.get(address.channel)
     if (adapter === undefined) return `The ${address.channel} channel is not connected.`
@@ -895,12 +985,12 @@ export class OpsChannel {
 
   /** Deliver a stop notice. */
   async deliverStopped(runId: string, subject: OutputSubject, reason: string, detail: string): Promise<void> {
-    await this.reply(this.addressFor(runId, subject), stoppedText(subject, reason, detail))
+    await this.reply(this.requestAddressFor(runId), stoppedText(subject, reason, detail))
   }
 
   /** Deliver an interruption notice. */
   async deliverInterrupted(runId: string, subject: OutputSubject): Promise<void> {
-    await this.reply(this.addressFor(runId, subject), interruptedText(subject, runId))
+    await this.reply(this.requestAddressFor(runId), interruptedText(subject, runId))
   }
 
   /** Deliver a budget threshold notice. */

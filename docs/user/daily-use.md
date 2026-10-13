@@ -236,6 +236,11 @@ question becomes:
 
 No answer before `approvals.timeout_minutes` means **no**.
 
+The question reaches the person who asked for the work on every channel they use (Telegram
+and the web chat); the first answer counts, and the other copies say who answered. Work
+asked for in a group is asked about in that group. Scheduled work is asked about to the
+admin. The answer to the work itself stays in the chat it was asked from.
+
 If the same harmless command keeps asking, press **Always allow**, or put it on the
 project's allowlist yourself:
 

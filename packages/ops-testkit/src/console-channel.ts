@@ -153,6 +153,18 @@ export class ConsoleChannelAdapter implements ChannelAdapter {
     return promise
   }
 
+  /** Questions closed because they were answered elsewhere, with the note. */
+  readonly closed: Array<{ readonly id: string; readonly note: string }> = []
+
+  async closeQuestion(question: Question, note: string): Promise<void> {
+    const entry = this.pending.get(question.id)
+    if (entry === undefined) return
+    this.pending.delete(question.id)
+    if (entry.timer) clearTimeout(entry.timer)
+    this.closed.push({ id: question.id, note })
+    entry.resolve('timeout')
+  }
+
   // ── test controls ────────────────────────────────────────────────────────
 
   /**

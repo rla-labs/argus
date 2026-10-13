@@ -47,6 +47,8 @@ export interface ChatEntry {
   questionId?: string
   /** The button chosen, once answered; `timeout` when nobody did. */
   answered?: string
+  /** Who answered on another channel, and what, when it was not here. */
+  note?: string
 }
 
 /** Where a downloadable file is. */
@@ -68,7 +70,7 @@ export class WebChannelAdapter implements ChannelAdapter {
   private onButton: ((answer: ButtonAnswer) => void) | undefined
   private readonly chats = new Map<string, ChatEntry[]>()
   private readonly files = new Map<string, StoredFile>()
-  private readonly questions = new Map<string, { chatId: string; resolve: (answer: AnswerOrTimeout) => void; timer?: NodeJS.Timeout }>()
+  private readonly questions = new Map<string, { chatId: string; resolve: (answer: AnswerOrTimeout) => void; close: (note: string) => void; timer?: NodeJS.Timeout }>()
 
   /**
    * @param changed called with a person's chat id whenever their conversation changes.
@@ -145,9 +147,24 @@ export class WebChannelAdapter implements ChannelAdapter {
         this.changed(to.chatId)
         resolve(answer)
       }
+      // Answered on another channel: the buttons go, the note says by whom.
+      const close = (note: string): void => {
+        settle('timeout')
+        entry.note = note
+        this.changed(to.chatId)
+      }
       const timer = question.timeoutMs === undefined ? undefined : setTimeout(() => settle('timeout'), question.timeoutMs)
-      this.questions.set(question.id, { chatId: to.chatId, resolve: settle, ...(timer === undefined ? {} : { timer }) })
+      this.questions.set(question.id, { chatId: to.chatId, resolve: settle, close, ...(timer === undefined ? {} : { timer }) })
     })
+  }
+
+  /**
+   * Close a question answered on another channel.
+   * @param question the question.
+   * @param note who answered, and what.
+   */
+  async closeQuestion(question: Question, note: string): Promise<void> {
+    this.questions.get(question.id)?.close(note)
   }
 
   // ── from the browser ─────────────────────────────────────────────────────

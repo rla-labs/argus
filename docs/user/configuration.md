@@ -89,7 +89,7 @@ arbitrary text in front of them.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `default_address` | address | the admin | Where output goes when there is nothing to inherit. |
+| `default_address` | address | the admin, on every channel they use | Where output goes when there is nothing to inherit: reports, budget warnings, scheduled output. Set it to send all of that to one chat instead (a group, say). |
 | `attachment_scratch` | path | `scratch` | Where an attachment lands with no active project. |
 | `progress_enabled` | boolean | `true` | Whether runs report progress. |
 | `progress_interval_s` | int | `20` | The minimum gap between progress edits. |
@@ -97,8 +97,8 @@ arbitrary text in front of them.
 **`default_address` must be quoted**: `"telegram:99887766"`. Unquoted, YAML reads
 `telegram:99887766` as a mapping, not a string, and the plugin refuses to start.
 
-Without a default address, scheduled output, budget thresholds and the startup report
-have nowhere to go. They are **logged** rather than dropped, so nothing is lost
+With neither a default address nor an admin, scheduled output, budget thresholds and the
+startup report have nowhere to go. They are **logged** rather than dropped, so nothing is lost
 silently — but nothing is delivered either.
 
 ## `telegram`

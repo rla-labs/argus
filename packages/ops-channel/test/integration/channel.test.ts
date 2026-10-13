@@ -259,6 +259,71 @@ describe('access by user', () => {
   })
 })
 
+describe('a person on several channels', () => {
+  /** The console tree, plus a second adapter on which the admin also has an identity. */
+  async function twoChannels(failSends?: Error): Promise<{ booted: Booted; second: ConsoleChannelAdapter; admin: string }> {
+    const booted = await bootChannel()
+    const second = new ConsoleChannelAdapter({ name: 'second', ...(failSends === undefined ? {} : { failSends }) })
+    booted.channel.register(second)
+    await booted.channel.adapterStarted('second')
+    const admin = booted.store.users.admin()!.id
+    booted.store.users.link({ channel: 'second', external_id: 'admin-2', user_id: admin }, 0)
+    return { booted, second, admin }
+  }
+
+  it('a notice to the person reaches every channel they use', async () => {
+    const { booted, second, admin } = await twoChannels()
+    expect(booted.channel.targets({ channel: 'user', chatId: admin })).toHaveLength(2)
+    expect(booted.channel.targets({ channel: 'user', chatId: admin })).toEqual(expect.arrayContaining([
+      { channel: 'console', chatId: 'admin-chat' },
+      { channel: 'second', chatId: 'admin-2' },
+    ]))
+    await booted.channel.reply({ channel: 'user', chatId: admin }, 'daily report')
+    expect(booted.adapter.sent.at(-1)).toMatchObject({ to: { chatId: 'admin-chat' }, message: { text: 'daily report' } })
+    expect(second.sent.at(-1)).toMatchObject({ to: { chatId: 'admin-2' }, message: { text: 'daily report' } })
+  })
+
+  it('one failing channel does not keep the notice from the others', async () => {
+    const { booted, admin } = await twoChannels(new Error('blocked'))
+    await booted.channel.reply({ channel: 'user', chatId: admin }, 'still here')
+    expect(booted.adapter.texts()).toContain('still here')
+  })
+
+  it('a question is asked on every channel; the first answer wins and closes the others', async () => {
+    const { booted, second, admin } = await twoChannels()
+    const asked = booted.channel.ask({ channel: 'user', chatId: admin }, 'Run it?', [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }], 60_000, 'approval:q1')
+    await settle()
+    expect(booted.adapter.pendingQuestion?.id).toBe('approval:q1')
+    expect(second.pendingQuestion?.id).toBe('approval:q1')
+    second.answer('yes', 'admin-2')
+    expect(await asked).toEqual({ kind: 'button', value: 'yes' })
+    expect(booted.channel.answeredBy('approval:q1')).toBe('admin-2')
+    expect(booted.adapter.closed).toEqual([{ id: 'approval:q1', note: 'Answered by admin-2 on second: Yes' }])
+    expect(booted.adapter.pendingCount).toBe(0)
+    expect(second.closed).toEqual([])
+  })
+
+  it("a run's output stays in the chat it was asked from; its stop notice reaches the person", async () => {
+    const { booted, second } = await twoChannels()
+    booted.channel.rememberReplyTo('run-1', { channel: 'console', chatId: 'admin-chat' })
+    await booted.channel.deliverRunOutput('run-1', { kind: 'adhoc' }, [{ type: 'text', text: 'the answer' }])
+    expect(booted.adapter.texts().some((text) => text.includes('the answer'))).toBe(true)
+    expect(second.texts().some((text) => text.includes('the answer'))).toBe(false)
+
+    booted.channel.rememberReplyTo('run-2', { channel: 'console', chatId: 'admin-chat' })
+    await booted.channel.deliverStopped('run-2', { kind: 'adhoc' }, 'budget', 'the daily budget is spent')
+    expect(second.texts().some((text) => text.includes('daily budget'))).toBe(true)
+  })
+
+  it('notices about work go to the person; a chat that is not theirs stays itself', async () => {
+    const { booted, admin } = await twoChannels()
+    expect(booted.channel.personOf({ channel: 'console', chatId: 'admin-chat' })).toEqual({ channel: 'user', chatId: admin })
+    expect(booted.channel.personOf({ channel: 'console', chatId: 'some-group' })).toEqual({ channel: 'console', chatId: 'some-group' })
+    booted.store.users.disable(booted.store.users.resolve('console', 'user-1')!.user_id, 1)
+    expect(booted.channel.personOf({ channel: 'console', chatId: 'user-1' })).toEqual({ channel: 'console', chatId: 'user-1' })
+  })
+})
+
 // ── routing ────────────────────────────────────────────────────────────────
 
 describe('routing', () => {
@@ -378,9 +443,9 @@ describe('access control', () => {
       `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
       `access:\n  admin: 4242\n`
     const booted = await bootChannel({ dataDir, opsYaml, projects: { alpha: {} } })
-    const telegram = { channel: 'telegram', chatId: '4242' }
-
-    expect(booted.channel.defaultAddress()).toEqual(telegram)
+    // Unaddressed output goes to the admin as a person: every chat they use.
+    expect(booted.channel.defaultAddress()).toEqual({ channel: 'user', chatId: booted.store.users.admin()!.id })
+    expect(booted.store.users.identities(booted.store.users.admin()!.id)).toMatchObject([{ channel: 'telegram', external_id: '4242' }])
     expect(booted.channel.access.isAllowed('telegram', '4242')).toBe(true)
     expect(booted.channel.access.isAllowed('telegram', '4243')).toBe(false)
   }, 30_000)

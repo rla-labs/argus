@@ -68,7 +68,8 @@ export function apply(ctx: Context): void {
 
   const admin = adminOf(access.admin)
   // Unaddressed output goes to the admin unless another address is configured.
-  const defaultAddress = parseAddress(channel.default_address) ?? admin
+  // Unset, that is the admin as a person, read live (see `defaultAddress`).
+  const defaultAddress = parseAddress(channel.default_address)
 
   // Notices are fire-and-forget. A send the channel refuses (a revoked token, a
   // blocked bot) is logged; unhandled, it would take the whole process down.

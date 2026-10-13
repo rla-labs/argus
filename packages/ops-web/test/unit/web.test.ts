@@ -85,4 +85,16 @@ describe('WebChannelAdapter', () => {
     expect(await chat.ask({ channel: 'web', chatId: '42' }, { id: 'q', text: '?', buttons: [{ value: 'a', label: 'A' }], timeoutMs: 10 })).toBe('timeout')
     expect(chat.history('42')[0]?.answered).toBe('timeout')
   })
+
+  it('closes a question answered on another channel: no buttons, a note, no press', async () => {
+    const chat = new WebChannelAdapter(() => undefined)
+    await chat.start(() => undefined, () => undefined)
+    const question = { id: 'q', text: '?', buttons: [{ value: 'a', label: 'A' }], timeoutMs: 60_000 }
+    const asked = chat.ask({ channel: 'web', chatId: '42' }, question)
+    await chat.closeQuestion(question, 'Answered by 7 on telegram: A')
+    expect(await asked).toBe('timeout')
+    const entry = chat.history('42')[0]
+    expect(entry?.note).toBe('Answered by 7 on telegram: A')
+    expect(chat.press('42', entry?.id ?? '', 'a')).toBe(false)
+  })
 })
