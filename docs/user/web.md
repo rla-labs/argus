@@ -16,7 +16,9 @@ settings, and a chat. It is built for **one person on a private network**.
 The interface is in English and Romanian; the buttons at the top switch. It changes
 nothing in its own way: each action runs the same command you would type in Telegram
 (`/defaults`, `/key`, `/set`, `/stop`), so the checks and the audit log are the same.
-Only the admin is given a link, so everything here runs as the admin. The chat's
+It runs as you, with your role: what an operator may not do in Telegram, they may not
+do here either. The chat is one of your channels: notices and approvals meant for you
+arrive in it as they do in Telegram. The chat's
 history is kept in memory: after a restart it starts empty (the projects remember, as
 always).
 
@@ -57,10 +59,22 @@ put it behind a public reverse proxy: that is not supported before Argus 0.4.0.
 
 ## Sign in
 
-Send **`/web`** to the bot. It answers with a link that works **once, for ten
-minutes**. Open it on a device that reaches the server (above); you stay signed in
-for a day (`web.session_hours`). A restart of Argus signs you out: send `/web` again.
-Only the admin can ask for a link.
+**The first time**, send **`/web`** to the bot. It answers with a link that works
+**once, for ten minutes**. Open it on a device that reaches the server (above).
+
+Then, in **Settings → Web password**, choose a login name and a password (at least 10
+characters). From then on the page asks for them, and `/web` is no longer needed.
+
+- You stay signed in for a day (`web.session_hours`), restarts of Argus included.
+- **Changing the password** asks for the current one, and signs out your other
+  browsers.
+- **Forgot it?** Send `/web` again: for ten minutes after you open the link you can
+  set a new password without the old one.
+- **Five wrong passwords** lock the login for a quarter of an hour (and five failures
+  from one address pause that address as long). A `/web` link still works.
+
+Only the admin can ask for a link for now; the users page for the others comes later
+in 0.4.
 
 ## Settings
 

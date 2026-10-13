@@ -3,7 +3,7 @@
  * `@argus-agent/web/server` — the HTTP side of the web interface.
  *
  * `node:http`, no framework: a handful of routes, all JSON or static files. Every
- * route but the login, the page shell and its static files needs a session; every
+ * route but the sign-in, the page shell and its static files needs a session; every
  * POST also needs the `x-argus` header, which a cross-site form cannot send, on top
  * of the `SameSite=Strict` cookie. A change is never made here: it is a command line
  * run through `ops-commands` as the logged-in person.
@@ -39,6 +39,8 @@ export interface ServerDeps {
   readonly auth: WebAuth
   readonly sessionHours: number
   readonly chat: WebChannelAdapter
+  /** Who the session's user is, for `/api/me`. */
+  readonly me: (session: Session) => unknown
   readonly overview: () => unknown
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
@@ -110,23 +112,34 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     response.setHeader('content-security-policy', csp)
 
     // ── no session needed ────────────────────────────────────────────────
+    const cookie = (sessionId: string): string =>
+      [`${COOKIE}=${sessionId}`, 'HttpOnly', 'SameSite=Strict', 'Path=/', `Max-Age=${deps.sessionHours * 3600}`, ...(deps.secure ? ['Secure'] : [])].join('; ')
+    const address = request.socket.remoteAddress ?? '?'
+    const userAgent = request.headers['user-agent']
     if (method === 'GET' && path === '/login') {
-      const token = new URL(request.url ?? '/', 'http://x').searchParams.get('token') ?? ''
-      const outcome = deps.auth.login(token, request.socket.remoteAddress ?? '?')
+      const token = new URL(request.url ?? '/', 'http://x').searchParams.get('token')
+      // No token: the page itself shows the sign-in form.
+      if (token === null) {
+        response.writeHead(303, { location: '/', 'cache-control': 'no-store' })
+        response.end()
+        return
+      }
+      const outcome = deps.auth.login(token, address, userAgent)
       if (!outcome.ok) {
         response.writeHead(outcome.reason === 'limited' ? 429 : 401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
         response.end(loginPage(outcome.reason))
         return
       }
-      const cookie = [
-        `${COOKIE}=${outcome.sessionId}`,
-        'HttpOnly',
-        'SameSite=Strict',
-        'Path=/',
-        `Max-Age=${deps.sessionHours * 3600}`,
-        ...(deps.secure ? ['Secure'] : []),
-      ].join('; ')
-      response.writeHead(303, { location: '/', 'set-cookie': cookie, 'cache-control': 'no-store' })
+      response.writeHead(303, { location: '/', 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
+      response.end()
+      return
+    }
+    if (method === 'POST' && path === '/login') {
+      if (request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
+      const body = await readJson(request)
+      const outcome = await deps.auth.loginWithPassword(String(body['login'] ?? ''), String(body['password'] ?? ''), address, userAgent)
+      if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
+      response.writeHead(204, { 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
       response.end()
       return
     }
@@ -152,7 +165,16 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     if (session === undefined) return send(response, 401, { error: 'not signed in' })
     if (method === 'POST' && request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
 
-    if (method === 'GET' && path === '/api/me') return send(response, 200, { userId: session.userId, expiresAt: session.expiresAt })
+    if (method === 'GET' && path === '/api/me') return send(response, 200, deps.me(session))
+    if (method === 'POST' && path === '/api/password') {
+      const body = await readJson(request)
+      const outcome = await deps.auth.setPassword(sessionId ?? '', {
+        password: String(body['password'] ?? ''),
+        ...(typeof body['login'] === 'string' ? { login: body['login'] } : {}),
+        ...(typeof body['current'] === 'string' ? { current: body['current'] } : {}),
+      })
+      return send(response, outcome.ok ? 200 : 400, outcome.ok ? { ok: true } : { error: outcome.reason })
+    }
     if (method === 'POST' && path === '/api/logout') {
       deps.auth.logout(sessionId)
       response.writeHead(204, { 'set-cookie': `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0` })
@@ -291,6 +313,6 @@ function loginPage(reason: 'limited' | 'invalid'): string {
   const text =
     reason === 'limited'
       ? 'Too many failed attempts from this address. Wait a quarter of an hour.'
-      : 'This link is not valid: it was used already, or it is older than 10 minutes. Send /web to the bot for a new one.'
+      : 'This link is not valid: it was used already, or it is older than 10 minutes. Send /web for a new one, or <a href="/" style="color:#7fd4ff">sign in with your password</a>.'
   return `<!doctype html><meta charset="utf-8"><title>Argus</title><body style="font:16px system-ui;background:#04070d;color:#dcebfa;padding:40px"><p>${text}</p></body>`
 }

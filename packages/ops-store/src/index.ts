@@ -36,6 +36,7 @@ export {
   SchedulesRepository,
   UsageRepository,
   UsersRepository,
+  WebAuthRepository,
 } from './repositories/index.js'
 export type { InboundInput } from './repositories/inbound.js'
 export type { RunInput } from './repositories/runs.js'

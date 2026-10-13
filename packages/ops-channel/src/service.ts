@@ -251,8 +251,7 @@ export class OpsChannel {
     const out: ChannelAddress[] = []
     for (const identity of this.options.store.users.identities(user.id)) {
       for (const adapter of adapters) {
-        const channel = adapter.identityChannel ?? adapter.name
-        if (identity.channel !== '*' && identity.channel !== channel) continue
+        if (identity.channel !== '*' && identity.channel !== adapter.name) continue
         if (!out.some((target) => target.channel === adapter.name && target.chatId === identity.external_id)) {
           out.push({ channel: adapter.name, chatId: identity.external_id })
         }
@@ -276,7 +275,7 @@ export class OpsChannel {
    */
   personOf(address: ChannelAddress): ChannelAddress {
     if (address.channel === USER_CHANNEL) return address
-    const identity = this.options.store.users.resolve(this.identityOf(address.channel), address.chatId)
+    const identity = this.options.store.users.resolve(address.channel, address.chatId)
     if (identity?.kind !== 'user' || address.threadId !== undefined) return address
     const user = this.options.store.users.get(identity.user_id)
     return user === undefined || user.disabled_at !== null ? address : { channel: USER_CHANNEL, chatId: user.id }
@@ -322,11 +321,9 @@ export class OpsChannel {
     this.seen.add(`${message.address.channel}:${message.id}`)
     if (this.seen.size > 5_000) this.seen.clear()
 
-    // An adapter that borrows another's identities is not where alerts should go.
-    const identity = this.identityOf(message.address.channel)
-    if (identity === message.address.channel) this.lastSeen = message.address
+    this.lastSeen = message.address
 
-    const access = this.policy.check(identity, message.userId)
+    const access = this.policy.check(message.address.channel, message.userId)
     if (!access.allowed) {
       await this.refuse(message, access.reason ?? 'not_listed')
       return { kind: 'rejected', reason: access.reason ?? 'not_listed' }
@@ -415,13 +412,12 @@ export class OpsChannel {
 
   /** Run a command line and deliver its result. */
   private async runCommand(line: string, message: IncomingMessage): Promise<void> {
-    const identity = this.identityOf(message.address.channel)
-    const user = this.policy.check(identity, message.userId).user
+    const user = this.policy.check(message.address.channel, message.userId).user
     const out = await this.options.commands.runCommand(line, {
       address: message.address,
       userId: message.userId,
       ...(user === undefined ? {} : { user }),
-      isAdmin: this.policy.isAdmin({ ...message.address, channel: identity }, message.userId),
+      isAdmin: this.policy.isAdmin(message.address, message.userId),
       ...(this.activeProjectOf(message.address) === undefined
         ? {}
         : { activeProject: this.activeProjectOf(message.address) as string }),
@@ -561,7 +557,7 @@ export class OpsChannel {
    * @param answer the answer.
    */
   async handleButton(answer: ButtonAnswer): Promise<void> {
-    if (!this.policy.isAllowed(this.identityOf(answer.address.channel), answer.userId)) {
+    if (!this.policy.isAllowed(answer.address.channel, answer.userId)) {
       await this.refuse(
         {
           id: answer.questionId,
@@ -716,7 +712,7 @@ export class OpsChannel {
   answerQuestion(questionId: string, value: string, from: { address: ChannelAddress; userId: string }): boolean {
     const resolve = this.answerers.get(questionId)
     if (resolve === undefined) return false
-    if (!this.policy.isAllowed(this.identityOf(from.address.channel), from.userId)) return false
+    if (!this.policy.isAllowed(from.address.channel, from.userId)) return false
     this.lastAnswer = { questionId, value, address: from.address, userId: from.userId, timestamp: this.options.now() }
     resolve({ kind: 'button', value })
     return true
@@ -724,11 +720,6 @@ export class OpsChannel {
 
   /** Resolvers for the questions {@link answerQuestion} may answer. */
   private readonly answerers = new Map<string, (answer: AnswerOrTimeout) => void>()
-
-  /** The channel whose identities an adapter's users have. */
-  private identityOf(channel: string): string {
-    return this.registry.get(channel)?.identityChannel ?? channel
-  }
 
   /** The most recent button answer, for an adapter that resolves on demand. */
   lastAnswer: ButtonAnswer | undefined
@@ -757,7 +748,7 @@ export class OpsChannel {
   answeredByAdmin(questionId: string): boolean {
     const answer = this.lastAnswer
     if (answer?.questionId !== questionId) return false
-    return this.policy.isAdmin({ ...answer.address, channel: this.identityOf(answer.address.channel) }, answer.userId)
+    return this.policy.isAdmin(answer.address, answer.userId)
   }
 
   /** How many questions are outstanding. For diagnostics. */

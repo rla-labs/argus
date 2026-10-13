@@ -23,6 +23,7 @@ import { RuntimeStateRepository } from './repositories/runtime-state.js'
 import { SchedulesRepository } from './repositories/schedules.js'
 import { UsageRepository } from './repositories/usage.js'
 import { UsersRepository } from './repositories/users.js'
+import { WebAuthRepository } from './repositories/web-auth.js'
 import type { IdentityKind, RunRow } from './types.js'
 
 /** Options for constructing the store. */
@@ -112,6 +113,8 @@ export class OpsStore {
   readonly runtimeState: RuntimeStateRepository
   /** The `users` / `identities` repository. */
   readonly users: UsersRepository
+  /** The `web_logins` / `web_sessions` repository. */
+  readonly webAuth: WebAuthRepository
 
   /** The migrations applied by this process at open time. */
   readonly migrationsApplied: readonly number[]
@@ -141,6 +144,7 @@ export class OpsStore {
     this.approvals = new ApprovalsRepository(this.db)
     this.runtimeState = new RuntimeStateRepository(this.db)
     this.users = new UsersRepository(this.db)
+    this.webAuth = new WebAuthRepository(this.db)
   }
 
   /**

@@ -166,11 +166,19 @@ Argus's own interface (the dashboard, approvals, settings and chat) is for a
 - It listens on the server's `127.0.0.1:3091` (in Docker, the container publishes it
   on the host's loopback only). Reach it with `tailscale serve`, a VPN or an SSH
   tunnel; see [the web interface](web.md). Public exposure is not supported before 0.4.0.
-- **It has its own sign-in even so.** `/web` (admin only) gives a link that works
-  once, for ten minutes. It becomes a session cookie that scripts cannot read
-  (`HttpOnly`), that another site cannot send (`SameSite=Strict`), and that travels
-  only over HTTPS when `web.public_url` is `https://`. Five failed sign-ins from one
-  address lock it out for 15 minutes.
+- **It has its own sign-in even so**: a login name and a password, or a `/web` link
+  (admin only) that works once, for ten minutes, and is also how a first password is
+  set or a forgotten one reset.
+  - Passwords are stored as scrypt hashes, each with its own salt; at least 10
+    characters.
+  - Five wrong passwords lock the login for 15 minutes; five failed sign-ins from
+    one address pause that address as long. A wrong name and a wrong password get the
+    same answer.
+  - A sign-in becomes a session cookie that scripts cannot read (`HttpOnly`), that
+    another site cannot send (`SameSite=Strict`), and that travels only over HTTPS when
+    `web.public_url` is `https://`. The database keeps a hash of it, not the cookie, so
+    a copy of the database signs nobody in. Sessions survive a restart; changing the
+    password ends the others.
 - Every change it makes is a command run as you, with the same checks and audit as
   in Telegram. Every POST needs a header a cross-site form cannot send, and the page
   runs under a strict content security policy.

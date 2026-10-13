@@ -1371,7 +1371,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         syntax: '/web',
         detail:
           'Sends a link that signs you in to the web interface. It works once and for ten ' +
-          'minutes; the sign-in then lasts web.session_hours. The interface is meant for a ' +
+          'minutes; the sign-in then lasts web.session_hours. For those ten minutes you can ' +
+          'also set or reset your web password (Settings), to sign in without a link. The interface is meant for a ' +
           'private network: open it through tailscale serve, a VPN or an SSH tunnel.',
         examples: ['/web'],
         mutating: false,
@@ -1380,7 +1381,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       run(_input, context): CommandResult {
         const web = options.web?.()
         if (web === undefined) return errorResult('The web interface is not running (web.enabled in ops.yaml).')
-        return result(`Open within 10 minutes; it works once:\n${web.loginLink(context.userId)}`)
+        if (context.user === undefined) return errorResult('Only a user of Argus gets a sign-in link.')
+        return result(
+          `Open within 10 minutes; it works once:\n${web.loginLink(context.user.id)}\n` +
+          'Signed in this way, you can set or reset your web password in Settings.',
+        )
       },
     },
 

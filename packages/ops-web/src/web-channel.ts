@@ -4,8 +4,8 @@
  *
  * An adapter like Telegram's: what a person types goes to `ops-channel` through
  * `onMessage`, and everything the system says comes back through `send`, `edit`
- * and `ask`. It holds no business logic. Its users are Telegram's (see
- * `identityChannel`), because in 0.3.0 a web login comes from Telegram.
+ * and `ask`. It holds no business logic. A chat is a signed-in user's: its id is
+ * the Argus user id, which is also the user's `web` identity.
  *
  * The conversation is kept in memory, the last {@link HISTORY_CAP} entries per
  * person; a restart starts it empty, as a new Telegram chat would not.
@@ -63,7 +63,6 @@ interface StoredFile {
 /** The web chat adapter. */
 export class WebChannelAdapter implements ChannelAdapter {
   readonly name = 'web'
-  readonly identityChannel: string
   readonly limits: AdapterLimits = { maxTextLength: 200_000, maxFileBytes: 200 * 1_048_576 }
 
   private onMessage: ((message: IncomingMessage) => void) | undefined
@@ -74,16 +73,12 @@ export class WebChannelAdapter implements ChannelAdapter {
 
   /**
    * @param changed called with a person's chat id whenever their conversation changes.
-   * @param identityChannel the adapter whose user ids this one shares.
    * @param now reads the current time.
    */
   constructor(
     private readonly changed: (chatId: string) => void,
-    identityChannel = 'telegram',
     private readonly now: () => number = () => Date.now(),
-  ) {
-    this.identityChannel = identityChannel
-  }
+  ) {}
 
   async start(onMessage: (message: IncomingMessage) => void, onButton: (answer: ButtonAnswer) => void): Promise<() => Promise<void>> {
     this.onMessage = onMessage
@@ -172,7 +167,7 @@ export class WebChannelAdapter implements ChannelAdapter {
   /**
    * A person typed a message.
    *
-   * @param userId who, as the identity channel knows them.
+   * @param userId who: the Argus user id.
    * @param text what they wrote, verbatim.
    */
   receive(userId: string, text: string): void {

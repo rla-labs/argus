@@ -43,6 +43,15 @@ interface ChatEntry {
   note?: string
 }
 
+interface Me {
+  userId: string
+  name: string | null
+  role: 'admin' | 'operator'
+  login: string | null
+  hasPassword: boolean
+  mayResetPassword: boolean
+}
+
 type View = 'overview' | 'approvals' | 'chat' | 'settings'
 const VIEWS: readonly View[] = ['overview', 'approvals', 'chat', 'settings']
 const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
@@ -89,6 +98,62 @@ function ApprovalCard({ approval, onDone }: { approval: Overview['approvals'][nu
       <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('deny')}>${t('approvals.deny')}</button>
     </div>
   </div>`
+}
+
+/** The sign-in form. Not `post`: a 401 here is a wrong password, not a lost session. */
+function SignIn({ onSignedIn }: { onSignedIn: () => void }): VNode {
+  const [login, setLogin] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | undefined>()
+  const submit = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const response = await fetch('/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json', 'x-argus': '1' },
+      body: JSON.stringify({ login, password }),
+    })
+    setPassword('')
+    if (response.ok) onSignedIn()
+    else setError(t(response.status === 429 ? 'signin.limited' : 'signin.invalid'))
+  }
+  return html`<section class="hud signin"><h2>${t('signin.title')}</h2><p>${t('signin.text')}</p>
+    ${error === undefined ? null : html`<div class="notice err" role="alert">${error}</div>`}
+    <form style="display:flex;flex-direction:column;gap:12px;max-width:360px" onSubmit=${(event: Event) => void submit(event)}>
+      <div class="field"><label class="lbl" for="s-login">${t('signin.login')}</label><input id="s-login" autocomplete="username" required value=${login} onInput=${(e: Event) => setLogin((e.target as HTMLInputElement).value)} /></div>
+      <div class="field"><label class="lbl" for="s-password">${t('signin.password')}</label><input id="s-password" type="password" autocomplete="current-password" required value=${password} onInput=${(e: Event) => setPassword((e.target as HTMLInputElement).value)} /></div>
+      <div><button class="btn primary" type="submit">${t('signin.submit')}</button></div>
+    </form></section>`
+}
+
+/** Set or change the signed-in user's web password. */
+function PasswordSection({ me, onChanged }: { me: Me; onChanged: () => void }): VNode {
+  const [login, setLogin] = useState(me.login ?? '')
+  const [password, setPassword] = useState('')
+  const [current, setCurrent] = useState('')
+  const [message, setMessage] = useState<{ text: string; error: boolean } | undefined>()
+  const errors: Record<string, string> = { short: 'password.short', login: 'password.badLogin', taken: 'password.taken', wrong: 'password.wrong' }
+  const submit = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const result = await post<{ error?: string }>('/api/password', { login, password, ...(me.mayResetPassword ? {} : { current }) })
+    setPassword('')
+    setCurrent('')
+    setMessage(result.ok ? { text: t('password.saved'), error: false } : { text: t(errors[result.body.error ?? ''] ?? 'password.wrong'), error: true })
+    if (result.ok) onChanged()
+  }
+  return html`<section class="hud">
+    <h2>${t('password.title')}</h2>
+    <p class="muted" style="margin:0">${me.login === null ? t('password.none') : t('password.has', { login: me.login })}${me.login !== null && me.mayResetPassword ? ` ${t('password.reset')}` : ''}</p>
+    ${message === undefined ? null : html`<div class=${`notice${message.error ? ' err' : ''}`} role="status">${message.text}</div>`}
+    <form class="inline" onSubmit=${(event: Event) => void submit(event)}>
+      <div class="field" style="flex:1 1 160px"><label class="lbl" for="p-login">${t('password.login')}</label><input id="p-login" autocomplete="username" required value=${login} onInput=${(e: Event) => setLogin((e.target as HTMLInputElement).value)} /></div>
+      ${me.mayResetPassword
+        ? null
+        : html`<div class="field" style="flex:1 1 160px"><label class="lbl" for="p-current">${t('password.current')}</label><input id="p-current" type="password" autocomplete="current-password" required value=${current} onInput=${(e: Event) => setCurrent((e.target as HTMLInputElement).value)} /></div>`}
+      <div class="field" style="flex:1 1 160px"><label class="lbl" for="p-new">${t('password.new')}</label><input id="p-new" type="password" autocomplete="new-password" minlength="10" required value=${password} onInput=${(e: Event) => setPassword((e.target as HTMLInputElement).value)} /></div>
+      <button class="btn ghost" type="submit">${t('settings.save')}</button>
+    </form>
+  </section>`
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
@@ -206,7 +271,7 @@ function ChatView({ version }: { version: number }): VNode {
   </section>`
 }
 
-function SettingsView({ data, run, outcome }: { data: Settings; run: (line: string) => void; outcome: VNode | null }): VNode {
+function SettingsView({ data, run, outcome, account }: { data: Settings; run: (line: string) => void; outcome: VNode | null; account: VNode }): VNode {
   const [tasks, setTasks] = useState(data.defaults.tasks)
   const [desk, setDesk] = useState(data.defaults.frontDesk ?? '')
   const [provider, setProvider] = useState(data.keys[0]?.provider ?? '')
@@ -220,6 +285,7 @@ function SettingsView({ data, run, outcome }: { data: Settings; run: (line: stri
   }
   return html`
     ${outcome}
+    ${account}
     <div class="row">
       <section class="hud grow1">
         <h2>${t('settings.defaults')}</h2>
@@ -293,6 +359,7 @@ function SettingsView({ data, run, outcome }: { data: Settings; run: (line: stri
 function App(): VNode {
   const [, setLang] = useState<Language>(lang())
   const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined)
+  const [me, setMe] = useState<Me | undefined>()
   const [view, setView] = useState<View>(() => (VIEWS.find((v) => `#${v}` === location.hash) ?? 'overview'))
   const [overviewData, setOverview] = useState<Overview | undefined>()
   const [settingsData, setSettings] = useState<Settings | undefined>()
@@ -321,9 +388,18 @@ function App(): VNode {
     [guard, loadOverview, loadSettings],
   )
 
-  useEffect(() => {
-    void get('/api/me').then(() => setSignedIn(true), () => setSignedIn(false))
-  }, [])
+  const loadMe = useCallback(
+    () =>
+      void get<Me>('/api/me').then(
+        (body) => {
+          setMe(body)
+          setSignedIn(true)
+        },
+        () => setSignedIn(false),
+      ),
+    [],
+  )
+  useEffect(loadMe, [loadMe])
   useEffect(() => {
     if (signedIn !== true) return undefined
     void loadOverview()
@@ -366,7 +442,7 @@ function App(): VNode {
   </header>`
 
   if (!signedIn) {
-    return html`${header}<section class="hud signin"><h2>${t('signin.title')}</h2><p>${t('signin.text')}</p></section>`
+    return html`${header}<${SignIn} onSignedIn=${loadMe} />`
   }
 
   const pending = overviewData?.approvals.length ?? 0
@@ -392,7 +468,8 @@ function App(): VNode {
         ${view === 'overview' ? (overviewData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${Notice} outcome=${outcome} onButton=${run} /><${OverviewView} data=${overviewData} refresh=${loadOverview} run=${run} />`) : null}
         ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} />` : null}
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}
-        ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`} />`) : null}
+        ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
+            account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} />`} />`) : null}
       </main>
     </div>`
 }

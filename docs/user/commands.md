@@ -667,7 +667,9 @@ A change of `model`, `preset` or `fallback_model` reaches a running agent only a
 
 Sends a link that signs you in to the [web interface](web.md). It works once, for ten
 minutes; the sign-in then lasts `web.session_hours`. Open it on a device that reaches
-the server through Tailscale, a VPN or an SSH tunnel.
+the server through Tailscale, a VPN or an SSH tunnel. During those ten minutes you can
+set or reset your web password (Settings → Web password), to sign in without a link
+afterwards.
 
 ---
 

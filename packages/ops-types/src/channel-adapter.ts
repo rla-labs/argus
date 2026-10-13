@@ -163,13 +163,6 @@ export interface ChannelAdapter {
   /** The adapter's platform limits. */
   readonly limits: AdapterLimits
   /**
-   * When set, a user id on this adapter is the same person as on that adapter:
-   * the allowlist, admin status and default address are that adapter's. The web
-   * interface uses it in 0.3.0, where a login comes from Telegram.
-   */
-  readonly identityChannel?: string
-
-  /**
    * Begin receiving messages.
    * @param onMessage called for each incoming message.
    * @param onButton called for each button answer.

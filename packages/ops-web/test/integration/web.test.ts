@@ -1,8 +1,9 @@
 // == ARGUS AGENT PROJECT ==
 /**
- * The web interface in a real composition: a `/web` link signs in, the API answers
- * with a session and refuses without one, the chat is a channel, and a question
- * another channel asked can be answered from the web.
+ * The web interface in a real composition: a `/web` link signs in, a password set
+ * from it signs in too, the API answers with a session and refuses without one,
+ * commands run with the user's role, the chat is one of the user's channels, and a
+ * question another channel asked can be answered from the web.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { BASE_ENTRIES, ConsoleChannelAdapter, bootOps, persistenceEntry, waitFor, type OpsBoot } from '@argus-agent/testkit'
 import type { OpsChannel } from '@argus-agent/channel'
 import type { OpsCommands } from '@argus-agent/commands'
+import type { OpsStore } from '@argus-agent/store'
 import type { OpsWeb } from '@argus-agent/web'
 
 const boots: OpsBoot[] = []
@@ -26,6 +28,9 @@ interface Booted {
   readonly channel: OpsChannel
   readonly commands: OpsCommands
   readonly web: OpsWeb
+  readonly store: OpsStore
+  /** The admin's Argus user id. */
+  readonly admin: string
 }
 
 async function bootWeb(): Promise<Booted> {
@@ -47,7 +52,7 @@ async function bootWeb(): Promise<Booted> {
         `tasks:\n  model: fake/fake-model\n` +
         `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
         `budgets:\n  default_day_usd: 100\n` +
-        // The web's users are Telegram's; no Telegram adapter is needed for that.
+        // The admin is a Telegram user; no Telegram adapter is needed to ask for a link.
         `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n    - { channel: console, userId: user-1 }\n  admin: telegram:42\n` +
         `channel:\n  default_address: console:default-chat\n` +
         `web:\n  port: 0\n`,
@@ -69,14 +74,21 @@ async function bootWeb(): Promise<Booted> {
     ],
   })
   boots.push(boot)
-  const ctx = boot.ctx as unknown as { opsChannel: OpsChannel; opsCommands: OpsCommands; opsWeb: OpsWeb }
+  const ctx = boot.ctx as unknown as { opsChannel: OpsChannel; opsCommands: OpsCommands; opsWeb: OpsWeb; opsStore: OpsStore }
   await waitFor(() => ctx.opsWeb?.port !== undefined, { timeoutMs: 10_000, label: 'web listening' })
-  return { boot, base: `http://127.0.0.1:${ctx.opsWeb.port}`, channel: ctx.opsChannel, commands: ctx.opsCommands, web: ctx.opsWeb }
+  const admin = ctx.opsStore.users.admin()?.id ?? ''
+  return { boot, base: `http://127.0.0.1:${ctx.opsWeb.port}`, channel: ctx.opsChannel, commands: ctx.opsCommands, web: ctx.opsWeb, store: ctx.opsStore, admin }
 }
 
-/** Sign in as Telegram user 42 through `/web`, returning the cookie. */
+/** Sign in as the admin (Telegram user 42) through `/web`, returning the cookie. */
 async function signIn(booted: Booted): Promise<string> {
-  const out = await booted.commands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', isAdmin: true, now: Date.now() })
+  const out = await booted.commands.runCommand('/web', {
+    address: { channel: 'telegram', chatId: '42' },
+    userId: '42',
+    user: { id: booted.admin, role: 'admin' },
+    isAdmin: true,
+    now: Date.now(),
+  })
   const token = /token=([\w-]+)/.exec(out.text)?.[1] ?? ''
   const login = await fetch(`${booted.base}/login?token=${token}`, { redirect: 'manual' })
   expect(login.status).toBe(303)
@@ -144,12 +156,50 @@ describe('the web interface', () => {
     })
     expect(answer.status).toBe(200)
     expect(await asked).toEqual({ kind: 'button', value: 'approve' })
-    expect(booted.channel.answeredBy('approval:a1')).toBe('42')
+    expect(booted.channel.answeredBy('approval:a1')).toBe(booted.admin)
     const again = await fetch(`${booted.base}/api/approvals/a1`, {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' },
       body: JSON.stringify({ value: 'approve' }),
     })
     expect(again.status).toBe(409)
+  }, 60_000)
+
+  it('sets a password from a /web session, then signs in with it; a wrong one is refused', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const headers = { cookie, 'content-type': 'application/json', 'x-argus': '1' }
+    const me = (await (await fetch(`${booted.base}/api/me`, { headers: { cookie } })).json()) as Record<string, unknown>
+    expect(me).toMatchObject({ userId: booted.admin, role: 'admin', hasPassword: false, mayResetPassword: true })
+    const set = await fetch(`${booted.base}/api/password`, { method: 'POST', headers, body: JSON.stringify({ login: 'admin', password: 'a long password' }) })
+    expect(set.status).toBe(200)
+
+    const json = { 'content-type': 'application/json', 'x-argus': '1' }
+    expect((await fetch(`${booted.base}/login`, { method: 'POST', headers: json, body: JSON.stringify({ login: 'admin', password: 'wrong password' }) })).status).toBe(401)
+    const login = await fetch(`${booted.base}/login`, { method: 'POST', headers: json, body: JSON.stringify({ login: 'Admin', password: 'a long password' }) })
+    expect(login.status).toBe(204)
+    const second = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const again = (await (await fetch(`${booted.base}/api/me`, { headers: { cookie: second } })).json()) as Record<string, unknown>
+    expect(again).toMatchObject({ login: 'admin', hasPassword: true, mayResetPassword: false })
+  }, 60_000)
+
+  it('runs a command with the user\'s role: an operator is refused an admin command', async () => {
+    const booted = await bootWeb()
+    booted.store.users.create({ id: 'op-1', role: 'operator' }, Date.now())
+    const token = /token=([\w-]+)/.exec(booted.web.loginLink('op-1'))?.[1] ?? ''
+    const login = await fetch(`${booted.base}/login?token=${token}`, { redirect: 'manual' })
+    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const run = async (line: string): Promise<{ text: string; error: boolean }> =>
+      (await (await fetch(`${booted.base}/api/command`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ line }) })).json()) as { text: string; error: boolean }
+    expect((await run('/allow')).text).toContain('Only the admin')
+    expect((await run('/projects')).text).toContain('alpha')
+  }, 60_000)
+
+  it('is one of the user\'s channels: a notice to the user reaches the web chat', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    await booted.channel.send({ channel: 'user', chatId: booted.admin }, { text: 'budget reached' })
+    const entries = ((await (await fetch(`${booted.base}/api/chat`, { headers: { cookie } })).json()) as { entries: Array<{ text: string }> }).entries
+    expect(entries.map((entry) => entry.text)).toContain('budget reached')
   }, 60_000)
 })

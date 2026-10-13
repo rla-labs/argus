@@ -247,3 +247,29 @@ export interface IdentityRow {
   readonly user_id: string
   readonly created_at: number
 }
+
+/** A row of `web_logins`: a user's name and password for the web interface. */
+export interface WebLoginRow {
+  readonly user_id: string
+  readonly login: string
+  /** `scrypt$N$r$p$salt$hash`. */
+  readonly password_hash: string
+  readonly updated_at: number
+  readonly failed_count: number
+  readonly locked_until: number | null
+}
+
+/** How a web session was opened. */
+export type WebSessionVia = 'link' | 'password'
+
+/** A row of `web_sessions`: a signed-in browser. */
+export interface WebSessionRow {
+  /** sha-256 of the cookie's value, hex. */
+  readonly id_hash: string
+  readonly user_id: string
+  readonly via: WebSessionVia
+  readonly created_at: number
+  readonly expires_at: number
+  readonly last_seen_at: number
+  readonly user_agent: string | null
+}

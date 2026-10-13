@@ -83,6 +83,7 @@ export interface MemoryPort {
 
 /** What `/web` needs from `ops-web`. */
 export interface WebPort {
+  /** A one-time sign-in link for an Argus user. */
   loginLink(userId: string): string
 }
 

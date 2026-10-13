@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BASE_ENTRIES, bootOps, persistenceEntry } from '@argus-agent/testkit'
 import type { OpsCommands } from '@argus-agent/commands'
+import type { OpsStore } from '@argus-agent/store'
 import type { OpsWeb } from '@argus-agent/web'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-manual-'))
@@ -44,10 +45,11 @@ const boot = await bootOps({
     { id: 'ops-config', name: '@argus-agent/argus-agent/loader-row' },
   ],
 })
-const ctx = boot.ctx as unknown as { opsCommands: OpsCommands; opsWeb: OpsWeb }
-const out = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', isAdmin: true, now: Date.now() })
-console.log(out.text)
-setInterval(async () => {
-  const fresh = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', isAdmin: true, now: Date.now() })
-  console.log(fresh.text)
-}, 9 * 60_000)
+const ctx = boot.ctx as unknown as { opsCommands: OpsCommands; opsWeb: OpsWeb; opsStore: OpsStore }
+const user = { id: ctx.opsStore.users.admin()?.id ?? '', role: 'admin' as const }
+const link = async (): Promise<void> => {
+  const out = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user, isAdmin: true, now: Date.now() })
+  console.log(out.text)
+}
+await link()
+setInterval(() => void link(), 9 * 60_000)

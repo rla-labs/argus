@@ -3,10 +3,10 @@
  * `@argus-agent/web` — the web interface.
  *
  * A dashboard (projects, spending, runs, approvals, schedules), settings and a chat,
- * for one admin on a private network. In 0.3.0 a login comes from Telegram (`/web`),
- * and the chat is a channel adapter whose users are Telegram's. Reads come from the
- * services; every change is a command run as the logged-in person, so the web has
- * no rules of its own (AGENTS.md, rule 4).
+ * on a private network. A person signs in as a user of Argus, with a password or a
+ * `/web` link; the chat is a channel adapter like Telegram's. Reads come from the
+ * services; every change is a command run as the signed-in user, with their role,
+ * so the web has no rules of its own (AGENTS.md, rule 4).
  *
  * @module @argus-agent/web
  */
@@ -41,9 +41,9 @@ export const inject = [
 /** What the plugin offers the rest of the system: the `/web` link. */
 export interface OpsWeb {
   /**
-   * A one-time login link for a person, valid ten minutes.
+   * A one-time sign-in link for a user, valid ten minutes.
    *
-   * @param userId the person, as Telegram knows them.
+   * @param userId the Argus user id.
    * @returns the link.
    */
   loginLink(userId: string): string
@@ -117,7 +117,7 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => () => void unregister())
 
   // ── login ────────────────────────────────────────────────────────────────
-  const auth = new WebAuth(config.session_hours * 3_600_000)
+  const auth = new WebAuth(ctx.opsStore, config.session_hours * 3_600_000)
   const web: { -readonly [K in keyof OpsWeb]: OpsWeb[K] } = {
     loginLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId)}`,
     port: undefined,
@@ -139,11 +139,13 @@ export async function apply(ctx: Context): Promise<void> {
   const runCommand = async (line: string, session: { userId: string }): Promise<CommandOutcome> => {
     // A confirmation button comes back as its token; it is the `/confirm` command.
     const confirm = /^__confirm:([^:]+):(yes|no)$/.exec(line)
+    // Read at every command: a role changed since the sign-in applies at once.
+    const role = ctx.opsStore.users.get(session.userId)?.role ?? 'operator'
     const out = await ctx.opsCommands.runCommand(confirm === null ? line : `/confirm ${confirm[1]} ${confirm[2]}`, {
       address: { channel: 'web', chatId: session.userId },
       userId: session.userId,
-      // Only the admin is given a link (`/web` is admin-only).
-      isAdmin: true,
+      user: { id: session.userId, role },
+      isAdmin: role === 'admin',
       now: Date.now(),
     })
     return {
@@ -161,6 +163,19 @@ export async function apply(ctx: Context): Promise<void> {
       auth,
       sessionHours: config.session_hours,
       chat,
+      me: (session) => {
+        const user = ctx.opsStore.users.get(session.userId)
+        const login = auth.loginOf(session.userId)
+        return {
+          userId: session.userId,
+          name: user?.name ?? null,
+          role: user?.role ?? 'operator',
+          login: login ?? null,
+          hasPassword: login !== undefined,
+          mayResetPassword: auth.mayResetPassword(session),
+          expiresAt: session.expiresAt,
+        }
+      },
       overview: () => overview(sources),
       settings: () => settings(sources),
       runCommand,
