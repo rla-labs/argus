@@ -895,6 +895,9 @@ importers:
       '@argus-agent/memory':
         specifier: workspace:^
         version: link:../ops-memory
+      '@argus-agent/scheduler':
+        specifier: workspace:^
+        version: link:../ops-scheduler
       '@argus-agent/testkit':
         specifier: workspace:*
         version: link:../ops-testkit

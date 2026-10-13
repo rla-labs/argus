@@ -71,13 +71,12 @@ export function apply(ctx: Context): void {
     now: () => Date.now(),
   }
 
-  // Optional delegates. Absent is a normal deployment, not a failure: `/cron`
-  // then replies "scheduler not installed" and `/health` falls back to what the
-  // governor can see.
-  const scheduler = ctx.get('opsScheduler' as never) as unknown as SchedulerPort | undefined
-  const health = ctx.get('opsHealth' as never) as unknown as HealthPort | undefined
-  if (scheduler !== undefined) options.scheduler = scheduler
-  if (health !== undefined) options.health = health
+  // Optional delegates, looked up at each call: both mount after this plugin (the
+  // scheduler needs ops-channel, which needs this), so a lookup here would always
+  // miss. Absent is a normal deployment: `/cron` then replies "scheduler not
+  // installed" and `/health` falls back to what the governor can see.
+  options.scheduler = () => ctx.get('opsScheduler' as never) as unknown as SchedulerPort | undefined
+  options.health = () => ctx.get('opsHealth' as never) as unknown as HealthPort | undefined
   // Live, like ops-channel's: the orchestrator may mount after this plugin.
   options.hasOrchestrator = () => ctx.get('opsOrchestrator' as never) !== undefined
   options.memory = () => ctx.get('opsMemory' as never) as unknown as MemoryPort | undefined

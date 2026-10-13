@@ -41,6 +41,7 @@ const boot = await bootOps({
     { id: 'ops-commands', name: '@argus-agent/commands' },
     { id: 'ops-channel', name: '@argus-agent/channel' },
     { id: 'ops-memory', name: '@argus-agent/memory' },
+    { id: 'ops-scheduler', name: '@argus-agent/scheduler' },
     { id: 'ops-web', name: '@argus-agent/web' },
     { id: 'ops-config', name: '@argus-agent/argus-agent/loader-row' },
   ],

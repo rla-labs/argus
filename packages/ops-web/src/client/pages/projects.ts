@@ -56,7 +56,7 @@ function State({ project }: { project: ProjectRow }): VNode {
 
 /** A table of runs; shared with the Tasks and Runs pages. */
 export function RunsTable({ runs, now }: { runs: RunView[]; now: number }): VNode {
-  if (runs.length === 0) return html`<p class="empty">${t('runs.none')}</p>`
+  if (runs.length === 0) return html`<p class="empty">${t('runs.noneYet')}</p>`
   return html`<div class="scroll"><table>
     <thead><tr><th scope="col" class="lbl">${t('runs.who')}</th><th scope="col" class="lbl">${t('runs.started')}</th><th scope="col" class="lbl">${t('runs.status')}</th><th scope="col" class="lbl">${t('runs.model')}</th><th scope="col" class="lbl num">${t('runs.steps')}</th><th scope="col" class="lbl num">${t('runs.time')}</th><th scope="col" class="lbl num">${t('runs.cost')}</th></tr></thead>
     <tbody>${runs.map(
@@ -143,7 +143,7 @@ export function ProjectView({ id, version, run, outcome, can }: PageProps & { id
       <${Model} project=${project} run=${run} can=${can} />
     </div>
     ${project.tools === null ? null : html`<${Tools} project=${project} run=${run} can=${can} />`}
-    <section class="hud"><h2>${t('runs.title')}</h2><${RunsTable} runs=${project.runs} now=${Date.now()} /></section>
+    <section class="hud"><h2>${t('costs.runs')}</h2><${RunsTable} runs=${project.runs} now=${Date.now()} /></section>
     ${project.schedules.length === 0
       ? null
       : html`<section class="hud"><h2>${t('schedule.list')}</h2>

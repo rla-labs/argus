@@ -452,6 +452,21 @@ describe('/stop', () => {
     await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'stopped' })
   }, 40_000)
 
+  it('stops a task by its run id', async () => {
+    const booted = await bootCommands({
+      projects: { alpha: {} },
+      opsYaml:
+        'timezone: UTC\ndata_dir: "PLACEHOLDER"\ntasks:\n  model: fake/fake-model\n' +
+        'pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\nbudgets:\n  default_day_usd: 100\n',
+    })
+    booted.boot.fake!.setScript([{ text: 'slow', latencyMs: 60_000, usage: { inputTokens: 1, outputTokens: 0 } }])
+    await run(booted, '/task a long one')
+    await waitFor(() => booted.governor.status().running.length === 1, { timeoutMs: 20_000, label: 'running' })
+    const runId = booted.governor.status().running[0]?.runId ?? ''
+    expect(await run(booted, `/stop ${runId}`)).toContain('Stopping the task')
+    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'stopped' })
+  }, 40_000)
+
   it('stops a named project', async () => {
     const booted = await bootCommands({ projects: { alpha: {}, beta: {} } })
     await run(booted, '/budget beta')
@@ -469,7 +484,7 @@ describe('/stop', () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const out = await booted.commands.runCommand('/stop', contextFor())
     expect(out.error).toBe(true)
-    expect(out.text).toContain('Syntax: /stop [project-id]')
+    expect(out.text).toContain('Syntax: /stop [project-id | task-run-id]')
   }, 30_000)
 })
 

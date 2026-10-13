@@ -38,6 +38,7 @@
   "devDependencies": {
     "@argus-agent/argus-agent": "workspace:*",
     "@argus-agent/memory": "workspace:^",
+    "@argus-agent/scheduler": "workspace:^",
     "@argus-agent/testkit": "workspace:*",
     "@argus-agent/web": "workspace:*"
   },

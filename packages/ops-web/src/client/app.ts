@@ -12,6 +12,7 @@ import { clock, initialLanguage, lang, LANGUAGES, money, since, t, loadLanguage,
 import { Constellation, Dial, Gauge, Trend } from './svg.js'
 import { Notice, type PageProps } from './ui.js'
 import { ProjectsView, ProjectView } from './pages/projects.js'
+import { RunsView, SchedulesView, SystemSection, TasksView } from './pages/work.js'
 
 // ── the server's shapes ────────────────────────────────────────────────────
 
@@ -66,8 +67,8 @@ interface UserRow {
   channels: string[]
 }
 
-type View = 'overview' | 'approvals' | 'projects' | 'chat' | 'settings' | 'users'
-const VIEWS: readonly View[] = ['overview', 'approvals', 'projects', 'chat', 'settings', 'users']
+type View = 'overview' | 'approvals' | 'projects' | 'tasks' | 'schedules' | 'runs' | 'chat' | 'settings' | 'users'
+const VIEWS: readonly View[] = ['overview', 'approvals', 'projects', 'tasks', 'schedules', 'runs', 'chat', 'settings', 'users']
 
 /** The page and its part (`#projects/site-firma`) the address names. */
 function fromHash(): { view: View; sub: string } {
@@ -86,6 +87,9 @@ function Icon({ view }: { view: View }): VNode {
     chat: 'M4 5h16v11H9l-5 4z',
     settings: 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M16 6a2 2 0 1 0 0 .1M10 12a2 2 0 1 0 0 .1M18 18a2 2 0 1 0 0 .1',
     projects: 'M3 7h7l2 2h9v10H3zM3 7V5h6l2 2',
+    tasks: 'M5 12l4 4L19 6M5 4h8M5 20h14',
+    schedules: 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18',
+    runs: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
     users: 'M9 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8M2 21c0-4 3-7 7-7s7 3 7 7M16 3.5a4 4 0 0 1 0 7M18 14c2.5.8 4 3.5 4 7',
   }
   return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d=${paths[view]}></path></svg>`
@@ -565,6 +569,10 @@ function App(): VNode {
         ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
             account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}
         ${view === 'users' && me?.role === 'admin' ? html`<${UsersView} ...${page} />` : null}
+        ${view === 'tasks' ? html`<${TasksView} ...${page} />` : null}
+        ${view === 'schedules' ? html`<${SchedulesView} ...${page} />` : null}
+        ${view === 'runs' ? html`<${RunsView} ...${page} />` : null}
+        ${view === 'settings' && settingsData !== undefined ? html`<${SystemSection} ...${page} outcome=${null} panic=${overviewData?.panic === true} />` : null}
         ${view === 'projects' ? (sub.length === 0 ? html`<${ProjectsView} ...${page} />` : html`<${ProjectView} key=${sub} id=${sub} ...${page} />`) : null}
       </main>
     </div>`

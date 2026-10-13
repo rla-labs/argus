@@ -241,7 +241,7 @@ const PROJECT_RUNS = 20
 
 /** A run row, with its cost. */
 function runView(sources: DataSources, row: { id: string; owner_key: string; status: string; provider: string; model: string; steps: number; started_at: number; ended_at: number | null; stop_reason: string | null }): RunView {
-  const who = row.owner_key.startsWith('project:') ? row.owner_key.slice('project:'.length) : row.owner_key.startsWith('adhoc:') ? 'task' : 'front desk'
+  const who = row.owner_key.startsWith('project:') ? row.owner_key.slice('project:'.length) : row.owner_key.startsWith('adhoc') ? 'task' : 'front desk'
   return {
     runId: row.id,
     who,
@@ -294,6 +294,126 @@ export function projectDetail(sources: DataSources, id: string): ProjectDetail |
     runs: sources.store.runs.byOwner(`project:${id}`, PROJECT_RUNS).map((run) => runView(sources, run)),
     approvals: all.approvals.filter((approval) => approval.projectId === id),
     schedules: all.schedules.filter((schedule) => schedule.who === id),
+  }
+}
+
+/** A task, for the Tasks page. */
+export interface TaskView extends RunView {
+  /** What was asked, shortened. */
+  readonly text: string | null
+  readonly running: boolean
+}
+
+/** Tasks shown on the Tasks page. */
+const TASKS_SHOWN = 30
+/** Runs shown on the Runs & costs page. */
+const RUNS_SHOWN = 50
+
+/** The text of a request, from its inbound payload. */
+function requestText(payload: string | undefined): string | null {
+  if (payload === undefined) return null
+  const content = parseJson(payload)['content']
+  const text = (Array.isArray(content) ? content : [])
+    .flatMap((block: { type?: unknown; text?: unknown }) => (block.type === 'text' && typeof block.text === 'string' ? [block.text] : []))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return text.length === 0 ? null : text.length > 200 ? `${text.slice(0, 199)}…` : text
+}
+
+/**
+ * The recent tasks, running ones first.
+ *
+ * @param sources the services.
+ * @returns the tasks.
+ */
+export function taskList(sources: DataSources): TaskView[] {
+  const running = new Set(sources.governor.status().running.flatMap((run) => (run.owner.kind === 'adhoc' ? [run.runId, run.owner.runId] : [])))
+  return sources.store.runs
+    .recent(RUNS_SHOWN * 4)
+    .filter((row) => row.owner_key === 'adhoc' || row.owner_key.startsWith('adhoc:'))
+    .slice(0, TASKS_SHOWN)
+    .map((row) => ({
+      ...runView(sources, row),
+      text: requestText(row.inbound_id === null ? undefined : sources.store.inbound.get(row.inbound_id)?.payload),
+      running: running.has(row.id),
+    }))
+    .sort((a, b) => Number(b.running) - Number(a.running))
+}
+
+/** A schedule, for the Schedules page. */
+export interface ScheduleView {
+  readonly id: string
+  readonly cron: string
+  readonly projectId: string | null
+  readonly prompt: string
+  readonly enabled: boolean
+  readonly next: number
+  readonly model: string | null
+}
+
+/**
+ * Every schedule, soonest first.
+ *
+ * @param sources the services.
+ * @returns the schedules; empty when the scheduler is not loaded.
+ */
+export function scheduleList(sources: DataSources): ScheduleView[] {
+  return (sources.schedules()?.list() ?? [])
+    .map((row) => ({ id: row.id, cron: row.cron, projectId: row.project_id, prompt: row.prompt, enabled: row.enabled, next: row.next_run_at, model: row.model }))
+    .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.next - b.next)
+}
+
+/** Spending and limits for one budget scope. */
+export interface ScopeSpend {
+  readonly scope: string
+  readonly dayMicros: number
+  readonly monthMicros: number
+  readonly dayLimitMicros: number | null
+  readonly monthLimitMicros: number | null
+}
+
+/** The Runs & costs page. */
+export interface RunsAndCosts {
+  readonly now: number
+  readonly scopes: readonly ScopeSpend[]
+  readonly runs: readonly RunView[]
+  readonly log: Overview['log']
+}
+
+/** Audit rows shown on the Runs & costs page. */
+const LOG_SHOWN = 40
+
+/**
+ * Every scope's spending against its budget, and the recent runs.
+ *
+ * @param sources the services.
+ * @returns the snapshot.
+ */
+export function runsAndCosts(sources: DataSources): RunsAndCosts {
+  const status = sources.governor.status()
+  const projects = overview(sources).projects.map((project) => `project:${project.id}` as Scope)
+  const scopes: Scope[] = ['global', 'adhoc', 'orchestrator', ...projects]
+  return {
+    now: sources.now(),
+    scopes: scopes.map((scope) => {
+      const spending = sources.meter.spending(scope)
+      return {
+        scope,
+        dayMicros: Number(spending.dayMicros),
+        monthMicros: Number(spending.monthMicros),
+        dayLimitMicros: budgetOf(status, scope, 'day').limit,
+        monthLimitMicros: budgetOf(status, scope, 'month').limit,
+      }
+    }),
+    runs: sources.store.runs.recent(RUNS_SHOWN).map((row) => runView(sources, row)),
+    // The actor is a user id; a person reads a name.
+    log: sources.store.audit.recent(LOG_SHOWN).map((row) => ({
+      at: row.ts,
+      actor: sources.store.users.get(row.actor)?.name ?? sources.store.webAuth.login(row.actor)?.login ?? row.actor,
+      action: row.action,
+      target: row.target,
+    })),
   }
 }
 

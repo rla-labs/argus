@@ -40,10 +40,10 @@ export interface CommandsOptions {
   readonly projectsRoot: string
   /** The deployment's own project templates (`<config_dir>/templates`). */
   readonly templatesDir: string
-  /** Delegate for `/cron`, when `ops-scheduler` is mounted. */
-  readonly scheduler?: SchedulerPort
-  /** Delegate for `/health`, when `ops-health` is mounted. */
-  readonly health?: HealthPort
+  /** Delegate for `/cron`, looked up live: `ops-scheduler` mounts after this plugin. */
+  readonly scheduler?: () => SchedulerPort | undefined
+  /** Delegate for `/health`, looked up live: `ops-health` mounts after this plugin. */
+  readonly health?: () => HealthPort | undefined
   /** Delegate for `/memory`, looked up live because `ops-memory` may mount later. */
   readonly memory?: () => MemoryPort | undefined
   /** Delegate for `/web`: the web interface, looked up live. */

@@ -50,6 +50,9 @@ export interface ServerDeps {
   /** One project, or `undefined` when there is none. */
   readonly project: (id: string) => unknown
   readonly templates: () => unknown
+  readonly tasks: () => unknown
+  readonly schedules: () => unknown
+  readonly runs: () => unknown
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
@@ -194,6 +197,9 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       return users === undefined ? send(response, 403, { error: 'only the admin' }) : send(response, 200, { users })
     }
     if (method === 'GET' && path === '/api/projects') return send(response, 200, { projects: deps.projects() })
+    if (method === 'GET' && path === '/api/tasks') return send(response, 200, { tasks: deps.tasks() })
+    if (method === 'GET' && path === '/api/schedules') return send(response, 200, { schedules: deps.schedules() })
+    if (method === 'GET' && path === '/api/runs') return send(response, 200, deps.runs())
     if (method === 'GET' && path === '/api/templates') return send(response, 200, { templates: deps.templates() })
     const projectPath = /^\/api\/projects\/([^/]+)$/.exec(path)
     if (method === 'GET' && projectPath !== null) {

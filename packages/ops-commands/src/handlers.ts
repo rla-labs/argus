@@ -478,19 +478,24 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'stop',
         description: 'Cancel a project’s current turn',
-        syntax: '/stop [project-id]',
+        syntax: '/stop [project-id | task-run-id]',
         detail:
           'Stops the turn that is running now. Queued messages are kept, so work that has not ' +
-          'started still runs. With no argument, acts on this chat’s active project.',
-        examples: ['/stop', '/stop site-firma'],
+          'started still runs. With no argument, acts on this chat’s active project. A task’s ' +
+          'run id (from /runs all) stops that task.',
+        examples: ['/stop', '/stop site-firma', '/stop 3f2a9c1e-…'],
         mutating: true,
       },
       run(input, context): CommandResult {
         const argument = tokenize(input)[0]
+        const task = governor.status().running.find((run) => run.owner.kind === 'adhoc' && (run.runId === argument || run.owner.runId === argument))
+        if (task !== undefined && task.owner.kind === 'adhoc') {
+          return governor.stop({ runId: task.owner.runId }) ? result(`Stopping the task ${argument ?? ''}.`) : result(`The task ${argument ?? ''} is not running.`)
+        }
         const projectId = projectOf(argument, context)
         if (projectId === undefined) {
           return failWith(
-            { syntax: '/stop [project-id]' } as CommandSpec,
+            { syntax: '/stop [project-id | task-run-id]' } as CommandSpec,
             'No project given and this chat has no active project.',
           )
         }
@@ -1931,10 +1936,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         requires: 'ops-scheduler',
       },
       run(input, context): CommandResult {
-        if (options.scheduler === undefined) {
+        const scheduler = options.scheduler?.()
+        if (scheduler === undefined) {
           return errorResult('The scheduler is not installed on this deployment.')
         }
-        return options.scheduler.run(input, context)
+        return scheduler.run(input, context)
       },
     },
 
@@ -1950,7 +1956,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         requires: 'ops-health',
       },
       run(): CommandResult {
-        if (options.health !== undefined) return result(options.health.report().text)
+        const health = options.health?.()
+        if (health !== undefined) return result(health.report().text)
         // A degraded fallback rather than an error: the governor's own view is
         // still useful, and a missing health plugin is not a failure.
         const status = governor.status()

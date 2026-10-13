@@ -170,11 +170,13 @@ Project site-firma
 ## `/stop [project-id]`
 
 Cancels the current turn. **Queued messages are kept**, so work that has not
-started still runs.
+started still runs. A task's run id (from `/runs all`, or the web's Tasks page) stops
+that task.
 
 ```
 /stop
 /stop site-firma
+/stop 3f2a9c1e-…
 ```
 
 ```

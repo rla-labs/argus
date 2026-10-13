@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
-import { overview, projectDetail, projectList, settings, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
+import { overview, projectDetail, projectList, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
 import { WebChannelAdapter } from './web-channel.js'
 
@@ -213,6 +213,9 @@ export async function apply(ctx: Context): Promise<void> {
       projects: () => projectList(sources),
       project: (id) => projectDetail(sources, id),
       templates: () => ctx.opsCommands.templates(),
+      tasks: () => taskList(sources),
+      schedules: () => scheduleList(sources),
+      runs: () => runsAndCosts(sources),
       settings: () => settings(sources),
       runCommand,
       answerApproval: (approvalId, value, session) =>

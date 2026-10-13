@@ -70,6 +70,8 @@ async function bootWeb(): Promise<Booted> {
       { id: 'commands', name: '@deepseek-ai/dsh-commands' },
       { id: 'ops-commands', name: '@argus-agent/commands' },
       { id: 'ops-channel', name: '@argus-agent/channel' },
+      // After ops-commands, as in the bundle: /cron must find it all the same.
+      { id: 'ops-scheduler', name: '@argus-agent/scheduler' },
       { id: 'ops-web', name: '@argus-agent/web' },
       { id: 'ops-config', name: '@argus-agent/argus-agent/loader-row' },
     ],
@@ -321,5 +323,31 @@ describe('the web interface', () => {
     const download = await fetch(`${booted.base}/api/files/${out.files?.[0]?.id ?? ''}`, { headers: { cookie } })
     expect(download.status).toBe(200)
     expect(await download.text()).toBe('# Report\n')
+  }, 60_000)
+
+  it('serves Tasks, Schedules and Runs & costs, and /stop stops a task by its run id', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const json = async (path: string): Promise<Record<string, unknown>> => (await (await fetch(`${booted.base}${path}`, { headers: { cookie } })).json()) as Record<string, unknown>
+    const run = async (line: string): Promise<{ text: string; error: boolean }> =>
+      (await (await fetch(`${booted.base}/api/command`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ line }) })).json()) as { text: string; error: boolean }
+
+    expect((await run('/task summarise the news')).error).toBe(false)
+    let tasks: Array<{ text: string | null; status: string }> = []
+    for (let tries = 0; tries < 100 && tasks[0]?.status !== 'completed'; tries++) {
+      tasks = (await json('/api/tasks'))['tasks'] as typeof tasks
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    expect(tasks[0]).toMatchObject({ text: 'summarise the news', who: 'task', running: false })
+
+    const runs = await json('/api/runs')
+    expect((runs['scopes'] as Array<{ scope: string }>).map((row) => row.scope)).toEqual(['global', 'adhoc', 'orchestrator', 'project:alpha'])
+    expect((runs['runs'] as unknown[]).length).toBeGreaterThan(0)
+    expect((runs['log'] as Array<{ action: string }>).length).toBeGreaterThan(0)
+    expect(await json('/api/schedules')).toEqual({ schedules: [] })
+    expect((await run('/cron add alpha "0 9 * * 1-5" check the build')).error).toBe(false)
+    expect((await json('/api/schedules'))['schedules']).toEqual([expect.objectContaining({ cron: '0 9 * * 1-5', projectId: 'alpha', prompt: 'check the build', enabled: true })])
+    // A run id that is no running task falls through to a project, and none is that.
+    expect((await run('/stop not-a-run')).text).toContain('not running')
   }, 60_000)
 })
