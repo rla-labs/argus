@@ -374,7 +374,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.3.2
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.4.0
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -408,6 +408,23 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.4.0
+
+Nothing to do by hand. At the first start the database gains its users (migrations 2 to
+5): the admin in `access.admin` and every allowed user, `/allow` ones included, become
+users with their Telegram identities, the same roles as before. Four things to know:
+
+- **The web has its own sign-in.** `/web` still works; once in, set a password in
+  **Settings → Web password** and the link is no longer needed. Sessions survive a
+  restart.
+- **Approvals and notices reach you on every channel you use**, and an approval
+  answered on one is closed on the others.
+- **Telegram is optional now.** A token can be added or changed from the chat
+  (`/key telegram`) with no restart; `access.admin` is no longer needed for a new
+  install (the [setup link](web.md#without-telegram-the-setup-link) creates the admin).
+- **Docker:** run `git pull` in your checkout before `argus upgrade`, for the new
+  `argus setup-link` command and the [public mode](web.md#public-mode) overlay.
 
 ### Upgrading to 0.3.0
 

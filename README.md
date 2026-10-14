@@ -4,9 +4,9 @@
 
 **An operating system for AI agents: one you can leave running and trust.**
 
-**Current release: [0.3.2](https://github.com/rla-labs/argus/releases/tag/v0.3.2)**
-(image `ghcr.io/rla-labs/argus:0.3.2`). Self-hosted, controlled from Telegram and a
-private web interface.
+**Current release: [0.4.0](https://github.com/rla-labs/argus/releases/tag/v0.4.0)**
+(image `ghcr.io/rla-labs/argus:0.4.0`). Self-hosted, controlled from its own web
+interface, from Telegram, or both.
 
 *Formerly **dsh-ops**. The plugins keep their `ops-*` names.*
 
@@ -61,13 +61,16 @@ And it should tell you, in plain words, what happened and what it needs from you
 
 ### You stay in control
 
-- **Telegram.** Commands like `/status`, `/stop`, `/budget` and `/panic` are
-  deterministic code, so they work without a model in the loop. Any other message
+- **Chat commands, on any channel.** Commands like `/status`, `/stop`, `/budget` and
+  `/panic`, typed in the web chat or to the Telegram bot, are deterministic code, so
+  they work without a model in the loop. Any other message
   goes to the active project, verbatim, or to a cheap "front desk" agent that routes it.
 - **A web interface.** An overview of the projects, spending, live runs and schedules,
-  the pending approvals, the settings and the same chat, in English or Romanian. It is
-  built for a private network (Tailscale, a VPN, an SSH tunnel) and signs you in with a
-  one-time link from `/web`.
+  the pending approvals, the settings, users and the same chat, in English or Romanian.
+  Its own sign-in (a password, optionally an authenticator code), its own setup with no
+  Telegram at all. Built for a private network (Tailscale, a VPN, an SSH tunnel); a
+  [public mode](docs/user/web.md#public-mode) puts it behind Caddy with HTTPS and a
+  required second factor.
 - **Administration without SSH.** A project's runs, what each one did, its memory and
   files (`/runs`, `/log`, `/memory`, `/files`, `/get`); its settings (`/set`); API keys,
   checked with the provider before they are saved (`/key`); the default models
@@ -101,6 +104,17 @@ And it should tell you, in plain words, what happened and what it needs from you
   system even after a hard crash.
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
+
+## New in 0.4.0
+
+Channels that stand on their own: Telegram is optional. A person is a **user** of
+Argus, with one role, on the web, on Telegram, or both (`/link`). The web has its own
+passwords, a persistent chat and inbox, invitations (`/users`), every page Telegram's
+commands offer, and a one-time **setup link** that creates the admin on an install with
+no bot. Approvals are asked on every channel of the user and closed on the others.
+**Public mode** for the web: an authenticator code for every sign-in, a Caddy overlay
+with automatic HTTPS. Upgrading from 0.3 needs no manual step: the admin and the
+allowed users become users, with their Telegram identities.
 
 ## New in 0.3.0
 
@@ -146,6 +160,12 @@ What has been verified:
 - **The native install, end to end, on a fresh Ubuntu 24.04 with systemd:**
   install, crash recovery, upgrade and rollback from git, uninstall.
   `pnpm test:native-vps` repeats it on demand.
+- **0.4.0 on the same fresh Ubuntu, and in the Docker image:** an install with no
+  Telegram, the setup link creating the admin, the web chat answering, the admin's
+  recovery link; and an upgrade from 0.3.2 that turns the admin and an allowed user
+  into users with their Telegram identities (`pnpm test:native-vps --web-only`,
+  `--upgrade`). Public mode (TOTP, Caddy) is covered by automated tests, not yet by a
+  live deployment.
 - **A live run with a real Telegram bot and real billed models.** `/help`, `/new`,
   a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
   GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
@@ -168,9 +188,7 @@ What is not verified yet:
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **Channels that stand on their own.** Today the web interface signs you in through
-   Telegram. Next, users who belong to no single channel, the web with its own sign-in
-   and its own setup, so Argus can run with no Telegram at all.
+1. **Autonomy with guard rails:** a stronger sandbox, extensions, layered templates.
 2. **More channels and more people.** Slack or Discord, and more roles than admin and
    operator, so a team can share one Argus.
 3. **Memory that finds meaning**, not only words, and **parallel work** inside one
@@ -190,9 +208,9 @@ native install, **Node 22** and **pnpm 8.6.11**:
 corepack enable && corepack prepare pnpm@8.6.11 --activate
 ```
 
-Either way, you need a Telegram bot token from [@BotFather](https://t.me/BotFather), your
-numeric Telegram user id from [@userinfobot](https://t.me/userinfobot), and an API
-key for your model provider.
+Either way, you need an API key for your model provider. Telegram is optional: for it,
+a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user id
+from [@userinfobot](https://t.me/userinfobot). The installer asks.
 
 ### Docker (recommended)
 
@@ -217,16 +235,20 @@ sudo ./deploy/native/install-native.sh
 
 A fully supported alternative. The installer creates a service account, builds the
 code and composes the dsh profile. It then installs a hardened systemd unit, waits for
-the health check and sends your first Telegram message.
+the health check and, with Telegram, sends your first message.
 
-After either install, open the chat with your bot and send `/start`. On the host, one
+After either install: without Telegram, open the **setup link** the installer prints (it
+creates the admin, then walks through the key, the models and a first project;
+`argus setup-link` shows it again). With Telegram, open the chat with your bot and send
+`/start`. On the host, one
 command runs the rest, for both installs: `argus status`, `argus doctor`, `argus logs -f`,
 `argus backup`, `argus restore`, `argus upgrade`.
 
 For the web interface, open a private path to the server's port 3091 (on the server:
 `sudo tailscale serve --bg 3091`; or from your computer:
-`ssh -N -L 3091:127.0.0.1:3091 you@server`), then send `/web` to the bot for a
-sign-in link. Nothing is ever opened to the internet.
+`ssh -N -L 3091:127.0.0.1:3091 you@server`), then sign in, or send `/web` to the bot
+for a sign-in link. Nothing is opened to the internet unless you choose
+[public mode](docs/user/web.md#public-mode).
 
 The user documentation starts at [`docs/user/`](docs/user/README.md):
 
