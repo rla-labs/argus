@@ -27,7 +27,9 @@ const boot = await bootOps({
       `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\nbudgets:\n  default_day_usd: 3\n  global_day_usd: 5\n` +
       // SETUP=1: no admin, to try the setup link.
       (process.env['SETUP'] === '1' ? '' : `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n  admin: telegram:42\n`) +
-      `web:\n  port: ${process.env['PORT'] ?? '3099'}\n  public_url: http://127.0.0.1:${process.env['PORT'] ?? '3099'}\n`,
+      `web:\n  port: ${process.env['PORT'] ?? '3099'}\n  public_url: http://127.0.0.1:${process.env['PORT'] ?? '3099'}\n` +
+      // PUBLIC=1: public mode, to try the authenticator code (127.0.0.1 counts as secure).
+      (process.env['PUBLIC'] === '1' ? '  public: true\n' : ''),
   },
   replaceEntries: [
     ...BASE_ENTRIES,

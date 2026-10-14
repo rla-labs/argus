@@ -23,6 +23,7 @@ readonly DEPLOY_DIR
 readonly COMPOSE_DIR="${DEPLOY_DIR}/compose"
 readonly COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 readonly OLLAMA_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.ollama.yml"
+readonly CADDY_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.caddy.yml"
 
 # The project root, for a build-from-checkout. Exported so install.sh and upgrade.sh
 # (which source this file) read it without re-deriving it.
@@ -104,13 +105,24 @@ require_docker() {
 
 # `docker compose` with the project's file, from its own directory so relative paths
 # in the compose file resolve the way the file's author intended.
+# The Caddy overlay (public mode) comes along whenever .env names its domain, so an
+# `up --remove-orphans` never removes the proxy.
 compose() {
-  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" "$@" )
+  local caddy=()
+  using_caddy && caddy=(-f "${CADDY_COMPOSE_FILE}")
+  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" "${caddy[@]}" "$@" )
 }
 
 # Compose with the Ollama overlay, when it is in use.
 compose_with_overlay() {
-  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" -f "${OLLAMA_COMPOSE_FILE}" "$@" )
+  local caddy=()
+  using_caddy && caddy=(-f "${CADDY_COMPOSE_FILE}")
+  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" -f "${OLLAMA_COMPOSE_FILE}" "${caddy[@]}" "$@" )
+}
+
+# Whether the Caddy overlay (public mode) is active, according to `.env`.
+using_caddy() {
+  [ -f "${COMPOSE_DIR}/.env" ] && grep -qE '^[[:space:]]*ARGUS_DOMAIN=.' "${COMPOSE_DIR}/.env" 2>/dev/null
 }
 
 # Whether the Ollama overlay is active, according to `.env`.

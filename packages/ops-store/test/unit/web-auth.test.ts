@@ -31,6 +31,21 @@ describe('WebAuthRepository', () => {
     expect(store.webAuth.login('a')).toBeUndefined()
   })
 
+  it('keeps a second factor: a step works once, a recovery code once', () => {
+    const store = openMemoryStore()
+    store.users.create({ id: 'a', role: 'admin' }, T0)
+    expect(store.webAuth.totp('a')).toBeUndefined()
+    store.webAuth.setTotp({ user_id: 'a', secret: 'S', recovery: '["r1","r2"]', last_step: 0, enabled_at: T0 })
+    expect(store.webAuth.useTotpStep('a', 10)).toBe(true)
+    expect(store.webAuth.useTotpStep('a', 10)).toBe(false)
+    expect(store.webAuth.useTotpStep('a', 9)).toBe(false)
+    expect(store.webAuth.replaceRecovery('a', '["r1","r2"]', '["r2"]')).toBe(true)
+    expect(store.webAuth.replaceRecovery('a', '["r1","r2"]', '["r2"]')).toBe(false)
+    expect(store.webAuth.totp('a')).toMatchObject({ secret: 'S', recovery: '["r2"]', last_step: 10 })
+    expect(store.webAuth.deleteTotp('a')).toBe(true)
+    expect(store.webAuth.totp('a')).toBeUndefined()
+  })
+
   it('stores sessions, ends all of a user\'s but one, and prunes the expired', () => {
     const store = openMemoryStore()
     store.users.create({ id: 'a', role: 'admin' }, T0)

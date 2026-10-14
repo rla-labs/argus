@@ -133,5 +133,5 @@ send `/web` for a sign-in link. [The web interface](web.md) has the steps.
 
 - [Three scenarios](scenarios.md): a website, a daily report, a file you send.
 - [Working with Argus every day](daily-use.md): habits that keep it useful and cheap.
-- [Telegram commands](commands.md): every command.
+- [Chat commands](commands.md): every command.
 - [Troubleshooting](troubleshooting.md), when something does not work. Start with `argus doctor`.

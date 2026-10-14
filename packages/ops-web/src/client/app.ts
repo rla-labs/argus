@@ -57,6 +57,11 @@ interface Me {
   channels: string[]
   /** Commands only the admin may run; their buttons are not offered to an operator. */
   adminOnly: string[]
+  /** Whether the user has an authenticator code (TOTP). */
+  totp: boolean
+  /** Public mode, and no code yet: setting one up is all the session may do. */
+  totpRequired: boolean
+  publicMode: boolean
 }
 
 interface UserRow {
@@ -121,18 +126,39 @@ function ApprovalCard({ approval, onDone }: { approval: Overview['approvals'][nu
 function SignIn({ onSignedIn }: { onSignedIn: () => void }): VNode {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  // After the password, or a `/web` link (`/?step=code`), a user with a second factor gives the code.
+  const [step, setStep] = useState<'password' | 'code'>(new URLSearchParams(location.search).get('step') === 'code' ? 'code' : 'password')
   const [error, setError] = useState<string | undefined>()
+  const send = (path: string, body: unknown): Promise<Response> =>
+    fetch(path, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify(body) })
   const submit = async (event: Event): Promise<void> => {
     event.preventDefault()
-    const response = await fetch('/login', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'content-type': 'application/json', 'x-argus': '1' },
-      body: JSON.stringify({ login, password }),
-    })
+    const response = await send('/login', { login, password })
     setPassword('')
-    if (response.ok) onSignedIn()
+    if (response.status === 200) {
+      setError(undefined)
+      setStep('code')
+    } else if (response.ok) onSignedIn()
     else setError(t(response.status === 429 ? 'signin.limited' : 'signin.invalid'))
+  }
+  const submitCode = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const response = await send('/login/code', { code })
+    setCode('')
+    if (response.ok) {
+      history.replaceState(null, '', `/${location.hash}`)
+      onSignedIn()
+    } else setError(t(response.status === 429 ? 'signin.limited' : 'signin.badCode'))
+  }
+  if (step === 'code') {
+    return html`<section class="hud signin"><h2>${t('signin.title')}</h2><p>${t('signin.codeText')}</p>
+      ${error === undefined ? null : html`<div class="notice err" role="alert">${error}</div>`}
+      <form style="display:flex;flex-direction:column;gap:12px;max-width:360px" onSubmit=${(event: Event) => void submitCode(event)}>
+        <div class="field"><label class="lbl" for="s-code">${t('signin.code')}</label><input id="s-code" autocomplete="one-time-code" inputmode="text" required value=${code} onInput=${(e: Event) => setCode((e.target as HTMLInputElement).value)} /></div>
+        <div class="btns"><button class="btn primary" type="submit">${t('signin.submit')}</button>
+          <button class="btn ghost" type="button" onClick=${() => { history.replaceState(null, '', `/${location.hash}`); setError(undefined); setStep('password') }}>${t('signin.again')}</button></div>
+      </form></section>`
   }
   return html`<section class="hud signin"><h2>${t('signin.title')}</h2><p>${t('signin.text')}</p>
     ${error === undefined ? null : html`<div class="notice err" role="alert">${error}</div>`}
@@ -194,6 +220,54 @@ function PasswordSection({ me, onChanged }: { me: Me; onChanged: () => void }): 
       <div class="field" style="flex:1 1 160px"><label class="lbl" for="p-new">${t('password.new')}</label><input id="p-new" type="password" autocomplete="new-password" minlength="10" required value=${password} onInput=${(e: Event) => setPassword((e.target as HTMLInputElement).value)} /></div>
       <button class="btn ghost" type="submit">${t('settings.save')}</button>
     </form>
+  </section>`
+}
+
+/** The authenticator code (TOTP): set it up, or remove it. */
+function TotpSection({ me, onChanged }: { me: Me; onChanged: () => void }): VNode {
+  const [pending, setPending] = useState<{ secret: string; uri: string } | undefined>()
+  const [recovery, setRecovery] = useState<string[] | undefined>()
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string | undefined>()
+  const start = async (): Promise<void> => {
+    const result = await post<{ secret: string; uri: string }>('/api/totp/start', {})
+    if (result.ok) setPending(result.body)
+  }
+  const confirm = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const result = await post<{ recovery?: string[] }>('/api/totp/confirm', { code })
+    setCode('')
+    if (result.ok && result.body.recovery !== undefined) {
+      setPending(undefined)
+      setError(undefined)
+      setRecovery(result.body.recovery)
+    } else setError(t('totp.badCode'))
+  }
+  const disable = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const result = await post('/api/totp/disable', { code })
+    setCode('')
+    if (result.ok) onChanged()
+    else setError(t('totp.badCode'))
+  }
+  const codeField = html`<div class="field" style="flex:1 1 160px"><label class="lbl" for="t-code">${t('signin.code')}</label><input id="t-code" autocomplete="one-time-code" required value=${code} onInput=${(e: Event) => setCode((e.target as HTMLInputElement).value)} /></div>`
+  return html`<section class="hud">
+    <h2>${t('totp.title')}</h2>
+    ${error === undefined ? null : html`<div class="notice err" role="alert">${error}</div>`}
+    ${recovery !== undefined
+      ? html`<p class="muted" style="margin:0">${t('totp.recovery')}</p>
+          <pre class="mono" style="margin:0">${recovery.join('\n')}</pre>
+          <div><button class="btn primary" type="button" onClick=${() => { setRecovery(undefined); onChanged() }}>${t('totp.saved')}</button></div>`
+      : pending !== undefined
+        ? html`<p class="muted" style="margin:0">${t('totp.scan')}</p>
+            <p class="mono" style="margin:0;word-break:break-all">${pending.secret}</p>
+            <p style="margin:0"><a class="link" href=${pending.uri}>${t('totp.open')}</a></p>
+            <form class="inline" onSubmit=${(event: Event) => void confirm(event)}>${codeField}<button class="btn primary" type="submit">${t('totp.confirm')}</button></form>`
+        : me.totp
+          ? html`<p class="muted" style="margin:0">${me.publicMode ? t('totp.onPublic') : t('totp.on')}</p>
+              ${me.publicMode ? null : html`<form class="inline" onSubmit=${(event: Event) => void disable(event)}>${codeField}<button class="btn ghost" type="submit">${t('totp.disable')}</button></form>`}`
+          : html`<p class="muted" style="margin:0">${me.totpRequired ? t('totp.required') : t('totp.off')}</p>
+              <div><button class="btn primary" type="button" onClick=${() => void start()}>${t('totp.start')}</button></div>`}
   </section>`
 }
 
@@ -559,8 +633,10 @@ function App(): VNode {
     [],
   )
   useEffect(loadMe, [loadMe])
+  // Public mode, no authenticator code yet: setting one up is all there is.
+  const restricted = me?.totpRequired === true
   useEffect(() => {
-    if (signedIn !== true) return undefined
+    if (signedIn !== true || restricted) return undefined
     void loadOverview()
     void loadSettings()
     void loadUnread()
@@ -586,7 +662,7 @@ function App(): VNode {
       clearInterval(tick)
       stop()
     }
-  }, [signedIn, loadOverview, loadSettings, loadUnread, loadMe])
+  }, [signedIn, restricted, loadOverview, loadSettings, loadUnread, loadMe])
 
   // A link (`#projects/site-firma`) moves between pages as the menu does.
   useEffect(() => {
@@ -595,6 +671,8 @@ function App(): VNode {
       setOutcome(undefined)
     }
     window.addEventListener('hashchange', follow)
+    // The address may have changed between the first render and this listener.
+    setPlace(fromHash())
     return () => window.removeEventListener('hashchange', follow)
   }, [])
   const go = (next: View): void => {
@@ -632,6 +710,10 @@ function App(): VNode {
     }
     return html`${header}<${SignIn} onSignedIn=${loadMe} />`
   }
+  if (me !== undefined && restricted) {
+    return html`${header}<div class="signin" style="display:flex;flex-direction:column;gap:12px"><${TotpSection} me=${me} onChanged=${loadMe} />
+      <div><button class="btn ghost" type="button" onClick=${() => void post('/api/logout', {}).then(() => setSignedIn(false))}>${t('nav.signout')}</button></div></div>`
+  }
   // What a new install still lacks: a provider key, a first project.
   const unfinished = me?.role === 'admin' && settingsData !== undefined && (!settingsData.keys.some((entry) => entry.provider !== 'telegram' && entry.configured) || settingsData.projects.length === 0)
 
@@ -662,7 +744,7 @@ function App(): VNode {
         ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} />` : null}
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}
         ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
-            account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}
+            account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${TotpSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}
         ${view === 'users' && me?.role === 'admin' ? html`<${UsersView} ...${page} />` : null}
         ${view === 'tasks' ? html`<${TasksView} ...${page} />` : null}
         ${view === 'schedules' ? html`<${SchedulesView} ...${page} />` : null}

@@ -10,10 +10,15 @@
  * Sessions are rows in `ops-store` (a hash of the cookie, never the cookie), so a
  * restart signs nobody out. Links stay in memory: they live ten minutes.
  *
+ * A user with a second factor (TOTP) gives a code after the password or the link:
+ * the first step returns a ticket, valid five minutes, that the code trades for the
+ * session. In public mode the server requires one; elsewhere it is a choice.
+ *
  * @module @argus-agent/web/auth
  */
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import type { OpsStore, WebSessionVia } from '@argus-agent/store'
+import { matchStep, newRecoveryCodes, newSecret, otpauthUri, recoveryHash } from './totp.js'
 
 /** How long a `/web` link stays valid, and how long after using one a password may be reset with it. */
 export const LOGIN_TOKEN_TTL_MS = 10 * 60_000
@@ -27,6 +32,12 @@ const MAX_FAILS = 5
 const LOCK_MS = 15 * 60_000
 /** A session's last use is written at most this often. */
 const TOUCH_MS = 60_000
+/** How long the code may follow the password or the link. */
+const TICKET_MS = 5 * 60_000
+/** Wrong codes allowed per ticket. */
+const TICKET_TRIES = 5
+/** How long a secret being set up waits for its first code. */
+const ENROL_MS = 10 * 60_000
 /** scrypt's cost: 16 MiB and some 50 ms per hash. */
 const SCRYPT = { N: 16_384, r: 8, p: 1, keylen: 32 }
 /** What a login name may be. */
@@ -42,7 +53,11 @@ export interface Session {
 }
 
 /** A sign-in's outcome. */
-export type LoginOutcome = { ok: true; sessionId: string; session: Session } | { ok: false; reason: 'limited' | 'invalid' }
+export type LoginOutcome =
+  | { ok: true; sessionId: string; session: Session }
+  | { ok: false; reason: 'limited' | 'invalid' }
+  /** The password or the link was right; the code is next, with this ticket. */
+  | { ok: false; reason: 'totp'; ticket: string }
 
 /** Why a password was not set. */
 export type PasswordRefusal = 'short' | 'login' | 'taken' | 'wrong'
@@ -78,18 +93,22 @@ const hashOf = (sessionId: string): string => createHash('sha256').update(sessio
 
 /** Sign-in, sessions and passwords. */
 export class WebAuth {
-  private readonly tokens = new Map<string, { userId: string; expiresAt: number }>()
+  private readonly tokens = new Map<string, { userId: string; expiresAt: number; recovery: boolean }>()
+  private readonly tickets = new Map<string, { userId: string; via: WebSessionVia; expiresAt: number; tries: number }>()
+  private readonly enrolling = new Map<string, { secret: string; expiresAt: number }>()
   private readonly fails = new Map<string, number[]>()
 
   /**
    * @param store where users, logins and sessions are.
    * @param sessionMs how long a session lasts.
    * @param now reads the current time.
+   * @param idleMs how long an unused session lasts; 0 for no limit.
    */
   constructor(
     private readonly store: Pick<OpsStore, 'users' | 'webAuth'>,
     private readonly sessionMs: number,
     private readonly now: () => number = () => Date.now(),
+    private readonly idleMs = 0,
   ) {}
 
   /**
@@ -98,13 +117,15 @@ export class WebAuth {
    * @param userId the Argus user id.
    * @param ttlMs how long it is valid: {@link LOGIN_TOKEN_TTL_MS} for `/web`,
    *   {@link INVITE_TTL_MS} for an invitation.
+   * @param recovery whether it is the admin's way back in (`argus setup-link
+   *   --admin`): it asks for no code and removes the second factor, to set again.
    * @returns the token.
    */
-  issueToken(userId: string, ttlMs = LOGIN_TOKEN_TTL_MS): string {
+  issueToken(userId: string, ttlMs = LOGIN_TOKEN_TTL_MS, recovery = false): string {
     const now = this.now()
     for (const [key, entry] of this.tokens) if (entry.expiresAt < now) this.tokens.delete(key)
     const token = randomBytes(24).toString('base64url')
-    this.tokens.set(token, { userId, expiresAt: now + ttlMs })
+    this.tokens.set(token, { userId, expiresAt: now + ttlMs, recovery })
     return token
   }
 
@@ -124,7 +145,9 @@ export class WebAuth {
       this.failed(address)
       return { ok: false, reason: 'invalid' }
     }
-    return this.open(entry.userId, 'link', userAgent)
+    // Whoever can read the server's files owns it already; a second factor adds nothing.
+    if (entry.recovery) this.store.webAuth.deleteTotp(entry.userId)
+    return this.next(entry.userId, 'link', userAgent)
   }
 
   /**
@@ -155,7 +178,83 @@ export class WebAuth {
       return { ok: false, reason: 'invalid' }
     }
     if (row.failed_count > 0 || row.locked_until !== null) this.store.webAuth.setFailures(row.user_id, 0, null)
-    return this.open(row.user_id, 'password', userAgent)
+    return this.next(row.user_id, 'password', userAgent)
+  }
+
+  /**
+   * Trade a ticket and a code (or a recovery code) for the session.
+   *
+   * @param ticket from the first step.
+   * @param code six digits, or a recovery code.
+   * @param address who is asking, for the failed sign-in limit.
+   * @param userAgent the browser.
+   * @returns the session, or why not; `invalid` once the ticket is gone.
+   */
+  verifyTicket(ticket: string, code: string, address: string, userAgent?: string): LoginOutcome {
+    if (this.limited(address)) return { ok: false, reason: 'limited' }
+    const entry = this.tickets.get(ticket)
+    if (entry === undefined || entry.expiresAt < this.now() || !this.enabled(entry.userId)) {
+      this.tickets.delete(ticket)
+      this.failed(address)
+      return { ok: false, reason: 'invalid' }
+    }
+    if (!this.checkCode(entry.userId, code)) {
+      this.failed(address)
+      entry.tries += 1
+      if (entry.tries >= TICKET_TRIES) this.tickets.delete(ticket)
+      return { ok: false, reason: 'invalid' }
+    }
+    this.tickets.delete(ticket)
+    return this.open(entry.userId, entry.via, userAgent)
+  }
+
+  /** Whether a user has a second factor. */
+  hasTotp(userId: string): boolean {
+    return this.store.webAuth.totp(userId) !== undefined
+  }
+
+  /**
+   * Start setting up a second factor: a new secret, for the authenticator app. It
+   * counts once {@link confirmTotp} gets a code from it.
+   *
+   * @param userId the signed-in user.
+   * @returns the secret and the `otpauth://` link.
+   */
+  startTotp(userId: string): { secret: string; uri: string } {
+    const secret = newSecret()
+    this.enrolling.set(userId, { secret, expiresAt: this.now() + ENROL_MS })
+    const user = this.store.users.get(userId)
+    return { secret, uri: otpauthUri(secret, this.loginOf(userId) ?? user?.name ?? userId) }
+  }
+
+  /**
+   * Finish setting up a second factor with a code from the app.
+   *
+   * @param userId the signed-in user.
+   * @param code six digits.
+   * @returns the recovery codes, shown once, or `undefined` when the code is wrong.
+   */
+  confirmTotp(userId: string, code: string): string[] | undefined {
+    const pending = this.enrolling.get(userId)
+    if (pending === undefined || pending.expiresAt < this.now()) return undefined
+    const step = matchStep(pending.secret, code, this.now())
+    if (step === undefined) return undefined
+    this.enrolling.delete(userId)
+    const codes = newRecoveryCodes()
+    this.store.webAuth.setTotp({ user_id: userId, secret: pending.secret, recovery: JSON.stringify(codes.map(recoveryHash)), last_step: step, enabled_at: this.now() })
+    return codes
+  }
+
+  /**
+   * Remove a user's second factor, with a code from it.
+   *
+   * @param userId the signed-in user.
+   * @param code six digits, or a recovery code.
+   * @returns whether it was removed.
+   */
+  disableTotp(userId: string, code: string): boolean {
+    if (!this.checkCode(userId, code)) return false
+    return this.store.webAuth.deleteTotp(userId)
   }
 
   /**
@@ -170,7 +269,8 @@ export class WebAuth {
     const row = this.store.webAuth.session(idHash)
     if (row === undefined) return undefined
     const now = this.now()
-    if (row.expires_at < now || !this.enabled(row.user_id)) {
+    const idle = this.idleMs > 0 && now - row.last_seen_at > this.idleMs
+    if (row.expires_at < now || idle || !this.enabled(row.user_id)) {
       this.store.webAuth.deleteSession(idHash)
       return undefined
     }
@@ -249,6 +349,28 @@ export class WebAuth {
       user_agent: userAgent?.slice(0, 200) ?? null,
     })
     return { ok: true, sessionId, session }
+  }
+
+  /** The session, or the ticket for the code when the user has a second factor. */
+  private next(userId: string, via: WebSessionVia, userAgent: string | undefined): LoginOutcome {
+    if (!this.hasTotp(userId)) return this.open(userId, via, userAgent)
+    const now = this.now()
+    for (const [key, entry] of this.tickets) if (entry.expiresAt < now) this.tickets.delete(key)
+    const ticket = randomBytes(24).toString('base64url')
+    this.tickets.set(ticket, { userId, via, expiresAt: now + TICKET_MS, tries: 0 })
+    return { ok: false, reason: 'totp', ticket }
+  }
+
+  /** Whether a code is the user's: a TOTP code not used before, or an unused recovery code. */
+  private checkCode(userId: string, code: string): boolean {
+    const row = this.store.webAuth.totp(userId)
+    if (row === undefined) return false
+    const step = matchStep(row.secret, code, this.now())
+    if (step !== undefined) return this.store.webAuth.useTotpStep(userId, step)
+    const hashes = JSON.parse(row.recovery) as string[]
+    const hash = recoveryHash(code)
+    if (code.trim().length === 0 || !hashes.includes(hash)) return false
+    return this.store.webAuth.replaceRecovery(userId, row.recovery, JSON.stringify(hashes.filter((each) => each !== hash)))
   }
 
   /** Whether a user exists and is enabled. */

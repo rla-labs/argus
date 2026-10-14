@@ -220,5 +220,22 @@
   "setup.systemText": "Timezone {timezone}; every project may spend ${day} a day and ${month} a month unless set otherwise. These are in ops.yaml (timezone, budgets) and apply after a restart; /budget changes one budget at once.",
   "setup.finish": "Done",
   "setup.banner": "Argus is not fully set up yet: it needs a provider key and a first project.",
-  "setup.bannerLink": "Finish the setup"
+  "setup.bannerLink": "Finish the setup",
+  "signin.codeText": "Enter the 6-digit code from your authenticator app, or one of your recovery codes.",
+  "signin.code": "Code",
+  "signin.badCode": "That code is not right, or it was used already. After five wrong codes, start again.",
+  "signin.again": "Start again",
+  "totp.title": "Authenticator code",
+  "totp.off": "Off. With it on, every sign-in also asks for a 6-digit code from an authenticator app (Aegis, Google Authenticator, 1Password…). It is required when the web is public.",
+  "totp.required": "This web interface is public: set up an authenticator code before anything else.",
+  "totp.start": "Set up",
+  "totp.scan": "Add this key to your authenticator app (on a phone, the link opens it), then enter the code it shows.",
+  "totp.open": "Open in the authenticator app",
+  "totp.confirm": "Confirm",
+  "totp.badCode": "That code is not right. Check the phone’s clock, and try the next code.",
+  "totp.recovery": "On. Keep these recovery codes somewhere safe: each one signs you in once without the phone. They are not shown again.",
+  "totp.saved": "I saved them",
+  "totp.on": "On: every sign-in asks for a code. To turn it off, enter a code.",
+  "totp.onPublic": "On. It is required while the web is public.",
+  "totp.disable": "Turn off"
 }

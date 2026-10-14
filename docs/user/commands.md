@@ -1,6 +1,7 @@
-# Telegram commands
+# Chat commands
 
-Every command is deterministic: no model turn, no LLM decision. Syntax errors
+The same commands work on every channel: typed to the bot in Telegram, or in the web
+interface's Chat. The web's buttons run them too. Every command is deterministic: no model turn, no LLM decision. Syntax errors
 always show the correct syntax.
 
 A **scope** is `global`, `adhoc`, or a project id. Where a command takes an
@@ -26,8 +27,8 @@ For which command fits which moment, read
 
 | Role | Who | May |
 |---|---|---|
-| **admin** | `access.admin` (anyone in its chat, when it is a group) | everything |
-| **operator** | every other allowed user (`allowed_users`, `/allow`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
+| **admin** | the one admin: created with the web setup link, or `access.admin` on Telegram (anyone in its chat, when it is a group) | everything |
+| **operator** | every other user (`allowed_users`, `/allow`, a `/users invite`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),

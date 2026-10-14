@@ -11,6 +11,7 @@
  * @module @argus-agent/web
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { DoctorFinding } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { governorConfigOf } from '@argus-agent/governor'
@@ -26,6 +27,7 @@ export * from './config.js'
 export * from './data.js'
 export * from './server.js'
 export * from './setup.js'
+export * from './totp.js'
 export * from './web-channel.js'
 
 /** Stable Cordis plugin name. */
@@ -60,6 +62,8 @@ export interface OpsWeb {
   inviteLink(userId: string): string
   /** The port the server listens on, once it does. */
   readonly port: number | undefined
+  /** `argus doctor`: in public mode, HTTPS and the admin's second factor. */
+  doctor(): DoctorFinding[]
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -128,12 +132,18 @@ export async function apply(ctx: Context): Promise<void> {
   ctx.effect(() => () => void unregister())
 
   // ── login ────────────────────────────────────────────────────────────────
-  const auth = new WebAuth(ctx.opsStore, config.session_hours * 3_600_000)
+  const auth = new WebAuth(ctx.opsStore, config.session_hours * 3_600_000, () => Date.now(), config.public ? config.idle_minutes * 60_000 : 0)
+  const https = config.public_url.startsWith('https://')
   const web: { -readonly [K in keyof OpsWeb]: OpsWeb[K] } = {
     loginLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId)}`,
     inviteLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId, INVITE_TTL_MS)}`,
     port: undefined,
+    doctor: () => publicDoctor(config.public, https, () => {
+      const admin = ctx.opsStore.users.admin()
+      return admin === undefined || auth.hasTotp(admin.id)
+    }),
   }
+  if (config.public && !https) logger.warn('web.public is on but web.public_url is not https://: run `argus doctor`')
   ctx.provide('opsWeb', web)
 
   // ── the first admin, or a lost one ───────────────────────────────────────
@@ -203,7 +213,8 @@ export async function apply(ctx: Context): Promise<void> {
     const server = await startWebServer({
       host: config.host,
       port: config.port,
-      secure: config.public_url.startsWith('https://'),
+      secure: https,
+      public: config.public,
       auth,
       setup,
       sessionHours: config.session_hours,
@@ -261,4 +272,24 @@ export async function apply(ctx: Context): Promise<void> {
     // A taken port must not take the rest of the system down.
     logger.warn('the web interface could not start on %s:%d: %s', config.host, config.port, error instanceof Error ? error.message : String(error))
   }
+}
+
+/**
+ * The public-mode findings: nothing when the web is private.
+ *
+ * @param isPublic `web.public`.
+ * @param https whether `web.public_url` is `https://`.
+ * @param adminHasTotp whether the admin (when there is one) has a second factor.
+ * @returns the findings.
+ */
+export function publicDoctor(isPublic: boolean, https: boolean, adminHasTotp: () => boolean): DoctorFinding[] {
+  if (!isPublic) return []
+  return [
+    https
+      ? { ok: true, check: 'the public web: HTTPS', detail: 'web.public_url is https://' }
+      : { ok: false, check: 'the public web: HTTPS', detail: 'web.public is on but web.public_url is not https://', fix: 'put the web behind the Caddy overlay (docs/user/web.md#public-mode) and set web.public_url to https://<your domain>, then restart' },
+    adminHasTotp()
+      ? { ok: true, check: "the public web: the admin's second factor", detail: 'set' }
+      : { ok: false, check: "the public web: the admin's second factor", detail: 'the admin has no authenticator code yet', fix: 'sign in on the web: it asks for the code to be set up before anything else' },
+  ]
 }

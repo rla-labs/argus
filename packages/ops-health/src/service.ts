@@ -72,7 +72,7 @@ export interface InterruptedRun {
 const REQUIRED_SUBSYSTEMS = ['opsStore', 'opsProjects', 'opsMeter', 'opsGovernor', 'opsChannel'] as const
 
 /** The services that contribute to `argus doctor`, each through its `doctor()`. */
-const DOCTOR_SOURCES = ['opsProjects', 'opsChannel', 'opsProviders', 'sandbox', 'opsCommands', 'opsOrchestrator'] as const
+const DOCTOR_SOURCES = ['opsProjects', 'opsChannel', 'opsProviders', 'sandbox', 'opsCommands', 'opsOrchestrator', 'opsWeb'] as const
 
 /** Optional plugins, reported only when mounted. */
 const OPTIONAL_SUBSYSTEMS = ['opsScheduler', 'opsMemory', 'opsApprovals', 'opsOrchestrator'] as const

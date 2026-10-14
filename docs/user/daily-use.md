@@ -481,7 +481,7 @@ meant for a private network: open it through Tailscale, a VPN or an SSH tunnel.
 | Stopping and restarting work | `/stop`, `/reset`, `/reload`, `/panic`, `/resume-all` |
 | Changing things (admin) | `/new`, `/set`, `/instructions <id> <text>`, `/model`, `/budget <scope> +<usd>`, `/forget`, `/archive`, `/allow`, `/allow-free`, `/key`, `/defaults`, `/web` |
 
-Every command, with its syntax and examples: [Telegram commands](commands.md).
+Every command, with its syntax and examples: [Chat commands](commands.md).
 
 ---
 

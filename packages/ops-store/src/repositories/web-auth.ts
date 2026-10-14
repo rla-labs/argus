@@ -1,17 +1,17 @@
 // == ARGUS AGENT PROJECT ==
 /**
- * The `web_logins` and `web_sessions` repository.
+ * The `web_logins`, `web_sessions` and `web_totp` repository.
  *
- * Storage only: hashing a password, the lock-out rule and how long a session
- * lasts are `ops-web`'s. The two tables are always used together, so they share
- * a repository.
+ * Storage only: hashing a password, the lock-out rule, how long a session lasts
+ * and checking a TOTP code are `ops-web`'s. The tables are always used together,
+ * so they share a repository.
  *
  * @module @argus-agent/store/repositories/web-auth
  */
 import type { DatabaseHandle } from '../connection.js'
-import type { WebLoginRow, WebSessionRow } from '../types.js'
+import type { WebLoginRow, WebSessionRow, WebTotpRow } from '../types.js'
 
-/** The `web_logins` and `web_sessions` repository. */
+/** The `web_logins`, `web_sessions` and `web_totp` repository. */
 export class WebAuthRepository {
   private readonly loginStmt
   private readonly byNameStmt
@@ -24,6 +24,11 @@ export class WebAuthRepository {
   private readonly deleteSessionStmt
   private readonly deleteUserSessionsStmt
   private readonly pruneStmt
+  private readonly totpStmt
+  private readonly setTotpStmt
+  private readonly totpStepStmt
+  private readonly recoveryStmt
+  private readonly deleteTotpStmt
 
   constructor(private readonly db: DatabaseHandle) {
     this.loginStmt = db.prepare('SELECT * FROM web_logins WHERE user_id = ?')
@@ -44,6 +49,15 @@ export class WebAuthRepository {
     this.deleteSessionStmt = db.prepare('DELETE FROM web_sessions WHERE id_hash = ?')
     this.deleteUserSessionsStmt = db.prepare('DELETE FROM web_sessions WHERE user_id = ? AND id_hash != ?')
     this.pruneStmt = db.prepare('DELETE FROM web_sessions WHERE expires_at < ?')
+    this.totpStmt = db.prepare('SELECT * FROM web_totp WHERE user_id = ?')
+    this.setTotpStmt = db.prepare(`
+      INSERT INTO web_totp (user_id, secret, recovery, last_step, enabled_at) VALUES (@user_id, @secret, @recovery, @last_step, @enabled_at)
+      ON CONFLICT(user_id) DO UPDATE SET secret = excluded.secret, recovery = excluded.recovery,
+        last_step = excluded.last_step, enabled_at = excluded.enabled_at
+    `)
+    this.totpStepStmt = db.prepare('UPDATE web_totp SET last_step = ? WHERE user_id = ? AND last_step < ?')
+    this.recoveryStmt = db.prepare('UPDATE web_totp SET recovery = ? WHERE user_id = ? AND recovery = ?')
+    this.deleteTotpStmt = db.prepare('DELETE FROM web_totp WHERE user_id = ?')
   }
 
   /**
@@ -149,5 +163,52 @@ export class WebAuthRepository {
    */
   pruneSessions(now: number): number {
     return this.pruneStmt.run(now).changes
+  }
+
+  /**
+   * A user's second factor.
+   * @param userId the user id.
+   * @returns the row, or `undefined` when they have none.
+   */
+  totp(userId: string): WebTotpRow | undefined {
+    return this.totpStmt.get(userId) as WebTotpRow | undefined
+  }
+
+  /**
+   * Set a user's second factor, replacing any.
+   * @param row the secret, the recovery codes' hashes and when.
+   */
+  setTotp(row: WebTotpRow): void {
+    this.setTotpStmt.run(row)
+  }
+
+  /**
+   * Spend a 30-second step: a code is accepted only for a step later than the last one.
+   * @param userId the user id.
+   * @param step the step the code was for.
+   * @returns whether it was later, and is now the last.
+   */
+  useTotpStep(userId: string, step: number): boolean {
+    return this.totpStepStmt.run(step, userId, step).changes > 0
+  }
+
+  /**
+   * Replace the unused recovery codes, if they are still what was read.
+   * @param userId the user id.
+   * @param before the JSON that was read.
+   * @param after the JSON without the code just used.
+   * @returns whether nobody changed them in between.
+   */
+  replaceRecovery(userId: string, before: string, after: string): boolean {
+    return this.recoveryStmt.run(after, userId, before).changes > 0
+  }
+
+  /**
+   * Remove a user's second factor.
+   * @param userId the user id.
+   * @returns whether there was one.
+   */
+  deleteTotp(userId: string): boolean {
+    return this.deleteTotpStmt.run(userId).changes > 0
   }
 }

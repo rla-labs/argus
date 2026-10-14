@@ -229,7 +229,7 @@ export class OpsCommands {
     // Checked here, not in the handler, so the confirmed form of a command is
     // refused by the same rule as the form that asked.
     if (handler.spec.adminOnly === true && context.isAdmin !== true) {
-      return errorResult(`Only the admin (access.admin in ops.yaml) can run /${parsed.name}.`)
+      return errorResult(`Only the admin can run /${parsed.name}.`)
     }
 
     try {

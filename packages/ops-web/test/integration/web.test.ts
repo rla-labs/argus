@@ -13,7 +13,7 @@ import { BASE_ENTRIES, ConsoleChannelAdapter, bootOps, persistenceEntry, waitFor
 import type { OpsChannel } from '@argus-agent/channel'
 import type { OpsCommands } from '@argus-agent/commands'
 import type { OpsStore } from '@argus-agent/store'
-import type { OpsWeb } from '@argus-agent/web'
+import { codeAt, stepAt, type OpsWeb } from '@argus-agent/web'
 
 const boots: OpsBoot[] = []
 const dirs: string[] = []
@@ -34,7 +34,7 @@ interface Booted {
   readonly dataDir: string
 }
 
-async function bootWeb(options: { noAdmin?: boolean } = {}): Promise<Booted> {
+async function bootWeb(options: { noAdmin?: boolean; public?: boolean } = {}): Promise<Booted> {
   const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-'))
   dirs.push(dataDir)
   mkdirSync(join(dataDir, 'projects', 'alpha'), { recursive: true })
@@ -58,7 +58,8 @@ async function bootWeb(options: { noAdmin?: boolean } = {}): Promise<Booted> {
           ? ''
           : `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n    - { channel: console, userId: user-1 }\n  admin: telegram:42\n`) +
         `channel:\n  default_address: console:default-chat\n` +
-        `web:\n  port: 0\n`,
+        `web:\n  port: 0\n` +
+        (options.public === true ? `  public: true\n  public_url: https://argus.example\n` : ''),
     },
     replaceEntries: [
       ...BASE_ENTRIES,
@@ -131,6 +132,46 @@ describe('the web interface', () => {
     // The settings carry what the setup page shows.
     const settings = (await (await fetch(`${booted.base}/api/settings`, { headers: { cookie } })).json()) as { system: unknown }
     expect(settings.system).toEqual({ timezone: 'UTC', dayUsd: 100, monthUsd: 40 })
+  })
+
+  it('in public mode, a session first sets up a code, and every sign-in then asks for one', async () => {
+    const booted = await bootWeb({ public: true })
+    const out = await booted.commands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user: { id: booted.admin, role: 'admin' }, isAdmin: true, now: Date.now() })
+    const link = /token=([\w-]+)/.exec(out.text)?.[1] ?? ''
+    const first = await fetch(`${booted.base}/login?token=${link}`, { redirect: 'manual' })
+    expect(first.headers.get('strict-transport-security')).toContain('max-age=')
+    expect(first.headers.get('set-cookie')).toContain('Secure')
+    const cookie = (first.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const api = (path: string, body?: unknown): Promise<Response> =>
+      fetch(`${booted.base}${path}`, body === undefined ? { headers: { cookie } } : { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify(body) })
+    // Nothing but the code's setup, until there is one.
+    expect((await api('/api/overview')).status).toBe(403)
+    expect(await (await api('/api/me')).json()).toMatchObject({ totp: false, totpRequired: true, publicMode: true })
+    const doctor = () => booted.web.doctor().find((finding) => finding.check.includes('second factor'))
+    expect(doctor()).toMatchObject({ ok: false })
+    const { secret } = (await (await api('/api/totp/start', {})).json()) as { secret: string }
+    expect((await api('/api/totp/confirm', { code: '000000' === codeAt(secret, stepAt(Date.now())) ? '111111' : '000000' })).status).toBe(400)
+    const confirmed = (await (await api('/api/totp/confirm', { code: codeAt(secret, stepAt(Date.now())) })).json()) as { recovery: string[] }
+    expect(confirmed.recovery).toHaveLength(10)
+    expect((await api('/api/overview')).status).toBe(200)
+    expect(doctor()).toMatchObject({ ok: true })
+    // In public mode it cannot be turned off.
+    expect((await api('/api/totp/disable', { code: confirmed.recovery[0] })).status).toBe(403)
+
+    // The next link asks for the code: a ticket cookie, then the code.
+    const again = await booted.commands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user: { id: booted.admin, role: 'admin' }, isAdmin: true, now: Date.now() })
+    const second = await fetch(`${booted.base}/login?token=${/token=([\w-]+)/.exec(again.text)?.[1] ?? ''}`, { redirect: 'manual' })
+    expect(second.status).toBe(303)
+    expect(second.headers.get('location')).toBe('/?step=code')
+    const ticket = (second.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    expect(ticket).toMatch(/^argus_ticket=/)
+    const code = (value: string): Promise<Response> =>
+      fetch(`${booted.base}/login/code`, { method: 'POST', headers: { cookie: ticket, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ code: value }) })
+    // The code just used for the setup does not work twice; a recovery code does, once.
+    expect((await code(codeAt(secret, stepAt(Date.now())))).status).toBe(401)
+    const signedIn = await code(confirmed.recovery[1] ?? '')
+    expect(signedIn.status).toBe(204)
+    expect(signedIn.headers.get('set-cookie')).toContain('argus_session=')
   })
 
   it('with an admin, there is no setup link', async () => {
@@ -268,7 +309,7 @@ describe('the web interface', () => {
     expect((await run(admin, '/users')).text).toContain('Ana Pop  operator')
 
     const reset = await run(admin, '/users reset ana')
-    expect(reset.text).toContain('password is removed')
+    expect(reset.text).toContain('authenticator code are removed')
     expect((await me(ana)).status).toBe(401)
     const again = await follow(reset.text)
     expect(await (await me(again)).json()).toMatchObject({ hasPassword: false, mayResetPassword: true })

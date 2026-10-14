@@ -26,6 +26,14 @@ export interface WebSection {
   readonly public_url: string
   /** How long a login lasts. */
   readonly session_hours: number
+  /**
+   * Public mode: reached from the internet through a reverse proxy with HTTPS.
+   * Every sign-in then needs a second factor (TOTP), the cookie is always `Secure`,
+   * HSTS is sent and an unused session ends after `idle_minutes`.
+   */
+  readonly public: boolean
+  /** In public mode, how long an unused session lasts. */
+  readonly idle_minutes: number
 }
 
 /** The `web` schema. */
@@ -36,6 +44,8 @@ export const webSchema: Schema = z
     port: z.number().min(0).max(65_535).default(3091),
     public_url: z.string().default(''),
     session_hours: z.number().min(1).max(24 * 30).default(24),
+    public: z.boolean().default(false),
+    idle_minutes: z.number().min(5).max(24 * 60).default(30),
   })
   .default({})
 

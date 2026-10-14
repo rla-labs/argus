@@ -21,6 +21,7 @@ function readCompose(name: string): Record<string, unknown> {
 
 const base = readCompose('docker-compose.yml')
 const ollama = readCompose('docker-compose.ollama.yml')
+const caddy = readCompose('docker-compose.caddy.yml')
 
 /** The `ops` service from a compose document. */
 function opsService(doc: Record<string, unknown>): Record<string, unknown> {
@@ -281,3 +282,24 @@ describe('every script is well formed', () => {
     expect(text).not.toContain('set -x')
   })
 })
+
+describe('docker-compose.caddy.yml', () => {
+  const service = (caddy['services'] as Record<string, Record<string, unknown>>)['caddy'] as Record<string, unknown>
+
+  it('serves 80 and 443, and needs the domain', () => {
+    expect(service['ports']).toEqual(['80:80', '443:443', '443:443/udp'])
+    expect(String((service['environment'] as Record<string, string>)['ARGUS_DOMAIN'])).toContain(':?')
+  })
+
+  it('mounts the Caddyfile read-only, which proxies the Argus web interface and nothing else', () => {
+    expect(service['volumes']).toContain('./Caddyfile:/etc/caddy/Caddyfile:ro')
+    const caddyfile = readFileSync(join(COMPOSE, 'Caddyfile'), 'utf8')
+    expect(caddyfile.match(/reverse_proxy .*/g)).toEqual(['reverse_proxy ops:3091'])
+  })
+
+  it('drops every capability but binding the low ports', () => {
+    expect(service['cap_drop']).toEqual(['ALL'])
+    expect(service['cap_add']).toEqual(['NET_BIND_SERVICE'])
+  })
+})
+

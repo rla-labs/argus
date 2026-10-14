@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OpsStore } from '@argus-agent/store'
-import { ADMIN_LINK_REQUEST, hashPassword, SETUP_LINK_FILE, SETUP_TTL_MS, SetupGate, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
+import { ADMIN_LINK_REQUEST, base32, codeAt, hashPassword, matchStep, publicDoctor, SETUP_LINK_FILE, SETUP_TTL_MS, SetupGate, stepAt, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
 
 function storeWith(): OpsStore {
   const store = new OpsStore({ path: ':memory:' })
@@ -126,6 +126,101 @@ describe('WebAuth', () => {
     now += 11 * 60_000
     expect(await auth.setPassword(reset, { password: 'fourth password' })).toEqual({ ok: false, reason: 'wrong' })
     expect((await auth.loginWithPassword('ana', 'third password', 'b')).ok).toBe(true)
+  })
+})
+
+describe('TOTP', () => {
+  // RFC 6238, appendix B, SHA-1, the last six of eight digits.
+  const secret = base32(Buffer.from('12345678901234567890'))
+  it('matches the RFC test vectors', () => {
+    expect(codeAt(secret, stepAt(59_000))).toBe('287082')
+    expect(codeAt(secret, stepAt(1_111_111_109_000))).toBe('081804')
+    expect(codeAt(secret, stepAt(1_234_567_890_000))).toBe('005924')
+    expect(codeAt(secret, stepAt(20_000_000_000_000))).toBe('353130')
+  })
+  it('accepts one step either side, and nothing else', () => {
+    const now = 1_234_567_890_000
+    const step = stepAt(now)
+    expect(matchStep(secret, codeAt(secret, step - 1), now)).toBe(step - 1)
+    expect(matchStep(secret, ` ${codeAt(secret, step + 1).slice(0, 3)} ${codeAt(secret, step + 1).slice(3)} `, now)).toBe(step + 1)
+    expect(matchStep(secret, codeAt(secret, step + 2), now)).toBeUndefined()
+    expect(matchStep(secret, 'abcdef', now)).toBeUndefined()
+  })
+})
+
+describe('WebAuth with a second factor', () => {
+  async function enrolled(now: { value: number }, idleMs = 0): Promise<{ auth: WebAuth; store: OpsStore; secret: string; recovery: string[] }> {
+    const store = storeWith()
+    const auth = new WebAuth(store, 3_600_000, () => now.value, idleMs)
+    const { secret, uri } = auth.startTotp('u1')
+    expect(uri).toMatch(/^otpauth:\/\/totp\/Argus%3Au1\?secret=/)
+    expect(auth.confirmTotp('u1', 'nope')).toBeUndefined()
+    const recovery = auth.confirmTotp('u1', codeAt(secret, stepAt(now.value))) ?? []
+    expect(recovery).toHaveLength(10)
+    return { auth, store, secret, recovery }
+  }
+
+  it('asks a link and a password for the code, which works once per step', async () => {
+    const now = { value: 1_700_000_000_000 }
+    const { auth, store, secret } = await enrolled(now)
+    const first = auth.login(auth.issueToken('u1'), 'a')
+    expect(first).toMatchObject({ ok: false, reason: 'totp' })
+    const ticket = first.ok || first.reason !== 'totp' ? '' : first.ticket
+    // The setup spent this step's code.
+    expect(auth.verifyTicket(ticket, codeAt(secret, stepAt(now.value)), 'a').ok).toBe(false)
+    now.value += 30_000
+    expect(auth.verifyTicket(ticket, codeAt(secret, stepAt(now.value)), 'a')).toMatchObject({ ok: true, session: { via: 'link' } })
+    // A ticket works once.
+    expect(auth.verifyTicket(ticket, codeAt(secret, stepAt(now.value)), 'a').ok).toBe(false)
+
+    store.webAuth.setLogin({ userId: 'u1', login: 'ana', passwordHash: await hashPassword('a long password') }, now.value)
+    const byPassword = await auth.loginWithPassword('ana', 'a long password', 'b')
+    expect(byPassword).toMatchObject({ ok: false, reason: 'totp' })
+  })
+
+  it('takes each recovery code once, drops a ticket after five wrong codes, and ends an idle session', async () => {
+    const now = { value: 1_700_000_000_000 }
+    const { auth, recovery } = await enrolled(now, 30 * 60_000)
+    const ticketOf = (): string => {
+      const outcome = auth.login(auth.issueToken('u1'), 'a')
+      return outcome.ok || outcome.reason !== 'totp' ? '' : outcome.ticket
+    }
+    const ticket = ticketOf()
+    for (let i = 0; i < 4; i += 1) expect(auth.verifyTicket(ticket, '000000', `x${i}`).ok).toBe(false)
+    expect(auth.verifyTicket(ticket, recovery[0] ?? '', 'y').ok).toBe(true)
+    const used = ticketOf()
+    expect(auth.verifyTicket(used, recovery[0] ?? '', 'z').ok).toBe(false)
+    const spent = ticketOf()
+    for (let i = 0; i < 5; i += 1) auth.verifyTicket(spent, '000000', `w${i}`)
+    expect(auth.verifyTicket(spent, (recovery[1] ?? '').toUpperCase(), 'v').ok).toBe(false)
+    const fresh = auth.verifyTicket(ticketOf(), (recovery[1] ?? '').toUpperCase().replace('-', ' '), 'v')
+    expect(fresh.ok).toBe(true)
+    const sessionId = fresh.ok ? fresh.sessionId : ''
+    now.value += 29 * 60_000
+    expect(auth.session(sessionId)).toBeDefined()
+    now.value += 31 * 60_000
+    expect(auth.session(sessionId)).toBeUndefined()
+  })
+
+  it('removes it with a code, and the admin recovery link removes it with none', async () => {
+    const now = { value: 1_700_000_000_000 }
+    const { auth, recovery } = await enrolled(now)
+    expect(auth.disableTotp('u1', 'wrong')).toBe(false)
+    expect(auth.disableTotp('u1', recovery[2] ?? '')).toBe(true)
+    expect(auth.hasTotp('u1')).toBe(false)
+    const again = await enrolled(now)
+    expect(again.auth.login(again.auth.issueToken('u1', 60_000, true), 'a').ok).toBe(true)
+    expect(again.auth.hasTotp('u1')).toBe(false)
+  })
+})
+
+describe('publicDoctor', () => {
+  it('says nothing in private mode, and fails without https or the admin\'s code', () => {
+    expect(publicDoctor(false, false, () => false)).toEqual([])
+    expect(publicDoctor(true, true, () => true).every((finding) => finding.ok)).toBe(true)
+    const failing = publicDoctor(true, false, () => false)
+    expect(failing.map((finding) => finding.ok)).toEqual([false, false])
+    expect(failing[0]?.fix).toContain('https://')
   })
 })
 

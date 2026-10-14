@@ -8,6 +8,10 @@
  * of the `SameSite=Strict` cookie. A change is never made here: it is a command line
  * run through `ops-commands` as the logged-in person.
  *
+ * In public mode (`web.public`, behind a reverse proxy with HTTPS) the cookie is
+ * always `Secure`, HSTS is sent, the client's address is the proxy's
+ * `X-Forwarded-For`, and a session whose user has no second factor may only set one.
+ *
  * @module @argus-agent/web/server
  */
 import { createHash } from 'node:crypto'
@@ -21,6 +25,10 @@ import type { WebChannelAdapter } from './web-channel.js'
 
 /** The session cookie's name. */
 export const COOKIE = 'argus_session'
+/** The cookie that carries a sign-in's ticket from the password (or link) to the code. */
+export const TICKET_COOKIE = 'argus_ticket'
+/** What a session without a second factor may do in public mode: set one up. */
+const SETTING_UP = new Set(['/api/me', '/api/totp/start', '/api/totp/confirm', '/api/logout'])
 /** The largest request body read, in bytes. */
 const MAX_BODY = 64 * 1024
 
@@ -39,6 +47,8 @@ export interface ServerDeps {
   readonly port: number
   /** Whether the browser reaches it over HTTPS, for the cookie's `Secure`. */
   readonly secure: boolean
+  /** Public mode: HSTS, the proxy's client address, a second factor required. */
+  readonly public: boolean
   readonly auth: WebAuth
   /** The first admin's setup link. */
   readonly setup: SetupGate
@@ -110,6 +120,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     "form-action 'self'",
   ].join('; ')
 
+  const secure = deps.secure || deps.public
   const server: Server = createServer((request, response) => {
     void route(request, response).catch((error: unknown) => {
       deps.log(`web: ${request.method} ${pathOf(request)} failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -124,11 +135,14 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     response.setHeader('x-content-type-options', 'nosniff')
     response.setHeader('referrer-policy', 'no-referrer')
     response.setHeader('content-security-policy', csp)
+    if (deps.public) response.setHeader('strict-transport-security', 'max-age=31536000')
 
     // ── no session needed ────────────────────────────────────────────────
     const cookie = (sessionId: string): string =>
-      [`${COOKIE}=${sessionId}`, 'HttpOnly', 'SameSite=Strict', 'Path=/', `Max-Age=${deps.sessionHours * 3600}`, ...(deps.secure ? ['Secure'] : [])].join('; ')
-    const address = request.socket.remoteAddress ?? '?'
+      [`${COOKIE}=${sessionId}`, 'HttpOnly', 'SameSite=Strict', 'Path=/', `Max-Age=${deps.sessionHours * 3600}`, ...(secure ? ['Secure'] : [])].join('; ')
+    const ticketCookie = (ticket: string, maxAge = 300): string =>
+      [`${TICKET_COOKIE}=${ticket}`, 'HttpOnly', 'SameSite=Strict', 'Path=/login', `Max-Age=${maxAge}`, ...(secure ? ['Secure'] : [])].join('; ')
+    const address = clientAddress(request, deps.public)
     const userAgent = request.headers['user-agent']
     if (method === 'GET' && path === '/login') {
       const token = new URL(request.url ?? '/', 'http://x').searchParams.get('token')
@@ -139,6 +153,11 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
         return
       }
       const outcome = deps.auth.login(token, address, userAgent)
+      if (!outcome.ok && outcome.reason === 'totp') {
+        response.writeHead(303, { location: '/?step=code', 'set-cookie': ticketCookie(outcome.ticket), 'cache-control': 'no-store' })
+        response.end()
+        return
+      }
       if (!outcome.ok) {
         response.writeHead(outcome.reason === 'limited' ? 429 : 401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
         response.end(loginPage(outcome.reason))
@@ -152,8 +171,22 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       if (request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
       const body = await readJson(request)
       const outcome = await deps.auth.loginWithPassword(String(body['login'] ?? ''), String(body['password'] ?? ''), address, userAgent)
+      if (!outcome.ok && outcome.reason === 'totp') {
+        response.writeHead(200, { 'content-type': TYPES['.json'] as string, 'set-cookie': ticketCookie(outcome.ticket), 'cache-control': 'no-store' })
+        response.end(JSON.stringify({ code: true }))
+        return
+      }
       if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
       response.writeHead(204, { 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
+      response.end()
+      return
+    }
+    if (method === 'POST' && path === '/login/code') {
+      if (request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
+      const body = await readJson(request)
+      const outcome = deps.auth.verifyTicket(cookieOf(request, TICKET_COOKIE) ?? '', String(body['code'] ?? ''), address, userAgent)
+      if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
+      response.writeHead(204, { 'set-cookie': [cookie(outcome.sessionId), ticketCookie('', 0)], 'cache-control': 'no-store' })
       response.end()
       return
     }
@@ -203,8 +236,25 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     const session = deps.auth.session(sessionId)
     if (session === undefined) return send(response, 401, { error: 'not signed in' })
     if (method === 'POST' && request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
+    const hasTotp = deps.auth.hasTotp(session.userId)
+    if (deps.public && !hasTotp && !SETTING_UP.has(path)) return send(response, 403, { error: 'second factor required' })
 
-    if (method === 'GET' && path === '/api/me') return send(response, 200, deps.me(session))
+    if (method === 'GET' && path === '/api/me') {
+      const me = deps.me(session) as Record<string, unknown>
+      return send(response, 200, { ...me, totp: hasTotp, totpRequired: deps.public && !hasTotp, publicMode: deps.public })
+    }
+    if (method === 'POST' && path === '/api/totp/start') return send(response, 200, deps.auth.startTotp(session.userId))
+    if (method === 'POST' && path === '/api/totp/confirm') {
+      const body = await readJson(request)
+      const recovery = deps.auth.confirmTotp(session.userId, String(body['code'] ?? ''))
+      return recovery === undefined ? send(response, 400, { error: 'invalid' }) : send(response, 200, { recovery })
+    }
+    if (method === 'POST' && path === '/api/totp/disable') {
+      if (deps.public) return send(response, 403, { error: 'required in public mode' })
+      const body = await readJson(request)
+      const ok = deps.auth.disableTotp(session.userId, String(body['code'] ?? ''))
+      return send(response, ok ? 200 : 400, ok ? { ok } : { error: 'invalid' })
+    }
     if (method === 'POST' && path === '/api/password') {
       const body = await readJson(request)
       const outcome = await deps.auth.setPassword(sessionId ?? '', {
@@ -321,13 +371,26 @@ function pathOf(request: IncomingMessage): string {
   return (request.url ?? '/').split('?')[0] ?? '/'
 }
 
-/** The session cookie, when the request carries one. */
-function cookieOf(request: IncomingMessage): string | undefined {
+/** A cookie's value (the session's, by default), when the request carries it. */
+function cookieOf(request: IncomingMessage, wanted = COOKIE): string | undefined {
   for (const part of (request.headers.cookie ?? '').split(';')) {
     const [name, ...value] = part.trim().split('=')
-    if (name === COOKIE) return value.join('=')
+    if (name === wanted) return value.join('=')
   }
   return undefined
+}
+
+/**
+ * Who is asking, for the failed sign-in limit. In public mode the server is reached
+ * only through the proxy, whose last `X-Forwarded-For` entry is the client.
+ */
+function clientAddress(request: IncomingMessage, behindProxy: boolean): string {
+  const forwarded = request.headers['x-forwarded-for']
+  if (behindProxy && typeof forwarded === 'string') {
+    const last = forwarded.split(',').at(-1)?.trim()
+    if (last !== undefined && last.length > 0) return last
+  }
+  return request.socket.remoteAddress ?? '?'
 }
 
 /** A JSON answer. */

@@ -274,6 +274,18 @@ export interface WebSessionRow {
   readonly user_agent: string | null
 }
 
+/** A row of `web_totp`: a user's second factor for the web sign-in. */
+export interface WebTotpRow {
+  readonly user_id: string
+  /** The shared secret, base32. */
+  readonly secret: string
+  /** The unused recovery codes: a JSON array of their sha-256, hex. */
+  readonly recovery: string
+  /** The last 30-second step a code was accepted for. */
+  readonly last_step: number
+  readonly enabled_at: number
+}
+
 /** A row of `web_chat`: one entry of a user's web conversation. */
 export interface WebChatRow {
   readonly seq: number

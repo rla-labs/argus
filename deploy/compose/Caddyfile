@@ -1,0 +1,9 @@
+# == ARGUS AGENT PROJECT ==
+# Used by docker-compose.caddy.yml: HTTPS for the Argus web interface, nothing else.
+# Caddy sets X-Forwarded-For to the client, which Argus reads in public mode for the
+# failed sign-in limit.
+
+{$ARGUS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy ops:3091
+}

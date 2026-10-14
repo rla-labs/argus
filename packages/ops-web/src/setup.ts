@@ -72,7 +72,7 @@ export class SetupGate {
     this.current = undefined
     const admin = this.store.users.admin()
     if (asked && admin !== undefined) {
-      this.write(`${this.publicUrl}/login?token=${this.auth.issueToken(admin.id, SETUP_TTL_MS)}`)
+      this.write(`${this.publicUrl}/login?token=${this.auth.issueToken(admin.id, SETUP_TTL_MS, true)}`)
       return 'admin'
     }
     rmSync(this.file, { force: true })

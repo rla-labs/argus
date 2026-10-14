@@ -61,8 +61,83 @@ ssh -N -L 3091:127.0.0.1:3091 user@your-server
 # then open the link /web gives you (http://127.0.0.1:3091/…)
 ```
 
-Another VPN works the same way. Do **not** publish the port on a public address or
-put it behind a public reverse proxy: that is not supported before Argus 0.4.0.
+Another VPN works the same way. Do **not** publish the port on a public address.
+Putting the web on the internet is possible only in [public mode](#public-mode), behind
+a reverse proxy with HTTPS.
+
+## Public mode
+
+A private network is the safer choice: whoever reaches this page can try to sign in to
+something that runs commands on your server. If you need the web from anywhere without
+a VPN, public mode adds what that takes:
+
+- **A second factor for every sign-in:** a 6-digit code from an authenticator app
+  (Aegis, Google Authenticator, 1Password…), after the password or the `/web` link.
+  The first time each user signs in, the page asks them to set it up before anything
+  else, and shows ten **recovery codes**, each good for one sign-in without the phone.
+- **HTTPS only:** the cookie is always `Secure`, and the browser is told to use HTTPS
+  from then on (HSTS).
+- **An unused session ends after 30 minutes** (`web.idle_minutes`).
+- The failed sign-in limits count the client's own address, from the proxy.
+- `argus doctor` **fails** while `web.public_url` is not `https://` or the admin has no
+  code yet.
+
+The dsh Web UI is never proxied: it stays tunnel-only.
+
+**Docker,** with the Caddy overlay (automatic HTTPS from Let's Encrypt):
+
+1. Point a DNS name at the server (an A or AAAA record) and open ports 80 and 443.
+2. In `deploy/compose/.env`: `ARGUS_DOMAIN=argus.example.com`
+3. In `ops.yaml`:
+
+   ```yaml
+   web:
+     public: true
+     public_url: https://argus.example.com
+   ```
+4. Start it with the overlay:
+
+   ```sh
+   cd deploy/compose
+   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+   ```
+
+   `argus upgrade` and the other scripts keep the overlay while `ARGUS_DOMAIN` is set.
+
+**Native,** with the reverse proxy you install. Caddy:
+
+```text
+argus.example.com {
+	reverse_proxy 127.0.0.1:3091
+}
+```
+
+or nginx, with a certificate (certbot):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name argus.example.com;
+    # ssl_certificate … (certbot adds these)
+    location / {
+        proxy_pass http://127.0.0.1:3091;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_buffering off;          # the page's live updates
+        proxy_read_timeout 1h;
+    }
+}
+```
+
+Then the same `ops.yaml` change, and restart. Leave the web on `127.0.0.1`: only the
+proxy reaches it.
+
+**Lost the phone?** Sign in with a recovery code. Out of codes: the admin's
+`/users reset <user>` removes a user's password and code; for the admin,
+`argus setup-link --admin` on the server gives a sign-in link that removes the
+admin's code, to set up again.
+
+**On a private network** the code is optional: **Settings → Authenticator code**.
 
 ## Without Telegram: the setup link
 
@@ -132,6 +207,8 @@ web:
   port: 3091
   public_url: https://argus.tail1234.ts.net
   session_hours: 24
+  public: false            # true: public mode, behind a proxy with HTTPS
+  idle_minutes: 30         # public mode: an unused session ends
 ```
 
 See [configuration](configuration.md#web) for the details and

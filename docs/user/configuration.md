@@ -44,7 +44,7 @@ so the file can be copied, committed or shown without leaking anything.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `admin` | id or address | `null` | You. A bare id (`'99887766'`) is a Telegram chat. **Always allowed**; where reports, warnings and unaddressed output go. |
+| `admin` | id or address | `null` | You, on Telegram. A bare id (`'99887766'`) is a Telegram chat. **Always allowed**; where reports, warnings and unaddressed output go. Left `null` on a web-only install: the admin is created with the [setup link](web.md#without-telegram-the-setup-link). |
 | `allowed_users` | list | `[]` | More `{ channel, userId }` entries, made operators at the next start. **With no user at all, everyone is refused.** |
 | `warn_interval_minutes` | int | `15` | Rate limit for refusal warnings. |
 
@@ -52,17 +52,17 @@ so the file can be copied, committed or shown without leaking anything.
 
 | Role | Who | May |
 |---|---|---|
-| **admin** | `access.admin` (anyone in its chat, when it is a group) | everything |
-| **operator** | every other allowed user (`allowed_users`, `/allow`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
+| **admin** | the one admin: `access.admin`, or the one created with the web setup link (anyone in the admin's chat, when it is a group) | everything |
+| **operator** | every other user (`allowed_users`, `/allow`, a `/users invite`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
 `/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
-and `/web`. An operator who tries is told so; seeing a budget, the defaults, the
+and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions or the memory stays open to everyone.
 
-From the dsh Web UI and Argus's own web interface, commands run as the admin: only the
-admin is given a web link, and only someone on the server reaches the dsh Web UI.
+On Argus's own web interface, commands run as the user who signed in, with that user's
+role. From the dsh Web UI they run as the admin: only someone on the server reaches it.
 
 **`admin` and `allowed_users` are where Argus starts from.** Argus keeps its users in its
 database. At each start, an id here that Argus does not know yet becomes a user, and the
@@ -310,6 +310,8 @@ The [web interface](web.md).
 | `port` | int | `3091` | Its port, on the server's loopback (Docker publishes it on the host's `127.0.0.1` only). |
 | `public_url` | string | `http://127.0.0.1:<port>` | The address you open it at, for the `/web` link: the `tailscale serve` address, for example. With `https://`, the session cookie is sent only over HTTPS. |
 | `session_hours` | int | `24` | How long a sign-in lasts. |
+| `public` | boolean | `false` | [Public mode](web.md#public-mode): behind a reverse proxy with HTTPS, every sign-in needs an authenticator code, the cookie is always `Secure`, HSTS is sent. `argus doctor` fails without an `https://` `public_url`. |
+| `idle_minutes` | int | `30` | In public mode, how long an unused session lasts (5 to 1440). |
 
 ## `health`
 

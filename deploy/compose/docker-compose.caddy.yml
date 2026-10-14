@@ -1,0 +1,39 @@
+# == ARGUS AGENT PROJECT ==
+# An overlay that puts the web interface on the internet, behind Caddy with automatic
+# HTTPS (Let's Encrypt). Public mode is a choice: read docs/user/web.md#public-mode
+# first. Without this overlay the web stays on the host's loopback.
+#
+#   1. Point a DNS name (A/AAAA record) at this server; open ports 80 and 443.
+#   2. In .env:      ARGUS_DOMAIN=argus.example.com
+#   3. In ops.yaml:  web: { public: true, public_url: https://argus.example.com }
+#   4. docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+#
+# Caddy proxies the Argus web interface only. The dsh Web UI stays tunnel-only.
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: argus-agent-caddy
+    restart: unless-stopped
+    depends_on:
+      - ops
+    environment:
+      ARGUS_DOMAIN: ${ARGUS_DOMAIN:?set ARGUS_DOMAIN in .env to the public DNS name}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${ARGUS_CADDY_DATA_PATH:-/srv/argus-agent/caddy}:/data
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"

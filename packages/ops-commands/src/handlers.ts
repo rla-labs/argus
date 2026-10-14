@@ -1667,7 +1667,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const user = identity === undefined ? undefined : store.users.get(identity.user_id)
         if (remove) {
           if (user === undefined || user.disabled_at !== null) return errorResult(`${userId} is not a user on ${channel}.`)
-          if (user.role === 'admin') return errorResult('The admin cannot be removed. Change access.admin in ops.yaml to hand the role over.')
+          if (user.role === 'admin') return errorResult('The admin cannot be removed.')
           store.users.disable(user.id, context.now)
           return result(`${userId} can no longer use the bot, on any channel.`)
         }
@@ -1718,9 +1718,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'With no argument, lists the users: name, role, channels, web login, disabled. ' +
           '`invite <name>` creates an operator and gives a sign-in link valid 24 hours, to send ' +
           'them; with it they set a web password. `remove` disables a user on every channel and ' +
-          'signs them out; `enable` takes them back. `reset` removes their web password, signs ' +
+          'signs them out; `enable` takes them back. `reset` removes their web password and authenticator code, signs ' +
           'them out and gives a new 24-hour link. A <user> is a name, a web login name, an id, ' +
-          'or channel:id (telegram:123456789). The admin is the one in access.admin.',
+          'or channel:id (telegram:123456789). The admin cannot be removed.',
         examples: ['/users', '/users invite Ana', '/users reset Ana', '/users remove telegram:123456789'],
         mutating: true,
         adminOnly: true,
@@ -1782,9 +1782,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (user.disabled_at !== null) return errorResult(`${label} is disabled; /users enable ${reference ?? ''} first.`)
         store.transaction(() => {
           store.webAuth.deleteLogin(user.id)
+          store.webAuth.deleteTotp(user.id)
           store.webAuth.deleteUserSessions(user.id)
         })()
-        return result(`${label}'s web password is removed and they are signed out. Send them this link; it works once, within 24 hours, and lets them set a new one:\n${web.inviteLink(user.id)}`)
+        return result(`${label}'s web password and authenticator code are removed and they are signed out. Send them this link; it works once, within 24 hours, and lets them set a new one:\n${web.inviteLink(user.id)}`)
       },
     },
 

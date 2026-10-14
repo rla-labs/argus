@@ -162,14 +162,14 @@ export class OpsChannel {
     const admin = this.options.store.users.admin()
     const findings: DoctorFinding[] = [
       adapters.length === 0
-        ? { ok: false, check: 'the chat channel', detail: 'no channel is connected', fix: 'set TELEGRAM_BOT_TOKEN (from @BotFather) in .env, or secrets.env on a native install, then restart' }
+        ? { ok: false, check: 'the chat channel', detail: 'no channel is connected', fix: 'turn the web on (web.enabled: true in ops.yaml), or set TELEGRAM_BOT_TOKEN (from @BotFather) in .env, or secrets.env on a native install, then restart' }
         : failure !== undefined
           ? { ok: false, check: 'the chat channel', detail: `it failed to start: ${failure}`, fix: 'check TELEGRAM_BOT_TOKEN: the whole token from @BotFather, then restart' }
           : { ok: true, check: 'the chat channel', detail: `connected: ${adapters.join(', ')}` },
     ]
     findings.push(
       admin === undefined
-        ? { ok: false, check: 'the admin', detail: 'there is no admin, so nobody can run /set, /archive or /allow', fix: 'set access.admin in ops.yaml to your numeric Telegram id (from @userinfobot), then restart' }
+        ? { ok: false, check: 'the admin', detail: 'there is no admin, so nobody can run /set, /archive or /allow', fix: "open the one-time setup link that 'argus setup-link' shows; or, with Telegram, set access.admin in ops.yaml to your numeric Telegram id (from @userinfobot) and restart" }
         : { ok: true, check: 'the admin', detail: this.options.store.users.identities(admin.id).map((identity) => `${identity.channel}:${identity.external_id}`).join(', ') || admin.id },
     )
     return findings
@@ -194,6 +194,10 @@ export class OpsChannel {
       }
     }
     if (this.policy.isEmpty) {
+      // A fresh web-only install: nobody yet, by design, until the setup link is used.
+      if (adapters.includes('web')) {
+        return { status: 'ok', details: { ...details, setup: "waiting for the admin: open the link 'argus setup-link' shows" } }
+      }
       return { status: 'degraded', details: { ...details, reason: 'Argus has no enabled user; every message is refused' } }
     }
     return { status: 'ok', details }

@@ -220,5 +220,22 @@
   "setup.systemText": "Fusul orar {timezone}; fiecare proiect poate cheltui ${day} pe zi și ${month} pe lună, dacă nu are alt buget. Sunt în ops.yaml (timezone, budgets) și se aplică după o repornire; /budget schimbă un buget imediat.",
   "setup.finish": "Gata",
   "setup.banner": "Argus nu e configurat complet: îi lipsește cheia unui provider sau primul proiect.",
-  "setup.bannerLink": "Termină configurarea"
+  "setup.bannerLink": "Termină configurarea",
+  "signin.codeText": "Introdu codul de 6 cifre din aplicația de autentificare, sau unul dintre codurile de recuperare.",
+  "signin.code": "Cod",
+  "signin.badCode": "Codul nu e corect sau a fost deja folosit. După cinci coduri greșite, ia-o de la capăt.",
+  "signin.again": "De la capăt",
+  "totp.title": "Cod de autentificare",
+  "totp.off": "Oprit. Pornit, fiecare logare cere și un cod de 6 cifre dintr-o aplicație de autentificare (Aegis, Google Authenticator, 1Password…). E obligatoriu când web-ul e public.",
+  "totp.required": "Interfața web e publică: configurează întâi un cod de autentificare.",
+  "totp.start": "Configurează",
+  "totp.scan": "Adaugă cheia în aplicația de autentificare (pe telefon, linkul o deschide), apoi introdu codul afișat.",
+  "totp.open": "Deschide în aplicația de autentificare",
+  "totp.confirm": "Confirmă",
+  "totp.badCode": "Codul nu e corect. Verifică ora telefonului și încearcă următorul cod.",
+  "totp.recovery": "Pornit. Păstrează codurile de recuperare într-un loc sigur: fiecare te loghează o dată fără telefon. Nu mai sunt afișate.",
+  "totp.saved": "Le-am salvat",
+  "totp.on": "Pornit: fiecare logare cere un cod. Ca să-l oprești, introdu un cod.",
+  "totp.onPublic": "Pornit. E obligatoriu cât timp web-ul e public.",
+  "totp.disable": "Oprește"
 }

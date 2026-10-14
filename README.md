@@ -236,7 +236,7 @@ The user documentation starts at [`docs/user/`](docs/user/README.md):
 - [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,
   and how to work well with them
 - [The web interface](docs/user/web.md): reaching it privately, signing in
-- [Telegram commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
+- [Chat commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
   [Backup, restore and upgrades](docs/user/backup-and-upgrade.md),
   [Security](docs/user/security.md), [Troubleshooting](docs/user/troubleshooting.md)
 

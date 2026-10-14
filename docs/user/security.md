@@ -44,7 +44,7 @@ token.
 | Surface | Exposed? | Why |
 |---|---|---|
 | The health endpoint (3090) | **No** | Bound to `127.0.0.1` inside the container. The Docker healthcheck calls it there; an operator tunnels. |
-| Argus's web interface (3091) | **No** | Loopback only (Docker publishes it on the host's `127.0.0.1`). Reached through `tailscale serve`, a VPN or a tunnel, and signed in with a `/web` link. |
+| Argus's web interface (3091) | **No** (yes only in [public mode](web.md#public-mode), through Caddy on 443) | Loopback only (Docker publishes it on the host's `127.0.0.1`). Reached through `tailscale serve`, a VPN or a tunnel; signed in with a password or a `/web` link, plus a code in public mode. |
 | The dsh Web UI (3080) | **No** | The same. The tunnel is the authentication. |
 | Ollama (11434) | **No** | An internal Docker network. A local model server has **no authentication**, so it is safe only because nothing else can route to it. |
 | The bot | Outbound | Long polling, so there is no webhook to expose and no public domain, certificate or reverse proxy to maintain. |
@@ -161,13 +161,13 @@ tools from other systems, and as trusted as the programs behind them:
 ## The web interface
 
 Argus's own interface (the dashboard, approvals, settings and chat) is for a
-**private network**:
+**private network** by default; [public mode](web.md#public-mode) is an explicit choice:
 
 - It listens on the server's `127.0.0.1:3091` (in Docker, the container publishes it
   on the host's loopback only). Reach it with `tailscale serve`, a VPN or an SSH
-  tunnel; see [the web interface](web.md). Public exposure is not supported before 0.4.0.
+  tunnel; see [the web interface](web.md). On the internet only in public mode (below).
 - **It has its own sign-in even so**: a login name and a password, or a `/web` link
-  (admin only) that works once, for ten minutes, and is also how a first password is
+  that works once, for ten minutes, and is also how a first password is
   set or a forgotten one reset.
   - Passwords are stored as scrypt hashes, each with its own salt; at least 10
     characters.
@@ -181,6 +181,14 @@ Argus's own interface (the dashboard, approvals, settings and chat) is for a
     `web.public_url` is `https://`. The database keeps a hash of it, not the cookie, so
     a copy of the database signs nobody in. Sessions survive a restart; changing the
     password ends the others.
+- **An authenticator code (TOTP, RFC 6238)** may follow the password or the link:
+  optional on a private network, required for everyone in public mode. A code works
+  once; ten recovery codes, stored as hashes, work once each.
+- **Public mode** (`web.public: true`) also makes the cookie always `Secure`, sends
+  HSTS, ends a session unused for `web.idle_minutes` (30), and counts failed sign-ins
+  by the client's address from the proxy's `X-Forwarded-For`. `argus doctor` fails
+  while `public_url` is not `https://` or the admin has no code. Docker uses the Caddy
+  overlay (`docker-compose.caddy.yml`), which proxies this interface and nothing else.
 - Every change it makes is a command run as you, with the same checks and audit as
   in Telegram. Every POST needs a header a cross-site form cannot send, and the page
   runs under a strict content security policy.

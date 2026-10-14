@@ -1126,6 +1126,20 @@ describe('the registry', () => {
     expect(String(report.details?.['reason'])).toContain('401 Unauthorized')
   }, 30_000)
 
+  it('waits for the setup link on a web-only install with nobody yet', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-chan-'))
+    dirs.push(dataDir)
+    const opsYaml = opsYamlFor(dataDir).replace(/access:[\s\S]*?warn_interval_minutes: 15\n/, '')
+    const booted = await bootChannel({ dataDir, opsYaml })
+    expect(booted.channel.health().status).toBe('degraded')
+    booted.channel.register(new ConsoleChannelAdapter({ name: 'web' }))
+    const report = booted.channel.health()
+    expect(report.status).toBe('ok')
+    expect(String(report.details?.['setup'])).toContain('argus setup-link')
+    const admin = booted.channel.doctor().find((finding) => finding.check === 'the admin')
+    expect(admin).toMatchObject({ ok: false, fix: expect.stringContaining('argus setup-link') })
+  }, 30_000)
+
   it('refuses two adapters with the same name', async () => {
     const booted = await bootChannel()
     // Two adapters answering to one name would make every address ambiguous.
