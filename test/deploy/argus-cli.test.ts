@@ -8,7 +8,7 @@
  * how they were called.
  */
 import { execFile } from 'node:child_process'
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -36,12 +36,22 @@ symlinkSync(join(deploy, 'argus.sh'), join(bin, 'argus'))
 const HEALTH = `echo "{\\"status\\":\\"\${FAKE_HEALTH:-ok}\\"}"`
 stub(join(bin, 'docker'), `case "$1" in
   inspect) [ -n "\${FAKE_STATE:-}" ] || exit 1; case "$*" in *Image*) echo argus:test ;; *) echo "$FAKE_STATE" ;; esac ;;
-  exec) ${HEALTH} ;;
+  exec) case "$*" in
+    *cat*) [ -n "\${FAKE_LINK:-}" ] || exit 1; echo "$FAKE_LINK" ;;
+    *touch*) echo "asked" >&2 ;;
+    *) ${HEALTH} ;;
+  esac ;;
   *) echo "docker $*" ;;
 esac`)
 stub(join(bin, 'systemctl'), 'echo "${FAKE_STATE:-inactive}"')
 stub(join(bin, 'curl'), HEALTH)
 stub(join(bin, 'journalctl'), 'echo "journalctl $*"')
+stub(join(bin, 'sudo'), 'exec "$@"')
+// A native unit naming its data directory.
+const unit = join(root, 'argus-agent.service')
+const nativeData = join(root, 'native-data')
+mkdirSync(join(nativeData, 'state'), { recursive: true })
+writeFileSync(unit, `[Service]\nEnvironment=ARGUS_AGENT_DATA_DIR=${nativeData}\n`)
 
 
 function argus(args: string[], env: Record<string, string> = {}, native = false): Promise<{ code: number; out: string }> {
@@ -100,6 +110,36 @@ describe('argus', () => {
     expect(native.code).toBe(0)
     expect(native.out).toMatch(/service\s+active/)
     expect(native.out).toContain("argus doctor")
+  })
+
+  it('setup-link shows the link the service wrote, or says there is none', async () => {
+    const docker = await argus(['setup-link'], { FAKE_LINK: 'http://127.0.0.1:3091/setup?token=abc' })
+    expect(docker.code).toBe(0)
+    expect(docker.out).toContain('/setup?token=abc')
+    const none = await argus(['setup-link'])
+    expect(none.code).toBe(1)
+    expect(none.out).toContain('argus setup-link --admin')
+
+    writeFileSync(join(nativeData, 'state', 'setup-link'), 'http://127.0.0.1:3091/setup?token=native\n')
+    const native = await argus(['setup-link'], { ARGUS_AGENT_UNIT_PATH: unit })
+    expect(native.out).toContain('/setup?token=native')
+  })
+
+  it('setup-link --admin asks for the admin link, restarts, and shows it', async () => {
+    const docker = await argus(['setup-link', '--admin'], { FAKE_LINK: 'http://x/login?token=adm' })
+    expect(docker.code).toBe(0)
+    expect(docker.out).toContain('asked')
+    expect(docker.out).toContain('/login?token=adm')
+
+    // Native: the request file is left in the state directory before the restart.
+    rmSync(join(nativeData, 'state', 'setup-link'), { force: true })
+    stub(join(bin, 'systemctl'), `echo "$*" > ${JSON.stringify(join(root, 'restarted'))}; echo 'http://x/login?token=n' > ${JSON.stringify(join(nativeData, 'state', 'setup-link'))}`)
+    const native = await argus(['setup-link', '--admin'], { ARGUS_AGENT_UNIT_PATH: unit })
+    stub(join(bin, 'systemctl'), 'echo "${FAKE_STATE:-inactive}"')
+    expect(native.code).toBe(0)
+    expect(existsSync(join(nativeData, 'state', 'admin-link.request'))).toBe(true)
+    expect(readFileSync(join(root, 'restarted'), 'utf8').trim()).toBe('restart argus-agent')
+    expect(native.out).toContain('/login?token=n')
   })
 
   it('an unknown or missing command fails, with the usage', async () => {

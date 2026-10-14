@@ -65,8 +65,8 @@ Paths (overridable through the environment):
   ARGUS_AGENT_DATA_DIR    the data directory           (default ${DATA_DIR})
 
 Values (also available as flags through the environment):
-  TELEGRAM_BOT_TOKEN          required
-  ARGUS_AGENT_ADMIN_ID            required — your NUMERIC Telegram user id
+  TELEGRAM_BOT_TOKEN          optional — with it, Argus is used from Telegram too
+  ARGUS_AGENT_ADMIN_ID            with the token — your NUMERIC Telegram user id
   ARGUS_AGENT_TIMEZONE            default UTC
   DEEPSEEK_API_KEY            optional, but no agent can run without a provider key
   OPENROUTER_API_KEY          or/and an OpenRouter key; with only this one, the
@@ -83,7 +83,7 @@ What it does:
   6. writes config/ops.yaml and secrets.env (mode 600)
   7. installs and starts the systemd unit
   8. waits for /health
-  9. sends "Argus Agent is online" to Telegram
+  9. sends "Argus Agent is online" to Telegram, or prints the web setup link
  10. prints what to do next
 EOF
 }
@@ -163,8 +163,8 @@ fi
 info "collecting configuration"
 
 if [ "${NON_INTERACTIVE}" = "1" ]; then
-  [ -n "${V_TELEGRAM_TOKEN}" ] || die "TELEGRAM_BOT_TOKEN is required with --non-interactive"
-  [ -n "${V_ADMIN_ID}" ]      || die "ARGUS_AGENT_ADMIN_ID is required with --non-interactive"
+  if [ -n "${V_TELEGRAM_TOKEN}" ] && [ -z "${V_ADMIN_ID}" ]; then die "TELEGRAM_BOT_TOKEN needs ARGUS_AGENT_ADMIN_ID (or give neither, for a web-only install)"; fi
+  if [ -z "${V_TELEGRAM_TOKEN}" ] && [ -n "${V_ADMIN_ID}" ]; then die "ARGUS_AGENT_ADMIN_ID needs TELEGRAM_BOT_TOKEN (or give neither, for a web-only install)"; fi
   [ -n "${V_TIMEZONE}" ]      || V_TIMEZONE="UTC"
   ok "non-interactive: values taken from the environment"
 else
@@ -178,10 +178,21 @@ else
   fi
 
   log ""
-  log "Four values are needed. Press Enter to accept a default."
+  log "A few values are needed. Press Enter to accept a default."
   log ""
 
+  # Telegram is optional: without it, Argus is used on the web, and the admin is
+  # created there with the one-time setup link this script prints at the end.
   if [ -z "${V_TELEGRAM_TOKEN}" ]; then
+    case "$(ask "Use Telegram? (y/N)" "n")" in
+      [yY]|[yY][eE][sS]) USE_TELEGRAM=1 ;;
+      *) USE_TELEGRAM=0 ;;
+    esac
+  else
+    USE_TELEGRAM=1
+  fi
+
+  if [ "${USE_TELEGRAM}" = "1" ] && [ -z "${V_TELEGRAM_TOKEN}" ]; then
     log "The bot token comes from @BotFather on Telegram: send /newbot and follow it."
     while [ -z "${V_TELEGRAM_TOKEN}" ]; do
       printf 'Telegram bot token: ' >&2
@@ -190,7 +201,7 @@ else
     done
   fi
 
-  if [ -z "${V_ADMIN_ID}" ]; then
+  if [ "${USE_TELEGRAM}" = "1" ] && [ -z "${V_ADMIN_ID}" ]; then
     log ""
     log "Your numeric Telegram user id. Message @userinfobot to get it."
     log "A @username will NOT work: usernames can be changed or released, so they are"
@@ -225,7 +236,7 @@ fi
 
 V_ADMIN_ID="$(printf '%s' "${V_ADMIN_ID}" | tr -d '[:space:]')"
 case "${V_ADMIN_ID}" in
-  ''|*[!0-9]*) die "the admin user id must be numeric, got '${V_ADMIN_ID}'" ;;
+  *[!0-9]*) die "the admin user id must be numeric, got '${V_ADMIN_ID}'" ;;
 esac
 
 if [ -f /usr/share/zoneinfo/"${V_TIMEZONE}" ]; then
@@ -243,9 +254,9 @@ log "  data directory   ${DATA_DIR}"
 log "  service user     ${SERVICE_USER}"
 log "  dsh version      ${DSH_VERSION} (pinned)"
 log "  timezone         ${V_TIMEZONE}"
-log "  admin user id    ${V_ADMIN_ID}"
+log "  admin            ${V_ADMIN_ID:-created on the web, with the setup link printed at the end}"
 log "  budgets          \$${V_DAY_BUDGET}/day, \$${V_MONTH_BUDGET}/month per project"
-log "  approvals        ask (every risky action becomes a Telegram question)"
+log "  approvals        ask (every risky action becomes a question in the chat)"
 log "  provider key     $(
   if [ -n "${V_DEEPSEEK_KEY}" ]; then printf 'DeepSeek%s' "$([ -n "${V_OPENROUTER_KEY}" ] && printf ' + OpenRouter')"
   elif [ -n "${V_OPENROUTER_KEY}" ]; then printf 'OpenRouter (default models: openrouter/deepseek/...)'
@@ -387,7 +398,7 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
   # is the one line that differs from the Docker install.
   sed -i "s|^data_dir: .*|data_dir: ${DATA_DIR}|" "${TMP_YAML}"
   # The admin: allowed to use the bot, and where reports and warnings go.
-  sed -i "s|^  admin: null|  admin: '${V_ADMIN_ID}'|" "${TMP_YAML}"
+  [ -z "${V_ADMIN_ID}" ] || sed -i "s|^  admin: null|  admin: '${V_ADMIN_ID}'|" "${TMP_YAML}"
   sed -i "s|^  default_day_usd: .*|  default_day_usd: ${V_DAY_BUDGET}|" "${TMP_YAML}"
   sed -i "s|^  default_month_usd: .*|  default_month_usd: ${V_MONTH_BUDGET}|" "${TMP_YAML}"
   # Only an OpenRouter key: the default models run through OpenRouter.
@@ -396,7 +407,7 @@ if [ "${REPLACED_CONFIG}" = "1" ]; then
   fi
 
   mv "${TMP_YAML}" "${CONFIG_FILE}"
-  ok "ops.yaml written (admin: ${V_ADMIN_ID}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
+  ok "ops.yaml written (admin: ${V_ADMIN_ID:-on the web}, budgets \$${V_DAY_BUDGET}/\$${V_MONTH_BUDGET})"
 fi
 
 info "writing ${SECRETS_FILE}"
@@ -512,7 +523,15 @@ Send /help to see the commands, or /status to see the system."
     log "After fixing ${SECRETS_FILE}: systemctl restart ${SERVICE_NAME}"
   fi
 else
-  dim "  no token was configured, so no message was sent"
+  # No Telegram: the admin is created on the web. The service writes the one-time link
+  # when it starts with no admin; `argus setup-link` shows it again later.
+  SETUP_LINK=""
+  for _ in $(seq 1 15); do
+    SETUP_LINK="$(cat "${DATA_DIR}/state/setup-link" 2>/dev/null || sudo cat "${DATA_DIR}/state/setup-link" 2>/dev/null || true)"
+    [ -n "${SETUP_LINK}" ] && break
+    sleep 2
+  done
+  [ -n "${SETUP_LINK}" ] || dim "  no setup link yet (the admin may exist already); 'argus setup-link' shows it"
 fi
 
 # ── 11. smoke test ─────────────────────────────────────────────────────────────
@@ -560,19 +579,37 @@ cat >&2 <<EOF
 EOF
 fi
 
+if [ -n "${SETUP_LINK:-}" ]; then
+cat >&2 <<EOF
+  ${C_GREEN}Open the setup link to create the admin${C_RESET} (one use, valid an hour;
+  'argus setup-link' shows it again):
+
+    ${SETUP_LINK}
+
+  The web listens on this server's loopback only. From your computer, open a tunnel
+  first, then the link:
+    ssh -L 3091:127.0.0.1:3091 $(id -un)@$(hostname 2>/dev/null || echo this-server)
+  or, with Tailscale on the server: sudo tailscale serve --bg 3091
+  (then set web.public_url in ops.yaml to the https://….ts.net address it prints).
+
+EOF
+fi
+
 cat >&2 <<EOF
   ${C_YELLOW}Without Docker there is no container around a project's tools.${C_RESET}
   The unit's hardening is the barrier. Read docs/user/security.md#container-or-systemd
   before running anything you would not run by hand.
 
   Next:
-    1. Open the chat with your bot and send /start.
+    1. Telegram: open the chat with your bot and send /start.
+       Web: open the setup link; the page walks through the key, the models and a
+       first project.
     2. /new <name> creates your first project; or just write what you need.
     3. docs/user/getting-started.md walks through the first ten minutes.
 
   Back up regularly:
     argus backup
 
-  Keep the bot token secret. Anyone with it can drive this service as the bot.
+  Keep the bot token and the setup link secret.
 
 EOF

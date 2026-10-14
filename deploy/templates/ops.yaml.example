@@ -27,8 +27,9 @@ config_dir: config
 
 # ── access ──────────────────────────────────────────────────────────────────────
 #
-# WHO MAY OPERATE THE SYSTEM. With this empty, every message is refused — and the
-# plugin says so at boot, because an operator should learn that before a user does.
+# WHO MAY OPERATE THE SYSTEM. These seed the users; /users and the web's Users page
+# manage them after. With no admin at all, the web offers a one-time setup link
+# (`argus setup-link`) that creates one.
 #
 # The user id is the platform's own immutable identity. NEVER a username: a username
 # can be changed or released, so it is not an identity. Message @userinfobot on

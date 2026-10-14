@@ -1,8 +1,10 @@
 // == ARGUS AGENT PROJECT ==
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OpsStore } from '@argus-agent/store'
-import { hashPassword, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
+import { ADMIN_LINK_REQUEST, hashPassword, SETUP_LINK_FILE, SETUP_TTL_MS, SetupGate, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
 
 function storeWith(): OpsStore {
   const store = new OpsStore({ path: ':memory:' })
@@ -229,5 +231,79 @@ describe('WebChannelAdapter', () => {
     // Nothing new: no change to announce, so an open page does not loop.
     chat.markRead('u1')
     expect(changed).toEqual(['u1'])
+  })
+})
+
+describe('SetupGate', () => {
+  const dirs: string[] = []
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+  const stateDir = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'ops-web-setup-'))
+    dirs.push(dir)
+    return join(dir, 'state')
+  }
+  const tokenIn = (dir: string): string => /token=([\w-]+)/.exec(readFileSync(join(dir, SETUP_LINK_FILE), 'utf8'))?.[1] ?? ''
+  const admin = { name: 'Ana', login: 'ana', password: 'a long password' }
+
+  it('with no admin, writes a one-time link (mode 600) that creates the admin once', async () => {
+    const store = new OpsStore({ path: ':memory:' })
+    stores.push(store)
+    const dir = stateDir()
+    const gate = new SetupGate(store, new WebAuth(store, 60_000), dir, 'http://x')
+    expect(gate.refresh()).toBe('setup')
+    expect(statSync(join(dir, SETUP_LINK_FILE)).mode & 0o777).toBe(0o600)
+    const token = tokenIn(dir)
+    expect(gate.valid(token)).toBe(true)
+    expect(gate.valid('nope')).toBe(false)
+    expect(await gate.complete(token, { ...admin, password: 'short' })).toEqual({ ok: false, reason: 'short' })
+    expect(await gate.complete(token, { ...admin, login: 'a b' })).toEqual({ ok: false, reason: 'login' })
+    const done = await gate.complete(token, admin)
+    expect(done.ok).toBe(true)
+    const created = store.users.admin()
+    expect(created?.name).toBe('Ana')
+    expect(store.webAuth.loginByName('ana')?.user_id).toBe(created?.id)
+    expect(existsSync(join(dir, SETUP_LINK_FILE))).toBe(false)
+    // Spent, and closed: there is an admin now.
+    expect(gate.open).toBe(false)
+    expect(await gate.complete(token, { ...admin, login: 'eve' })).toEqual({ ok: false, reason: 'invalid' })
+    expect(gate.refresh()).toBeUndefined()
+  })
+
+  it('expires after an hour, and a refresh replaces the link', () => {
+    let now = 0
+    const store = new OpsStore({ path: ':memory:' })
+    stores.push(store)
+    const dir = stateDir()
+    const gate = new SetupGate(store, new WebAuth(store, 60_000, () => now), dir, 'http://x', () => now)
+    gate.refresh()
+    const first = tokenIn(dir)
+    now = SETUP_TTL_MS + 1
+    expect(gate.valid(first)).toBe(false)
+    gate.refresh()
+    expect(tokenIn(dir)).not.toBe(first)
+    expect(gate.valid(tokenIn(dir))).toBe(true)
+  })
+
+  it('with an admin, writes the admin a sign-in link only when one was asked for', () => {
+    const store = storeWith()
+    const dir = stateDir()
+    const auth = new WebAuth(store, 60_000)
+    const gate = new SetupGate(store, auth, dir, 'http://x')
+    expect(gate.refresh()).toBeUndefined()
+    expect(existsSync(join(dir, SETUP_LINK_FILE))).toBe(false)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, ADMIN_LINK_REQUEST), '')
+    expect(gate.refresh()).toBe('admin')
+    expect(existsSync(join(dir, ADMIN_LINK_REQUEST))).toBe(false)
+    expect(readFileSync(join(dir, SETUP_LINK_FILE), 'utf8')).toMatch(/^http:\/\/x\/login\?token=/)
+    const login = auth.login(tokenIn(dir), 'a')
+    expect(login.ok && login.session.userId).toBe('u1')
+    // A link session may set a new password without the old one.
+    expect(login.ok && auth.mayResetPassword(login.session)).toBe(true)
+    // The next start removes the spent link.
+    expect(gate.refresh()).toBeUndefined()
+    expect(existsSync(join(dir, SETUP_LINK_FILE))).toBe(false)
   })
 })

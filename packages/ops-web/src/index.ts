@@ -11,17 +11,21 @@
  * @module @argus-agent/web
  */
 import type { Context } from '@deepseek-ai/cordis'
+import { pathsOf } from '@argus-agent/argus-agent'
 import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
+import { governorConfigOf } from '@argus-agent/governor'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
 import { overview, projectDetail, projectList, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
+import { SETUP_TTL_MS, SetupGate } from './setup.js'
 import { WebChannelAdapter } from './web-channel.js'
 
 export * from './auth.js'
 export * from './config.js'
 export * from './data.js'
 export * from './server.js'
+export * from './setup.js'
 export * from './web-channel.js'
 
 /** Stable Cordis plugin name. */
@@ -132,6 +136,24 @@ export async function apply(ctx: Context): Promise<void> {
   }
   ctx.provide('opsWeb', web)
 
+  // ── the first admin, or a lost one ───────────────────────────────────────
+  const setup = new SetupGate(ctx.opsStore, auth, pathsOf(ctx.opsRawConfig).stateDir, config.public_url)
+  const announce = (): void => {
+    const written = setup.refresh()
+    if (written === 'setup') logger.info('there is no admin yet: run `argus setup-link` on the server for the one-time setup link')
+    else if (written === 'admin') logger.info('a sign-in link for the admin was asked for: run `argus setup-link` on the server to see it')
+  }
+  try {
+    announce()
+  } catch (error) {
+    logger.warn('the setup link could not be written: %s', error instanceof Error ? error.message : String(error))
+  }
+  // A setup link lasts an hour; while nobody has used it, a new one replaces it.
+  const renew = setInterval(() => {
+    if (setup.open) announce()
+  }, SETUP_TTL_MS)
+  ctx.effect(() => () => clearInterval(renew))
+
   const sources = {
     store: ctx.opsStore,
     meter: ctx.opsMeter,
@@ -143,6 +165,10 @@ export async function apply(ctx: Context): Promise<void> {
     memory: () => ctx.get('opsMemory' as never) as unknown as InstructionsPort | undefined,
     now: () => Date.now(),
   }
+
+  // Shown by the setup page; they change in ops.yaml, with a restart.
+  const { budgets } = governorConfigOf(ctx.opsRawConfig)
+  const system = { timezone: pathsOf(ctx.opsRawConfig).timezone, dayUsd: budgets.default_day_usd, monthUsd: budgets.default_month_usd }
 
   const runCommand = async (line: string, session: { userId: string }): Promise<CommandOutcome> => {
     // A confirmation button comes back as its token; it is the `/confirm` command.
@@ -179,6 +205,7 @@ export async function apply(ctx: Context): Promise<void> {
       port: config.port,
       secure: config.public_url.startsWith('https://'),
       auth,
+      setup,
       sessionHours: config.session_hours,
       chat,
       me: (session) => {
@@ -216,7 +243,7 @@ export async function apply(ctx: Context): Promise<void> {
       tasks: () => taskList(sources),
       schedules: () => scheduleList(sources),
       runs: () => runsAndCosts(sources),
-      settings: () => settings(sources),
+      settings: () => ({ ...settings(sources), system }),
       runCommand,
       answerApproval: (approvalId, value, session) =>
         [APPROVE, DENY, APPROVE_ALL].includes(value) &&

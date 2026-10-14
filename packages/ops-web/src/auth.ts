@@ -29,7 +29,8 @@ const LOCK_MS = 15 * 60_000
 const TOUCH_MS = 60_000
 /** scrypt's cost: 16 MiB and some 50 ms per hash. */
 const SCRYPT = { N: 16_384, r: 8, p: 1, keylen: 32 }
-const LOGIN_NAME = /^[\p{L}\p{N}._@-]{2,64}$/u
+/** What a login name may be. */
+export const LOGIN_NAME = /^[\p{L}\p{N}._@-]{2,64}$/u
 
 /** A signed-in person. */
 export interface Session {
@@ -232,7 +233,7 @@ export class WebAuth {
   }
 
   /** Open a session, and make the web one of the user's channels. */
-  private open(userId: string, via: WebSessionVia, userAgent: string | undefined): LoginOutcome {
+  open(userId: string, via: WebSessionVia, userAgent: string | undefined): LoginOutcome {
     const now = this.now()
     this.store.webAuth.pruneSessions(now)
     this.store.users.link({ channel: 'web', external_id: userId, user_id: userId }, now)

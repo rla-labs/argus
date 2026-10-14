@@ -69,9 +69,8 @@ export function RunsTable({ runs, now }: { runs: RunView[]; now: number }): VNod
     )}</tbody></table></div>`
 }
 
-/** Every project, and a form for a new one. */
-export function ProjectsView({ version, run, outcome, can }: PageProps): VNode {
-  const data = useData<{ projects: ProjectRow[] }>('/api/projects', version)
+/** A form for a new project, from a template. */
+export function NewProjectForm({ version, run }: Pick<PageProps, 'version' | 'run'>): VNode {
   const templates = useData<{ templates: Array<{ name: string; summary: string }> }>('/api/templates', version)
   const [id, setId] = useState('')
   const [template, setTemplate] = useState('')
@@ -81,6 +80,21 @@ export function ProjectsView({ version, run, outcome, can }: PageProps): VNode {
     if (id.trim().length === 0) return
     run(['/new', id.trim(), template, model.trim()].filter((part) => part.length > 0).join(' '))
   }
+  return html`<form class="inline" onSubmit=${create}>
+    <${Field} id="n-id" label=${t('projects.id')} value=${id} onInput=${setId} placeholder="site-firma" />
+    <div class="field" style="flex:1 1 200px"><label class="lbl" for="n-template">${t('projects.template')}</label>
+      <select id="n-template" value=${template} onChange=${(event: Event) => setTemplate((event.target as HTMLSelectElement).value)}>
+        <option value="">${t('projects.noTemplate')}</option>
+        ${(templates?.templates ?? []).map((entry) => html`<option value=${entry.name}>${entry.name} — ${entry.summary}</option>`)}
+      </select></div>
+    <${Field} id="n-model" label=${t('projects.modelOptional')} value=${model} onInput=${setModel} placeholder=${t('settings.model')} />
+    <button class="btn primary" type="submit">${t('projects.create')}</button>
+  </form>`
+}
+
+/** Every project, and a form for a new one. */
+export function ProjectsView({ version, run, outcome, can }: PageProps): VNode {
+  const data = useData<{ projects: ProjectRow[] }>('/api/projects', version)
   return html`
     ${outcome}
     <section class="hud">
@@ -105,16 +119,7 @@ export function ProjectsView({ version, run, outcome, can }: PageProps): VNode {
       ? html`<section class="hud">
           <h2>${t('projects.new')}</h2>
           <p class="muted" style="margin:0">${t('projects.newHint')}</p>
-          <form class="inline" onSubmit=${create}>
-            <${Field} id="n-id" label=${t('projects.id')} value=${id} onInput=${setId} placeholder="site-firma" />
-            <div class="field" style="flex:1 1 200px"><label class="lbl" for="n-template">${t('projects.template')}</label>
-              <select id="n-template" value=${template} onChange=${(event: Event) => setTemplate((event.target as HTMLSelectElement).value)}>
-                <option value="">${t('projects.noTemplate')}</option>
-                ${(templates?.templates ?? []).map((entry) => html`<option value=${entry.name}>${entry.name} — ${entry.summary}</option>`)}
-              </select></div>
-            <${Field} id="n-model" label=${t('projects.modelOptional')} value=${model} onInput=${setModel} placeholder=${t('settings.model')} />
-            <button class="btn primary" type="submit">${t('projects.create')}</button>
-          </form>
+          <${NewProjectForm} version=${version} run=${run} />
         </section>`
       : null}`
 }

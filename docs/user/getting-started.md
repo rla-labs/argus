@@ -1,13 +1,14 @@
 # Getting started
 
 From an empty server to a project that works, in about ten minutes. Every step after
-the install happens in Telegram; you do not edit a file.
+the install happens in Telegram or in the [web interface](web.md); you do not edit a file.
 
 ## 1. What you need
 
 - A Linux server with Docker. The [native install](install-native.md) works without it.
-- A Telegram bot token: message [`@BotFather`](https://t.me/BotFather) and send `/newbot`.
-- Your numeric Telegram id: message [`@userinfobot`](https://t.me/userinfobot).
+- Optionally, Telegram: a bot token (message [`@BotFather`](https://t.me/BotFather) and send
+  `/newbot`) and your numeric Telegram id (message [`@userinfobot`](https://t.me/userinfobot)).
+  Without them you use Argus on the web.
 - An API key for a model provider, such as DeepSeek or OpenRouter.
 
 ## 2. Install
@@ -17,9 +18,17 @@ git clone https://github.com/rla-labs/argus.git && cd argus
 ./deploy/scripts/install.sh
 ```
 
-The installer asks for the token, your id, the API key, your timezone, and a daily and
-monthly budget for each project. It starts the service and sends you a first message on
-Telegram. If that message does not arrive, run:
+The installer asks whether to use Telegram (then the token and your id), the API key,
+your timezone, and a daily and monthly budget for each project. It starts the service
+and sends you a first message on Telegram.
+
+**Without Telegram**, it ends with a one-time setup link instead. Open it through an SSH
+tunnel or Tailscale ([how](web.md#reach-it-tailscale-recommended)): the page creates
+your admin account, then asks for the API key, the models and a first project
+([the setup link](web.md#without-telegram-the-setup-link)). The steps below work the
+same in the web's **Chat**.
+
+If the message does not arrive, or something fails, run:
 
 ```sh
 argus doctor

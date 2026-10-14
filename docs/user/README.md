@@ -54,6 +54,7 @@ installed, and the Docker ones otherwise.
 | `argus status` | Is the service running, and what does its health check say. Exits 1 when it is not healthy. |
 | `argus doctor` | The smoke test, then whether it can actually work: every provider key (one free request each, no tokens spent), the `/task` and orchestrator models, the project files, the chat channel and the admin. Every failure comes with its fix. |
 | `argus logs [-f]` | The last 100 lines of the log; `-f` follows it. |
+| `argus setup-link [--admin]` | The one-time link that creates the admin on the web, while there is none. `--admin`: a sign-in link for the admin who lost the password (restarts the service). [More](web.md#without-telegram-the-setup-link) |
 | `argus backup` | Back up the database and the data directory. [More](backup-and-upgrade.md#running-it) |
 | `argus restore` | Restore from a backup (Docker). On the native install it points to [the manual steps](install-native.md#restoring). |
 | `argus upgrade` | Back up, upgrade, and roll back if the new version does not start. [More](backup-and-upgrade.md#upgrading) |

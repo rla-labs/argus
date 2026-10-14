@@ -523,10 +523,14 @@ describe('install-native.sh prerequisites', () => {
     }
   })
 
-  it('requires the Telegram token and user id in non-interactive mode', () => {
-    const text = readFileSync(join(NATIVE, 'install-native.sh'), 'utf8')
-    expect(text).toMatch(/TELEGRAM_BOT_TOKEN is required with --non-interactive/)
-    expect(text).toMatch(/ARGUS_AGENT_ADMIN_ID is required with --non-interactive/)
+  it('takes the Telegram token and user id together, or neither (web-only)', () => {
+    for (const script of [join(NATIVE, 'install-native.sh'), join(NATIVE, '..', 'scripts', 'install.sh')]) {
+      const text = readFileSync(script, 'utf8')
+      expect(text).toMatch(/TELEGRAM_BOT_TOKEN needs ARGUS_AGENT_ADMIN_ID/)
+      expect(text).toMatch(/ARGUS_AGENT_ADMIN_ID needs TELEGRAM_BOT_TOKEN/)
+      // Without Telegram, the install ends with the web setup link.
+      expect(text).toMatch(/state\/setup-link/)
+    }
   })
 
   it('validates the admin id as numeric', () => {

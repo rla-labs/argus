@@ -17,7 +17,8 @@ data_dir: /data
 
 access:
   # Your Telegram user id. The admin may use the bot, and receives the reports and
-  # warnings. Until it is set, every message is refused. More users: allowed_users.
+  # warnings. Without it, the admin is created on the web with the one-time link
+  # `argus setup-link` shows. More users: /users invite, or allowed_users.
   admin: null
 
 # The daily and monthly limit, in dollars, for every budget not set explicitly.

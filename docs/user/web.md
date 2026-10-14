@@ -64,6 +64,43 @@ ssh -N -L 3091:127.0.0.1:3091 user@your-server
 Another VPN works the same way. Do **not** publish the port on a public address or
 put it behind a public reverse proxy: that is not supported before Argus 0.4.0.
 
+## Without Telegram: the setup link
+
+An install without a Telegram bot has no admin yet. Argus then writes a **one-time setup
+link** (valid an hour, renewed every hour until it is used), and the installer prints
+it. To see it again, on the server:
+
+```sh
+argus setup-link
+```
+
+Open it through the tunnel or Tailscale (above). The page asks for the admin's name, a
+login name and a password, signs you in, and then walks through the rest, each step a
+command you could also type in the chat:
+
+1. a model provider's API key ([`/key`](commands.md#key-provider-key--name-value--remove-providername--admin), checked with the provider);
+2. the models for tasks and the front desk ([`/defaults`](commands.md#defaults-tasksfrontdesk-providermodel));
+3. optionally Telegram: the bot token (`/key telegram`, the bot starts at once), then
+   **Connect Telegram** for your account;
+4. a first project from a template ([`/new`](commands.md#new-id-template-providermodel)).
+
+The timezone and the default budgets are shown there too; they are in `ops.yaml`
+(`timezone`, `budgets`) and apply after a restart. Until there is a provider key and a
+project, the Overview offers **Finish the setup**.
+
+The link is never written to the log. It is in the file `state/setup-link` of the data
+directory (mode 600), and disappears once used.
+
+**The admin lost the password** and has no Telegram to send `/web` from:
+
+```sh
+argus setup-link --admin
+```
+
+It restarts the service and prints a one-time sign-in link for the admin, valid an
+hour; within ten minutes of opening it, set a new password in **Settings → Web
+password**, without the old one.
+
 ## Sign in
 
 **The first time**, send **`/web`** to the bot. It answers with a link that works

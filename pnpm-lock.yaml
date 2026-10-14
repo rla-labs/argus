@@ -855,6 +855,9 @@ importers:
       '@argus-agent/approvals-bridge':
         specifier: workspace:*
         version: link:../ops-approvals-bridge
+      '@argus-agent/argus-agent':
+        specifier: workspace:*
+        version: link:../argus-agent
       '@argus-agent/channel':
         specifier: workspace:*
         version: link:../ops-channel
@@ -889,9 +892,6 @@ importers:
         specifier: 10.29.8
         version: 10.29.8
     devDependencies:
-      '@argus-agent/argus-agent':
-        specifier: workspace:*
-        version: link:../argus-agent
       '@argus-agent/memory':
         specifier: workspace:^
         version: link:../ops-memory

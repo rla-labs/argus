@@ -11,7 +11,7 @@ import { command, get, listen, post, SignedOut, type CommandOutcome } from './ap
 import { clock, initialLanguage, lang, LANGUAGES, money, since, t, loadLanguage, type Language } from './i18n.js'
 import { Constellation, Dial, Gauge, Trend } from './svg.js'
 import { Notice, type PageProps } from './ui.js'
-import { ProjectsView, ProjectView } from './pages/projects.js'
+import { NewProjectForm, ProjectsView, ProjectView } from './pages/projects.js'
 import { RunsView, SchedulesView, SystemSection, TasksView } from './pages/work.js'
 
 // ── the server's shapes ────────────────────────────────────────────────────
@@ -32,6 +32,7 @@ interface Settings {
   defaults: { tasks: string; frontDesk: string | null }
   keys: Array<{ provider: string; configured: boolean; writable: boolean }>
   projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string }>; instructions: string | null; dayUsd: number; monthUsd: number }>
+  system: { timezone: string; dayUsd: number; monthUsd: number }
 }
 
 interface ChatEntry {
@@ -67,21 +68,21 @@ interface UserRow {
   channels: string[]
 }
 
-type View = 'overview' | 'approvals' | 'projects' | 'tasks' | 'schedules' | 'runs' | 'chat' | 'settings' | 'users'
+type View = 'overview' | 'approvals' | 'projects' | 'tasks' | 'schedules' | 'runs' | 'chat' | 'settings' | 'users' | 'setup'
 const VIEWS: readonly View[] = ['overview', 'approvals', 'projects', 'tasks', 'schedules', 'runs', 'chat', 'settings', 'users']
 
 /** The page and its part (`#projects/site-firma`) the address names. */
 function fromHash(): { view: View; sub: string } {
   const [view, ...rest] = location.hash.slice(1).split('/')
-  return { view: VIEWS.find((each) => each === view) ?? 'overview', sub: decodeURIComponent(rest.join('/')) }
+  return { view: view === 'setup' ? 'setup' : (VIEWS.find((each) => each === view) ?? 'overview'), sub: decodeURIComponent(rest.join('/')) }
 }
 const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
 
 /** A stroke icon per view. */
-function Icon({ view }: { view: View }): VNode {
-  const paths: Record<View, string> = {
+function Icon({ view }: { view: Exclude<View, 'setup'> }): VNode {
+  const paths: Record<Exclude<View, 'setup'>, string> = {
     overview: 'M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6M2 12c0-3 4.5-5 10-5s10 2 10 5-4.5 5-10 5S2 15 2 12',
     approvals: 'M12 2 20 5v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5zM8.5 12l2.5 2.5 4.5-5',
     chat: 'M4 5h16v11H9l-5 4z',
@@ -139,6 +140,30 @@ function SignIn({ onSignedIn }: { onSignedIn: () => void }): VNode {
       <div class="field"><label class="lbl" for="s-login">${t('signin.login')}</label><input id="s-login" autocomplete="username" required value=${login} onInput=${(e: Event) => setLogin((e.target as HTMLInputElement).value)} /></div>
       <div class="field"><label class="lbl" for="s-password">${t('signin.password')}</label><input id="s-password" type="password" autocomplete="current-password" required value=${password} onInput=${(e: Event) => setPassword((e.target as HTMLInputElement).value)} /></div>
       <div><button class="btn primary" type="submit">${t('signin.submit')}</button></div>
+    </form></section>`
+}
+
+/** The first admin, from the one-time setup link. */
+function CreateAdmin({ token, onCreated }: { token: string; onCreated: () => void }): VNode {
+  const [name, setName] = useState('')
+  const [login, setLogin] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | undefined>()
+  const errors: Record<string, string> = { short: 'password.short', login: 'password.badLogin', invalid: 'setup.invalid' }
+  const submit = async (event: Event): Promise<void> => {
+    event.preventDefault()
+    const result = await post<{ error?: string }>('/api/setup', { token, name, login, password })
+    setPassword('')
+    if (result.ok) onCreated()
+    else setError(t(errors[result.body.error ?? ''] ?? 'setup.invalid'))
+  }
+  return html`<section class="hud signin"><h2>${t('setup.adminTitle')}</h2><p>${t('setup.adminText')}</p>
+    ${error === undefined ? null : html`<div class="notice err" role="alert">${error}</div>`}
+    <form style="display:flex;flex-direction:column;gap:12px;max-width:360px" onSubmit=${(event: Event) => void submit(event)}>
+      <div class="field"><label class="lbl" for="a-name">${t('users.name')}</label><input id="a-name" autocomplete="name" maxlength="80" value=${name} onInput=${(e: Event) => setName((e.target as HTMLInputElement).value)} /></div>
+      <div class="field"><label class="lbl" for="a-login">${t('signin.login')}</label><input id="a-login" autocomplete="username" required value=${login} onInput=${(e: Event) => setLogin((e.target as HTMLInputElement).value)} /></div>
+      <div class="field"><label class="lbl" for="a-password">${t('password.new')}</label><input id="a-password" type="password" autocomplete="new-password" minlength="10" required value=${password} onInput=${(e: Event) => setPassword((e.target as HTMLInputElement).value)} /></div>
+      <div><button class="btn primary" type="submit">${t('setup.create')}</button></div>
     </form></section>`
 }
 
@@ -342,11 +367,93 @@ function ChatView({ version }: { version: number }): VNode {
   </section>`
 }
 
-function SettingsView({ data, run, outcome, account }: { data: Settings; run: (line: string) => void; outcome: VNode | null; account: VNode }): VNode {
+/** The models for tasks and the front desk. */
+function DefaultsSection({ data, run, bare = false }: { data: Settings; run: (line: string) => void; bare?: boolean }): VNode {
   const [tasks, setTasks] = useState(data.defaults.tasks)
   const [desk, setDesk] = useState(data.defaults.frontDesk ?? '')
-  const [provider, setProvider] = useState(data.keys[0]?.provider ?? '')
+  return html`<${Box} bare=${bare}>
+    ${bare ? null : html`<h2>${t('settings.defaults')}</h2>`}
+    <form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/defaults tasks ${tasks.trim()}`) }}>
+      <div class="field" style="flex:1 1 220px"><label class="lbl" for="d-tasks">${t('settings.tasks')}</label><input id="d-tasks" class="mono" placeholder=${t('settings.model')} value=${tasks} onInput=${(e: Event) => setTasks((e.target as HTMLInputElement).value)} /></div>
+      <button class="btn ghost" type="submit">${t('settings.save')}</button>
+    </form>
+    ${data.defaults.frontDesk === null
+      ? null
+      : html`<form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/defaults frontdesk ${desk.trim()}`) }}>
+          <div class="field" style="flex:1 1 220px"><label class="lbl" for="d-desk">${t('settings.frontdesk')}</label><input id="d-desk" class="mono" placeholder=${t('settings.model')} value=${desk} onInput=${(e: Event) => setDesk((e.target as HTMLInputElement).value)} /></div>
+          <button class="btn ghost" type="submit">${t('settings.save')}</button>
+        </form>`}
+  <//>`
+}
+
+/** A settings box, or only its contents inside a setup step. */
+function Box({ bare, children }: { bare: boolean; children?: unknown }): VNode {
+  return bare ? html`<div style="display:flex;flex-direction:column;gap:10px">${children}</div>` : html`<section class="hud grow1">${children}</section>`
+}
+
+/** Keys: a form to save one, and the ones saved. */
+function KeysSection({ keys, run, title, hint, bare = false }: { keys: Settings['keys']; run: (line: string) => void; title: string; hint?: string; bare?: boolean }): VNode {
+  const [provider, setProvider] = useState(keys[0]?.provider ?? '')
   const [key, setKey] = useState('')
+  return html`<${Box} bare=${bare}>
+    ${bare ? null : html`<h2>${title}</h2>`}
+    ${hint === undefined ? null : html`<p class="muted" style="margin:0">${hint}</p>`}
+    <form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (key.trim().length > 0) { run(`/key ${provider} ${key.trim()}`); setKey('') } }}>
+      ${keys.length === 1
+        ? null
+        : html`<div class="field"><label class="lbl" for=${`k-provider-${title}`}>${t('settings.keyProvider')}</label>
+            <select id=${`k-provider-${title}`} value=${provider} onChange=${(e: Event) => setProvider((e.target as HTMLSelectElement).value)}>${keys.map((entry) => html`<option value=${entry.provider}>${entry.provider}</option>`)}</select></div>`}
+      <div class="field" style="flex:1 1 200px"><label class="lbl" for=${`k-value-${title}`}>${t('settings.keyValue')}</label><input id=${`k-value-${title}`} type="password" class="mono" value=${key} onInput=${(e: Event) => setKey((e.target as HTMLInputElement).value)} /></div>
+      <button class="btn ghost" type="submit">${t('settings.save')}</button>
+    </form>
+    <ul class="plain">${keys.filter((entry) => entry.configured).map(
+      (entry) => html`<li style="display:flex;gap:10px;align-items:center"><span style="flex:1">${entry.provider} · <span class="muted">${entry.writable ? t('settings.keySet') : t('settings.keyEnv')}</span></span>
+        ${entry.writable ? html`<button class="btn danger" type="button" onClick=${() => run(`/key remove ${entry.provider}`)}>${t('settings.remove')}</button>` : null}</li>`,
+    )}</ul>
+  <//>`
+}
+
+/** One step of the setup page. */
+function Step({ title, done, hint, children }: { title: string; done: boolean; hint: string; children?: unknown }): VNode {
+  return html`<section class="hud">
+    <h2>${done ? html`<span style="color:var(--cyan)" aria-label=${t('setup.done')}>✓ </span>` : null}${title}</h2>
+    <p class="muted" style="margin:0">${hint}</p>
+    ${children}
+  </section>`
+}
+
+/** What a new install needs, each step a command, and what is done already. */
+function SetupView({ data, me, run, outcome, version, onFinish }: { data: Settings; me: Me; run: (line: string) => void; outcome: VNode | null; version: number; onFinish: () => void }): VNode {
+  const providers = data.keys.filter((entry) => entry.provider !== 'telegram')
+  const telegram = data.keys.filter((entry) => entry.provider === 'telegram')
+  return html`
+    ${outcome}
+    <section class="hud"><h2>${t('setup.title')}</h2><p class="muted" style="margin:0">${t('setup.intro')}</p></section>
+    <${Step} title=${t('setup.admin')} done=${true} hint=${t('setup.adminDone', { login: me.login ?? '' })} />
+    <${Step} title=${t('setup.key')} done=${providers.some((entry) => entry.configured)} hint=${t('setup.keyHint')}>
+      <${KeysSection} keys=${providers} run=${run} title="provider" bare=${true} />
+    <//>
+    <${Step} title=${t('setup.models')} done=${false} hint=${t('setup.modelsHint')}>
+      <${DefaultsSection} key=${JSON.stringify(data.defaults)} data=${data} run=${run} bare=${true} />
+    <//>
+    ${telegram.length === 0
+      ? null
+      : html`<${Step} title=${t('setup.telegram')} done=${me.channels.some((channel) => channel.startsWith('telegram:'))} hint=${t('setup.telegramHint')}>
+          <${KeysSection} keys=${telegram} run=${run} title="telegram" bare=${true} />
+          <p class="muted" style="margin:0">${me.channels.length === 0 ? t('channels.none') : t('channels.list', { channels: me.channels.join(', ') })} ${t('channels.hint')}</p>
+          <div><button class="btn ghost" type="button" onClick=${() => run('/link')}>${t('channels.connect')}</button></div>
+        <//>`}
+    <${Step} title=${t('setup.project')} done=${data.projects.length > 0} hint=${t('setup.projectHint')}>
+      <${NewProjectForm} version=${version} run=${run} />
+      ${data.projects.length === 0
+        ? null
+        : html`<p class="muted" style="margin:0">${t('setup.projects')} ${data.projects.map((project, index) => html`${index === 0 ? '' : ', '}<a class="link" href=${`#projects/${encodeURIComponent(project.id)}`}>${project.id}</a>`)}</p>`}
+    <//>
+    <${Step} title=${t('setup.system')} done=${true} hint=${t('setup.systemText', { timezone: data.system.timezone, day: data.system.dayUsd, month: data.system.monthUsd })} />
+    <div class="btns"><button class="btn primary" type="button" onClick=${onFinish}>${t('setup.finish')}</button></div>`
+}
+
+function SettingsView({ data, run, outcome, account }: { data: Settings; run: (line: string) => void; outcome: VNode | null; account: VNode }): VNode {
   const instructed = data.projects.filter((project) => project.instructions !== null)
   const [instructionsOf, setInstructionsOf] = useState(instructed[0]?.id ?? '')
   const [instructions, setInstructions] = useState(instructed[0]?.instructions ?? '')
@@ -358,33 +465,8 @@ function SettingsView({ data, run, outcome, account }: { data: Settings; run: (l
     ${outcome}
     ${account}
     <div class="row">
-      <section class="hud grow1">
-        <h2>${t('settings.defaults')}</h2>
-        <form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/defaults tasks ${tasks.trim()}`) }}>
-          <div class="field" style="flex:1 1 220px"><label class="lbl" for="d-tasks">${t('settings.tasks')}</label><input id="d-tasks" class="mono" placeholder=${t('settings.model')} value=${tasks} onInput=${(e: Event) => setTasks((e.target as HTMLInputElement).value)} /></div>
-          <button class="btn ghost" type="submit">${t('settings.save')}</button>
-        </form>
-        ${data.defaults.frontDesk === null
-          ? null
-          : html`<form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/defaults frontdesk ${desk.trim()}`) }}>
-              <div class="field" style="flex:1 1 220px"><label class="lbl" for="d-desk">${t('settings.frontdesk')}</label><input id="d-desk" class="mono" placeholder=${t('settings.model')} value=${desk} onInput=${(e: Event) => setDesk((e.target as HTMLInputElement).value)} /></div>
-              <button class="btn ghost" type="submit">${t('settings.save')}</button>
-            </form>`}
-      </section>
-      <section class="hud grow1">
-        <h2>${t('settings.keys')}</h2>
-        <p class="muted" style="margin:0">${t('settings.keysHint')}</p>
-        <form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (key.trim().length > 0) { run(`/key ${provider} ${key.trim()}`); setKey('') } }}>
-          <div class="field"><label class="lbl" for="k-provider">${t('settings.keyProvider')}</label>
-            <select id="k-provider" value=${provider} onChange=${(e: Event) => setProvider((e.target as HTMLSelectElement).value)}>${data.keys.map((entry) => html`<option value=${entry.provider}>${entry.provider}</option>`)}</select></div>
-          <div class="field" style="flex:1 1 200px"><label class="lbl" for="k-value">${t('settings.keyValue')}</label><input id="k-value" type="password" class="mono" value=${key} onInput=${(e: Event) => setKey((e.target as HTMLInputElement).value)} /></div>
-          <button class="btn ghost" type="submit">${t('settings.save')}</button>
-        </form>
-        <ul class="plain">${data.keys.filter((entry) => entry.configured).map(
-          (entry) => html`<li style="display:flex;gap:10px;align-items:center"><span style="flex:1">${entry.provider} · <span class="muted">${entry.writable ? t('settings.keySet') : t('settings.keyEnv')}</span></span>
-            ${entry.writable ? html`<button class="btn danger" type="button" onClick=${() => run(`/key remove ${entry.provider}`)}>${t('settings.remove')}</button>` : null}</li>`,
-        )}</ul>
-      </section>
+      <${DefaultsSection} data=${data} run=${run} />
+      <${KeysSection} keys=${data.keys} run=${run} title=${t('settings.keys')} hint=${t('settings.keysHint')} />
     </div>
     <section class="hud">
       <h2>${t('settings.tools')}</h2>
@@ -539,8 +621,19 @@ function App(): VNode {
   </header>`
 
   if (!signedIn) {
+    const token = location.pathname === '/setup' ? new URLSearchParams(location.search).get('token') : null
+    if (token !== null) {
+      const created = (): void => {
+        history.replaceState(null, '', '/#setup')
+        setPlace({ view: 'setup', sub: '' })
+        loadMe()
+      }
+      return html`${header}<${CreateAdmin} token=${token} onCreated=${created} />`
+    }
     return html`${header}<${SignIn} onSignedIn=${loadMe} />`
   }
+  // What a new install still lacks: a provider key, a first project.
+  const unfinished = me?.role === 'admin' && settingsData !== undefined && (!settingsData.keys.some((entry) => entry.provider !== 'telegram' && entry.configured) || settingsData.projects.length === 0)
 
   const pending = overviewData?.approvals.length ?? 0
   return html`${header}
@@ -563,6 +656,8 @@ function App(): VNode {
       </nav>
       <main>
         ${failure === undefined ? null : html`<div class="notice err">${t('common.error', { message: failure })}</div>`}
+        ${view === 'overview' && unfinished ? html`<div class="notice" role="status">${t('setup.banner')} <a class="link" href="#setup">${t('setup.bannerLink')}</a></div>` : null}
+        ${view === 'setup' && me?.role === 'admin' && settingsData !== undefined ? html`<${SetupView} data=${settingsData} me=${me} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`} version=${pageVersion} onFinish=${() => go('overview')} />` : null}
         ${view === 'overview' ? (overviewData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${Notice} outcome=${outcome} onButton=${run} /><${OverviewView} data=${overviewData} refresh=${loadOverview} run=${run} />`) : null}
         ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} />` : null}
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}

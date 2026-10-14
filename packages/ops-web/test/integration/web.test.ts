@@ -5,7 +5,7 @@
  * commands run with the user's role, the chat is one of the user's channels, and a
  * question another channel asked can be answered from the web.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -34,7 +34,7 @@ interface Booted {
   readonly dataDir: string
 }
 
-async function bootWeb(): Promise<Booted> {
+async function bootWeb(options: { noAdmin?: boolean } = {}): Promise<Booted> {
   const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-'))
   dirs.push(dataDir)
   mkdirSync(join(dataDir, 'projects', 'alpha'), { recursive: true })
@@ -54,7 +54,9 @@ async function bootWeb(): Promise<Booted> {
         `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
         `budgets:\n  default_day_usd: 100\n` +
         // The admin is a Telegram user; no Telegram adapter is needed to ask for a link.
-        `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n    - { channel: console, userId: user-1 }\n  admin: telegram:42\n` +
+        (options.noAdmin === true
+          ? ''
+          : `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n    - { channel: console, userId: user-1 }\n  admin: telegram:42\n`) +
         `channel:\n  default_address: console:default-chat\n` +
         `web:\n  port: 0\n`,
     },
@@ -104,6 +106,38 @@ async function signIn(booted: Booted): Promise<string> {
 }
 
 describe('the web interface', () => {
+  it('with no admin, the one-time setup link creates the admin and signs them in', async () => {
+    const booted = await bootWeb({ noAdmin: true })
+    const file = join(booted.dataDir, 'state', 'setup-link')
+    const link = readFileSync(file, 'utf8').trim()
+    const token = /token=([\w-]+)/.exec(link)?.[1] ?? ''
+    expect((await fetch(`${booted.base}/setup?token=wrong`)).status).toBe(404)
+    expect((await fetch(`${booted.base}/setup?token=${token}`)).status).toBe(200)
+    const create = (login: string): Promise<Response> =>
+      fetch(`${booted.base}/api/setup`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-argus': '1' },
+        body: JSON.stringify({ token, name: 'Ana', login, password: 'a long password' }),
+      })
+    const created = await create('ana')
+    expect(created.status).toBe(204)
+    const cookie = (created.headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    const me = (await (await fetch(`${booted.base}/api/me`, { headers: { cookie } })).json()) as { role: string; login: string }
+    expect(me).toMatchObject({ role: 'admin', login: 'ana' })
+    expect(existsSync(file)).toBe(false)
+    // Once only, and the page is gone.
+    expect((await create('eve')).status).toBe(401)
+    expect((await fetch(`${booted.base}/setup?token=${token}`)).status).toBe(404)
+    // The settings carry what the setup page shows.
+    const settings = (await (await fetch(`${booted.base}/api/settings`, { headers: { cookie } })).json()) as { system: unknown }
+    expect(settings.system).toEqual({ timezone: 'UTC', dayUsd: 100, monthUsd: 40 })
+  })
+
+  it('with an admin, there is no setup link', async () => {
+    const booted = await bootWeb()
+    expect(existsSync(join(booted.dataDir, 'state', 'setup-link'))).toBe(false)
+  })
+
   it('signs in through a /web link, and refuses the API without a session or the header', async () => {
     const booted = await bootWeb()
     expect((await fetch(`${booted.base}/api/overview`)).status).toBe(401)

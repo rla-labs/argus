@@ -41,9 +41,10 @@ cd argus
 ./deploy/scripts/install.sh
 ```
 
-It pulls the published image (`ghcr.io/rla-labs/argus:<version>`), asks four questions,
+It pulls the published image (`ghcr.io/rla-labs/argus:<version>`), asks a few questions,
 then does everything else. When it finishes, **check Telegram** — the first message
-should already be there. `--build` builds the image from your checkout instead.
+should already be there. Without Telegram, it prints the one-time
+[setup link](web.md#without-telegram-the-setup-link) that creates the admin on the web. `--build` builds the image from your checkout instead.
 
 ### Non-interactive
 
@@ -88,9 +89,8 @@ the bill. OpenRouter routes each request to one of several providers with differ
 prices and does not tell Argus which, so its models are charged at the **highest**
 of those prices: a budget can stop early, never late.
 
-`TELEGRAM_BOT_TOKEN` and `ARGUS_AGENT_ADMIN_ID` are **required** in this mode. An install
-that cannot send a message has not been verified, and the acceptance criterion is the
-first message.
+Give `TELEGRAM_BOT_TOKEN` and `ARGUS_AGENT_ADMIN_ID` together, or neither: without them the
+install is web-only and ends with the [setup link](web.md#without-telegram-the-setup-link).
 
 ### From a checkout, without a published image
 

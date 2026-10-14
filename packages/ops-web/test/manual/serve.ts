@@ -3,7 +3,7 @@
  * A local web interface with sample projects, for looking at the page in a browser.
  * Not part of the suite: `pnpm exec tsx test/manual/serve.ts`, then open the printed link.
  */
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BASE_ENTRIES, bootOps, persistenceEntry } from '@argus-agent/testkit'
@@ -25,7 +25,8 @@ const boot = await bootOps({
     'config/ops.yaml':
       `timezone: Europe/Bucharest\ndata_dir: ${JSON.stringify(dataDir)}\ntasks:\n  model: fake/fake-model\n` +
       `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\nbudgets:\n  default_day_usd: 3\n  global_day_usd: 5\n` +
-      `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n  admin: telegram:42\n` +
+      // SETUP=1: no admin, to try the setup link.
+      (process.env['SETUP'] === '1' ? '' : `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n  admin: telegram:42\n`) +
       `web:\n  port: ${process.env['PORT'] ?? '3099'}\n  public_url: http://127.0.0.1:${process.env['PORT'] ?? '3099'}\n`,
   },
   replaceEntries: [
@@ -52,5 +53,8 @@ const link = async (): Promise<void> => {
   const out = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user, isAdmin: true, now: Date.now() })
   console.log(out.text)
 }
-await link()
-setInterval(() => void link(), 9 * 60_000)
+if (process.env['SETUP'] === '1') console.log(readFileSync(join(dataDir, 'state', 'setup-link'), 'utf8'))
+else {
+  await link()
+  setInterval(() => void link(), 9 * 60_000)
+}

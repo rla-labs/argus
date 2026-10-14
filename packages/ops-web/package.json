@@ -33,10 +33,10 @@
     "@argus-agent/types": "workspace:*",
     "@deepseek-ai/schemastery": "3.18.4",
     "htm": "3.1.1",
-    "preact": "10.29.8"
+    "preact": "10.29.8",
+    "@argus-agent/argus-agent": "workspace:*"
   },
   "devDependencies": {
-    "@argus-agent/argus-agent": "workspace:*",
     "@argus-agent/memory": "workspace:^",
     "@argus-agent/scheduler": "workspace:^",
     "@argus-agent/testkit": "workspace:*",

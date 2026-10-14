@@ -166,8 +166,8 @@ sudo TELEGRAM_BOT_TOKEN='8123456789:AAH...' \
      ./deploy/native/install-native.sh --non-interactive
 ```
 
-`TELEGRAM_BOT_TOKEN` and `ARGUS_AGENT_ADMIN_ID` are **required** in that mode: an install that
-cannot send a message has not been verified.
+Give `TELEGRAM_BOT_TOKEN` and `ARGUS_AGENT_ADMIN_ID` together, or neither: without them the
+install is web-only and ends with the [setup link](web.md#without-telegram-the-setup-link).
 
 ### Options
 
@@ -190,7 +190,8 @@ Paths are overridable: `ARGUS_AGENT_APP_DIR`, `ARGUS_AGENT_HOME`, `ARGUS_AGENT_D
   ok the smoke test passed
 ```
 
-**Check Telegram** — the message should already be there. Then go to
+**Check Telegram** — the message should already be there (without Telegram: open the
+[setup link](web.md#without-telegram-the-setup-link) it printed). Then go to
 [section 7](#7-creating-your-first-project).
 
 ---

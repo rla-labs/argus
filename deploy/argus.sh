@@ -27,6 +27,9 @@ Usage: argus [--docker|--native] <command> [options]
   status     is it running, and is it healthy
   doctor     the smoke test, plus: keys, models and projects, each with its fix
   logs       the service log (add -f to follow)
+  setup-link the one-time link that creates the admin on the web; with
+             --admin, a sign-in link for the admin who lost the password
+             (restarts the service)
   backup     back up the database and the data
   restore    restore from a backup
   upgrade    upgrade, rolling back if the new version does not start
@@ -90,7 +93,49 @@ status() {
   esac
 }
 
+# As root, through sudo when not root already.
+as_root() {
+  if [ "$(id -u)" = 0 ]; then "$@"; else sudo "$@"; fi
+}
+
+# The link the service wrote to state/setup-link. With --admin, ask for the admin's
+# sign-in link first: a request file, read by the service when it starts.
+setup_link() {
+  local admin=0 waited=0
+  [ "${1:-}" = "--admin" ] && admin=1
+  if [ "${MODE}" = native ]; then
+    local state
+    state="$(sed -n 's/^Environment=ARGUS_AGENT_DATA_DIR=//p' "${UNIT_FILE}" | head -n 1)/state"
+    read_link() { as_root cat "${state}/setup-link" 2>/dev/null; }
+    ask() { as_root rm -f "${state}/setup-link" && as_root touch "${state}/admin-link.request"; }
+    restart() { as_root systemctl restart argus-agent; }
+  else
+    read_link() { docker exec "${CONTAINER}" cat /data/state/setup-link 2>/dev/null; }
+    ask() { docker exec "${CONTAINER}" sh -c 'rm -f /data/state/setup-link && touch /data/state/admin-link.request'; }
+    restart() { docker restart "${CONTAINER}" >/dev/null; }
+  fi
+  if [ "${admin}" = 1 ]; then
+    ask || { echo "argus: could not reach the service's data directory" >&2; exit 1; }
+    restart
+    until read_link; do
+      waited=$((waited + 2))
+      [ "${waited}" -le 120 ] || { echo "argus: the service did not write the link; see 'argus logs'" >&2; exit 1; }
+      sleep 2
+    done
+    echo "One use, valid an hour. Then set a new password in Settings."
+    return 0
+  fi
+  if read_link; then
+    echo "One use, valid an hour. Open it through your tunnel (see docs/user/web.md)."
+    return 0
+  fi
+  echo "There is no setup link: the admin exists already (or the service is not running)." >&2
+  echo "Lost the admin's password? 'argus setup-link --admin' makes a sign-in link (restarts the service)." >&2
+  exit 1
+}
+
 case "${COMMAND}" in
+  setup-link) setup_link "$@" ;;
   init)    script install.sh install-native.sh "$@" ;;
   doctor)  script smoke.sh smoke-native.sh --doctor "$@" ;;
   backup)  script backup.sh backup-native.sh "$@" ;;

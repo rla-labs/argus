@@ -16,6 +16,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { WebAuth, Session } from './auth.js'
+import type { SetupGate } from './setup.js'
 import type { WebChannelAdapter } from './web-channel.js'
 
 /** The session cookie's name. */
@@ -39,6 +40,8 @@ export interface ServerDeps {
   /** Whether the browser reaches it over HTTPS, for the cookie's `Secure`. */
   readonly secure: boolean
   readonly auth: WebAuth
+  /** The first admin's setup link. */
+  readonly setup: SetupGate
   readonly sessionHours: number
   readonly chat: WebChannelAdapter
   /** Who the session's user is, for `/api/me`. */
@@ -150,6 +153,31 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       const body = await readJson(request)
       const outcome = await deps.auth.loginWithPassword(String(body['login'] ?? ''), String(body['password'] ?? ''), address, userAgent)
       if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
+      response.writeHead(204, { 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
+      response.end()
+      return
+    }
+    if (method === 'GET' && path === '/setup') {
+      // The page shows the form for the admin; the link must still be live.
+      const token = new URL(request.url ?? '/', 'http://x').searchParams.get('token') ?? ''
+      if (!deps.setup.valid(token)) {
+        response.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(messagePage(deps.setup.open ? 'This setup link is not valid: it was used already, or it is older than an hour. Run <code>argus setup-link</code> on the server for a new one.' : 'Argus is set up already. <a href="/" style="color:#7fd4ff">Sign in</a>.'))
+        return
+      }
+      response.writeHead(200, { 'content-type': TYPES['.html'] as string, 'cache-control': 'no-store' })
+      response.end(shell)
+      return
+    }
+    if (method === 'POST' && path === '/api/setup') {
+      if (request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
+      const body = await readJson(request)
+      const outcome = await deps.setup.complete(
+        String(body['token'] ?? ''),
+        { name: String(body['name'] ?? ''), login: String(body['login'] ?? ''), password: String(body['password'] ?? '') },
+        userAgent,
+      )
+      if (!outcome.ok) return send(response, outcome.reason === 'invalid' ? 401 : 400, { error: outcome.reason })
       response.writeHead(204, { 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
       response.end()
       return
@@ -340,9 +368,14 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
 
 /** The page a failed login shows. */
 function loginPage(reason: 'limited' | 'invalid'): string {
-  const text =
+  return messagePage(
     reason === 'limited'
       ? 'Too many failed attempts from this address. Wait a quarter of an hour.'
-      : 'This link is not valid: it was used already, or it is older than 10 minutes. Send /web for a new one, or <a href="/" style="color:#7fd4ff">sign in with your password</a>.'
+      : 'This link is not valid: it was used already, or it is older than 10 minutes. Send /web for a new one, or <a href="/" style="color:#7fd4ff">sign in with your password</a>.',
+  )
+}
+
+/** A page with one message. */
+function messagePage(text: string): string {
   return `<!doctype html><meta charset="utf-8"><title>Argus</title><body style="font:16px system-ui;background:#04070d;color:#dcebfa;padding:40px"><p>${text}</p></body>`
 }
