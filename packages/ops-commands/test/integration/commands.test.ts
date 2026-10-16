@@ -602,6 +602,43 @@ describe('/runs', () => {
 
 // ── /log ───────────────────────────────────────────────────────────────────
 
+describe('/undo', () => {
+  it('lists the runs and puts the folder back as it was before the last one', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const folder = join(booted.dataDir, 'projects', 'alpha')
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, 'page.html'), 'v1\n')
+    expect(await run(booted, '/undo alpha list')).toContain('no snapshots yet')
+    submit(booted, 'alpha', 'make the page blue')
+    await waitIdle(booted)
+    // What the run did.
+    writeFileSync(join(folder, 'page.html'), 'v2\n')
+    writeFileSync(join(folder, 'extra.css'), 'body{}\n')
+
+    const list = await run(booted, '/undo alpha list')
+    expect(list).toContain('1. ')
+    expect(list).toContain('2 file(s)')
+    expect(list).toContain('Asked: make the page blue')
+    expect(await run(booted, '/undo alpha')).toContain('alpha is back to before run')
+    expect(readFileSync(join(folder, 'page.html'), 'utf8')).toBe('v1\n')
+    expect(existsSync(join(folder, 'extra.css'))).toBe(false)
+    // And back again: the undo's own snapshot is #1 now.
+    expect(await run(booted, '/undo alpha 1')).toContain('the state an earlier undo replaced')
+    expect(readFileSync(join(folder, 'page.html'), 'utf8')).toBe('v2\n')
+    expect(await run(booted, '/undo alpha 9')).toContain('No snapshot "9"')
+  }, 40_000)
+
+  it('refuses while the project runs', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    mkdirSync(join(booted.dataDir, 'projects', 'alpha'), { recursive: true })
+    booted.boot.fake!.setScript([{ text: 'slow', latencyMs: 60_000, usage: { inputTokens: 1, outputTokens: 0 } }])
+    submit(booted, 'alpha')
+    await waitFor(() => booted.governor.status().running.length === 1, { timeoutMs: 20_000, label: 'running' })
+    expect(await run(booted, '/undo alpha')).toContain('Stop it first')
+    await run(booted, '/stop alpha')
+  }, 40_000)
+})
+
 describe('/log', () => {
   it('shows what a run did: the request, the reply, the cost, its approvals', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })

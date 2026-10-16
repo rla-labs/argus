@@ -171,10 +171,12 @@ fi
 #
 # The database is copied separately, so it is EXCLUDED here rather than duplicated.
 
-dim "  archiving the data directory (excluding scratch/ and the database)"
+dim "  archiving the data directory (excluding scratch/, the undo snapshots and the database)"
 
+# The /undo snapshots are a short history kept for days: they would only swell the archive.
 TAR_EXCLUDES=(
   --exclude='./scratch'
+  --exclude='./state/*/snapshots.git'
   --exclude='./ops.sqlite'
   --exclude='./ops.sqlite-wal'
   --exclude='./ops.sqlite-shm'

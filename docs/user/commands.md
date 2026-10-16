@@ -18,7 +18,7 @@ For which command fits which moment, read
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) · [`/web`](#web) · [`/link`](#link-code) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
-| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
+| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
@@ -28,7 +28,7 @@ For which command fits which moment, read
 | Role | Who | May |
 |---|---|---|
 | **admin** | the one admin: created with the web setup link, or `access.admin` on Telegram (anyone in its chat, when it is a group) | everything |
-| **operator** | every other user (`allowed_users`, `/allow`, a `/users invite`) | run work (free text, `/p`, `/task`, `/cron`), stop and reset it (`/stop`, `/reset`, `/panic`, `/resume-all`), answer approvals, and see everything |
+| **operator** | every other user (`allowed_users`, `/allow`, a `/users invite`) | run work (free text, `/p`, `/task`, `/cron`), stop, reset and undo it (`/stop`, `/reset`, `/undo`, `/panic`, `/resume-all`), answer approvals, and see everything |
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
@@ -414,6 +414,39 @@ folder is refused. A file larger than Telegram can send (`telegram.max_file_byte
 /get site-firma reports/weekly.md
 /get site-firma out/day 1.csv
 ```
+
+---
+
+## `/undo [project-id] [list | # | run-id]`
+
+Puts a project's folder back as it was before a run. Before each run Argus records the
+folder, so a run that went wrong costs nothing to take back: files it changed or deleted
+return, files it created go.
+
+```
+/undo site-firma           # back to before the last run
+/undo site-firma list      # the last 20 runs, with what each changed
+/undo site-firma 3         # back to before #3 in the list
+```
+
+```
+Snapshots of site-firma, newest first (/undo site-firma # goes back to before that one):
+1. 5m ago: run 3f2a9c1…; since then 3 file(s), +40 −12
+   Asked: make the header blue
+2. 2h ago: run 9b01d7e…; since then 1 file(s), +2 −0
+   Asked: fix the typo on the contact page
+```
+
+- **An undo can be undone.** The state it replaces is recorded first and shows in the
+  list as "the state an undo replaced"; `/undo site-firma 1` takes it back.
+- **Not while the project runs.** Stop it first with `/stop`.
+- **What is not recorded, and left alone by an undo:** `node_modules`, `.venv`, `dist`,
+  what the project's `.gitignore` and its `.argusignore` list, and files over
+  `snapshots.max_file_mb` (20 MB). The project's own `.git` is never touched; a
+  repository inside a subfolder is recorded as a reference only, not its files. Empty
+  folders are not recorded.
+- Snapshots are kept for `snapshots.keep_days` (14) and are not part of the backups
+  ([settings](configuration.md#snapshots--undo)).
 
 ---
 

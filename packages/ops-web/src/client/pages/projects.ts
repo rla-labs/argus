@@ -155,6 +155,7 @@ export function ProjectView({ id, version, run, outcome, can }: PageProps & { id
           <ul class="plain">${project.schedules.map((row) => html`<li><span class="mono">${row.cron}</span> · ${row.what}${row.enabled ? html` · <span style="color:var(--cyan)">${clock(row.next)}</span>` : html` · <span class="faint">${t('schedule.disabled')}</span>`}</li>`)}</ul>
           <a class="link" href="#schedules">${t('schedule.manage')}</a></section>`}
     <${Instructions} project=${project} run=${run} can=${can} />
+    <${Undo} id=${id} version=${version} run=${run} can=${can} />
     <${Memory} id=${id} version=${version} run=${run} can=${can} />
     <${Files} id=${id} version=${version} run=${run} />`
 }
@@ -227,6 +228,20 @@ function Instructions({ project, run, can }: { project: ProjectDetail; run: (lin
       <textarea id="pi-text" rows="8" class="mono" readonly=${!editable} style="padding:10px;min-height:160px" value=${text} onInput=${(event: Event) => setText((event.target as HTMLTextAreaElement).value)}></textarea>
       ${editable ? html`<div><button class="btn ghost" type="submit">${t('settings.save')}</button></div>` : null}
     </form>
+  </section>`
+}
+
+function Undo({ id, version, run, can }: { id: string; version: number; run: (line: string) => void; can: (name: string) => boolean }): VNode {
+  const [which, setWhich] = useState('')
+  return html`<section class="hud">
+    <h2>${t('projects.undo')}</h2>
+    <${CommandText} line=${`/undo ${id} list`} version=${version} />
+    ${can('undo')
+      ? html`<form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/undo ${id}${which.trim().length === 0 ? '' : ` ${which.trim()}`}`) }}>
+          <${Field} id="u-which" label=${t('projects.undoWhich')} value=${which} onInput=${setWhich} placeholder="1" grow="0 1 120px" />
+          <button class="btn ghost" type="submit">${t('projects.undoRun')}</button>
+        </form>`
+      : null}
   </section>`
 }
 

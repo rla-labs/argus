@@ -35,7 +35,8 @@ Step by step, from a fresh Linux server to a working bot on Telegram, with **no 
 | Access | `root`, or `sudo` | The install creates a system user and writes to `/opt`, `/srv`, `/etc` |
 | Network | Outbound HTTPS | `api.telegram.org`, your provider, npm |
 | `zip` | Any | So `send_file` can send a folder or several files as one zip: `sudo apt-get install -y zip` (`sudo dnf install -y zip` on RHEL/Rocky/Fedora). The Docker image has it. |
-| Optional | | `git`, if a project should commit its work (the `site` template does when git is there); whatever an [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) needs (`npx` comes with Node; `uvx` for Python servers is yours to install); [Tailscale](https://tailscale.com), to open the [web interface](web.md) |
+| `git` | Any | The install fetches Argus with it, and `/undo` records each project's folder with it before a run. |
+| Optional | | whatever an [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) needs (`npx` comes with Node; `uvx` for Python servers is yours to install); [Tailscale](https://tailscale.com), to open the [web interface](web.md) |
 
 Three things to collect before you start:
 

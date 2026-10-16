@@ -374,6 +374,16 @@ export class OpsGovernor {
     const projectId = request.target.kind === 'project' ? request.target.projectId : undefined
     const model = this.modelFor(request)
 
+    // The undo point, before the run exists: the folder as it was before this run
+    // touched it (the run's id is the request's). It never throws. A panic while it
+    // was taken leaves the request pending, as panic leaves every request.
+    // ponytail: the dispatch pass waits for it; per-project admission if a large
+    // project's first snapshot holds up the others too long.
+    if (projectId !== undefined) {
+      await this.options.projects.snapshotBeforeRun(projectId, request.id)
+      if (this.panicMode) return false
+    }
+
     // The agent is created BEFORE the run row, because its session id is the
     // row's key. A crash in between leaves an agent with no run, which startup
     // recovery ignores: no run existed, so nothing claims to be running.

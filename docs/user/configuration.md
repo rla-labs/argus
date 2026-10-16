@@ -300,6 +300,25 @@ incomplete picture.
 A project's [instructions](#instructionsmd--what-the-project-is-told) are separate: they
 are in the system prompt, not in this budget, and have their own 8 KB limit.
 
+## `snapshots` — undo
+
+Before each run of a project Argus records its folder, so
+[`/undo`](commands.md#undo-project-id-list----run-id) can put it back.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Whether a snapshot is taken before each run. Off, `/undo` is off. |
+| `keep_days` | int | `14` | How long a snapshot is kept (1–365). |
+| `max_file_mb` | int | `20` | Larger files are not recorded, and an undo leaves them alone. |
+
+The snapshots live in `${DATA_DIR}/state/<project>/snapshots.git`, a git repository
+outside the project's folder that the agent cannot reach. A file's content is stored
+once however many snapshots have it, so a run that changes little costs little; the
+daily report's disk line says how much they take. Never recorded: `node_modules`,
+`.venv`, `dist`, what the project's `.gitignore` lists, and what an `.argusignore` file
+in the project's folder lists (the same syntax). They are left out of the backups.
+They need `git` (in the Docker image; a prerequisite of the native install).
+
 ## `web`
 
 The [web interface](web.md).

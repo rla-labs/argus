@@ -9,6 +9,7 @@
  * @module @argus-agent/projects/service
  */
 import { randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -37,6 +38,7 @@ import { OwnershipMap } from './ownership.js'
 import type { ProjectConfig } from './project-config.js'
 import type { InvalidProject } from './project-loader.js'
 import { projectModelRef } from './project-config.js'
+import type { SnapshotEntry, Snapshots, SnapshotSettings } from './snapshots.js'
 
 /** What a delivery targets. */
 export type AgentTarget =
@@ -99,13 +101,103 @@ export class OpsProjects {
   private readonly ctx: Context
   private readonly scratchDir: string
   private readonly projectsRoot: string
+  private readonly snapshots: Snapshots | undefined
+  private readonly snapshotSettings: () => SnapshotSettings
+  private gitPresent: boolean | undefined
   private disposed = false
 
-  constructor(ctx: Context, store: OpsStore, options: { scratchDir: string; projectsRoot: string }) {
+  constructor(
+    ctx: Context,
+    store: OpsStore,
+    options: { scratchDir: string; projectsRoot: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings },
+  ) {
     this.ctx = ctx
     this.store = store
     this.scratchDir = options.scratchDir
     this.projectsRoot = options.projectsRoot
+    this.snapshots = options.snapshots
+    this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
+  }
+
+  // ── snapshots and undo ───────────────────────────────────────────────────
+
+  /**
+   * Record a project's folder before a run, so `/undo` can put it back. Called by the
+   * governor before the run's first delivery. A snapshot that fails is logged and the
+   * run goes ahead without one: the work is not held up for its undo point.
+   *
+   * @param projectId the project.
+   * @param runId the run about to start.
+   */
+  async snapshotBeforeRun(projectId: string, runId: string): Promise<void> {
+    const config = this.configs.get(projectId)
+    if (this.snapshots === undefined || config === undefined || !this.undoAvailable()) return
+    try {
+      await this.snapshots.take(projectId, config.cwd, runId)
+    } catch (error) {
+      this.ctx.logger('ops-projects').warn('project %s: no undo point before run %s: %s', projectId, runId, (error as Error).message)
+    }
+  }
+
+  /**
+   * A project's newest snapshots, newest first.
+   *
+   * @param projectId the project.
+   * @returns the snapshots.
+   * @throws {OpsError} `PROJECT_NOT_FOUND`, or `UNDO_UNAVAILABLE` when snapshots are off or git is missing.
+   */
+  async undoList(projectId: string): Promise<SnapshotEntry[]> {
+    return this.requireSnapshots().list(projectId, this.requireConfig(projectId).cwd)
+  }
+
+  /**
+   * Put a project's folder back as it was before a run (the newest when omitted).
+   *
+   * @param projectId the project.
+   * @param id the run, or an undo's id from {@link undoList}.
+   * @returns what was restored, or `undefined` when there is no such snapshot.
+   * @throws {OpsError} `PROJECT_NOT_FOUND`, or `UNDO_UNAVAILABLE`.
+   */
+  async undo(projectId: string, id?: string): Promise<{ readonly kind: 'run' | 'undo'; readonly id: string; readonly at: number } | undefined> {
+    return this.requireSnapshots().restore(projectId, this.requireConfig(projectId).cwd, id)
+  }
+
+  /** Drop the snapshots older than `snapshots.keep_days`, for every project. */
+  async expireSnapshots(): Promise<void> {
+    if (this.snapshots !== undefined && this.undoAvailable()) await this.snapshots.expireAll()
+  }
+
+  /** The disk the snapshots take, in bytes; 0 when there are none. */
+  snapshotBytes(): number {
+    return this.snapshots?.sizeBytes() ?? 0
+  }
+
+  /** Whether snapshots are on and git is there. */
+  private undoAvailable(): boolean {
+    if (!this.snapshotSettings().enabled) return false
+    if (this.gitPresent === undefined) {
+      try {
+        execFileSync('git', ['--version'], { stdio: 'ignore' })
+        this.gitPresent = true
+      } catch {
+        this.gitPresent = false
+      }
+    }
+    return this.gitPresent
+  }
+
+  private requireSnapshots(): Snapshots {
+    if (this.snapshots === undefined || !this.undoAvailable()) {
+      const why = this.snapshotSettings().enabled ? 'git is not installed' : 'snapshots.enabled is false in ops.yaml'
+      throw new OpsError('UNDO_UNAVAILABLE', `Undo is off: ${why}.`)
+    }
+    return this.snapshots
+  }
+
+  private requireConfig(projectId: string): ProjectConfig {
+    const config = this.configs.get(projectId)
+    if (config === undefined) throw new OpsError('PROJECT_NOT_FOUND', `No project ${projectId}.`)
+    return config
   }
 
   // ── configuration ────────────────────────────────────────────────────────
@@ -206,6 +298,9 @@ export class OpsProjects {
         ? [{ ok: true, warn: true, check: `project ${id}`, detail: 'tools.web and tools.shell are both allow: a web page it reads can steer the commands it runs', fix: `if that is not intended: /set ${id} tools.shell ask` }]
         : []
     })
+    if (this.snapshotSettings().enabled && !this.undoAvailable()) {
+      risky.push({ ok: true, warn: true, check: 'undo', detail: 'git is not installed: no snapshots are taken, /undo is off', fix: 'apt-get install git (or your distribution\'s equivalent)' })
+    }
     const invalid = this.invalidProjects()
     if (invalid.length === 0) {
       return [{ ok: true, check: 'the project files', detail: `${this.configuredIds().length} valid` }, ...risky]

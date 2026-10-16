@@ -14,6 +14,7 @@ import { parseModelRef, type ModelRef, type Owner } from '@argus-agent/types'
 // Type-only: brings in the `ops/config-loaded` event declaration.
 import type {} from '@argus-agent/argus-agent'
 import { OpsProjects } from './service.js'
+import { Snapshots, snapshotsOf, snapshotsSchema } from './snapshots.js'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
 import type { BudgetDefaults, ProjectConfig } from './project-config.js'
@@ -25,6 +26,7 @@ export * from './ownership.js'
 export * from './capability.js'
 export * from './service.js'
 export * from './run-trail.js'
+export * from './snapshots.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -32,16 +34,15 @@ export const name = 'ops-projects'
 /**
  * The services this plugin requires.
  *
- * `opsConfig` is read lazily by the bundle's loader, so declaring it here is
- * safe: this plugin registers no config section of its own — project
- * configuration lives in `projects/*.yaml`, not in `ops.yaml`.
+ * `opsConfigRegistry` takes its one section, `snapshots`; the projects themselves
+ * live in `projects/*.yaml`, not in `ops.yaml`.
  *
  * `agents`, `sessions` and `agentPresets` are what it drives: it creates and
  * resumes agents, reads session headers for the ownership walk, and mounts each
  * project's preset. Cordis requires every one of them to be declared before the
  * context hands it over.
  */
-export const inject = ['opsRawConfig', 'opsStore', 'agents', 'sessions', 'agentPresets']
+export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'agents', 'sessions', 'agentPresets']
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -62,9 +63,24 @@ export function apply(ctx: Context): void {
   const paths = pathsOf(ctx.opsRawConfig)
   const projectsRoot = join(paths.dataDirAbs, 'projects')
 
+  const section = ctx.opsConfigRegistry.extend('snapshots', snapshotsSchema)
+  ctx.effect(() => section)
+  const settings = () => snapshotsOf(ctx.opsRawConfig)
   const service = new OpsProjects(ctx, ctx.opsStore, {
     scratchDir: paths.scratchDir,
     projectsRoot,
+    snapshots: new Snapshots(paths.stateDir, settings),
+    snapshotSettings: settings,
+  })
+  // Expiry also runs at each snapshot; daily covers a project that no longer runs.
+  ctx.effect(() => {
+    const expire = () => void service.expireSnapshots().catch((error: Error) => ctx.logger('ops-projects').warn('snapshot expiry failed: %s', error.message))
+    const first = setTimeout(expire, 60_000)
+    const daily = setInterval(expire, 86_400_000)
+    return () => {
+      clearTimeout(first)
+      clearInterval(daily)
+    }
   })
 
   // Load and sync synchronously. Tolerant: an invalid file marks THAT project

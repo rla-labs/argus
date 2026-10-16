@@ -13,6 +13,7 @@ What is backed up, what is not, and how to restore.
    ├── sessions/           ← every session transcript
    ├── projects/           ← every project workspace
    ├── state/              ← per-project memory (MEMORY.md) and instructions (INSTRUCTIONS.md)
+   │   └── <id>/snapshots.git ← the /undo snapshots           ← EXCLUDED from the archive
    ├── memory/             ← the global USER.md
    ├── config/             ← ops.yaml, projects/*.yaml and templates/*.yaml
    ├── dsh-home/           ← the composed profile, dsh's own state, and the keys
@@ -30,7 +31,7 @@ One command produces **two artifacts**:
 | Artifact | Contents | Method |
 |---|---|---|
 | `ops-<stamp>.sqlite` | The database | SQLite's **online** backup API |
-| `data-<stamp>.tar.gz` | Everything else | `tar`, excluding `scratch/` and the database |
+| `data-<stamp>.tar.gz` | Everything else | `tar`, excluding `scratch/`, the `/undo` snapshots and the database |
 
 #### Why the database is separate
 
@@ -47,6 +48,13 @@ exactly the problem the online backup exists to avoid.
 It holds ad-hoc task folders and downloaded attachments. Nothing depends on it: a
 project's own files are in `projects/`, and a task's folder is disposable by definition.
 Including it would make every backup carry whatever a one-off task happened to download.
+
+#### Why the `/undo` snapshots are excluded
+
+They are a short history, kept for days (`snapshots.keep_days`), of folders the backup
+already has as they are now. Including them would make each backup carry every version of
+every file from the last two weeks. A restored server starts with no snapshots: the
+next run records a new one.
 
 #### What a backup does NOT cover
 

@@ -217,6 +217,19 @@ describe('scenario 1: limited concurrency with a queue', () => {
     expect(booted.governor.status().pending[0]?.blockedBy).toBe('global_slots_full')
   }, 30_000)
 
+  it("takes the project's undo point before the run starts", async () => {
+    const booted = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\n${PRICING}`,
+      script: [{ text: 'done', usage: { inputTokens: 100, outputTokens: 0 } }],
+    })
+    mkdirSync(join(booted.dataDir, 'projects', 'alpha'), { recursive: true })
+    writeFileSync(join(booted.dataDir, 'projects', 'alpha', 'notes.md'), 'before\n')
+    const runId = submit(booted, 'alpha')
+    await waitFor(() => booted.governor.status().running.length === 1 || booted.store.inbound.get(runId)?.status === 'done', { label: 'admitted' })
+    expect((await booted.projects.undoList('alpha')).map((entry) => entry.id)).toEqual([runId])
+  }, 30_000)
+
   it('delivers into a running agent instead of taking a second slot', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },

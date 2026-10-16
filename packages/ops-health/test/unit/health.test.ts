@@ -360,6 +360,11 @@ describe('dailyReport', () => {
     expect(text).toContain('RATE_LIMIT')
   })
 
+  it('counts the undo snapshots on the disk line', () => {
+    const text = dailyReport({ ...snapshot, disk: { usedPct: 40, freeBytes: 10 * 1024 ** 3 }, snapshotBytes: 5 * 1024 ** 2 })
+    expect(text).toMatch(/Disk: 40% used, .* free; undo snapshots 5(\.0)? MB/)
+  })
+
   it('is a few lines on a quiet day, and still says what it checked', () => {
     // Dropping an empty check would read as "I did not look"; one line keeps it.
     const text = dailyReport({

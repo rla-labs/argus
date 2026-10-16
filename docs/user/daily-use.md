@@ -424,6 +424,7 @@ The rest of the setup is also the admin's, from the chat:
 | You see | Do |
 |---|---|
 | A project is working on the wrong thing | `/stop <project>`: the current turn stops, queued messages stay |
+| A run changed or deleted files it should not have | `/undo <project>`: the folder goes back to before the run. `/undo <project> list` to go back further |
 | Something is spending fast, or acting strangely, and you are not sure where | `/panic`: everything stops and nothing new starts until `/resume-all` |
 | A project stopped with `budget_stopped` | `/budget <project>`, then `+<usd>` or wait until tomorrow |
 | A run ended in `error` | `/runs <project>` for when, `/log <project>` for the step that failed; the daily report's Errors section for the provider error |
@@ -435,6 +436,11 @@ The rest of the setup is also the admin's, from the chat:
 
 `/panic` is safe to press. It cancels and refuses, deletes nothing, and survives a
 restart until you send `/resume-all`.
+
+**Every run can be taken back.** Before a project runs, Argus records its folder.
+`/undo <project>` puts it back as it was, and the undo itself can be undone. What is
+large or rebuilt (`node_modules`, files over 20 MB, what `.gitignore` lists) is not
+recorded and is left alone ([`/undo`](commands.md#undo-project-id-list----run-id)).
 
 ---
 
@@ -478,7 +484,7 @@ meant for a private network: open it through Tailscale, a VPN or an SSH tunnel.
 | What a project did | `/runs`, `/log`, `/memory`, `/files`, `/get` |
 | How a project works | `/instructions`, `/tools` |
 | Starting work | a plain message, `/task <text>`, `/cron add ...` |
-| Stopping and restarting work | `/stop`, `/reset`, `/reload`, `/panic`, `/resume-all` |
+| Stopping, taking back and restarting work | `/stop`, `/undo`, `/reset`, `/reload`, `/panic`, `/resume-all` |
 | Changing things (admin) | `/new`, `/set`, `/instructions <id> <text>`, `/model`, `/budget <scope> +<usd>`, `/forget`, `/archive`, `/allow`, `/allow-free`, `/key`, `/defaults`, `/web` |
 
 Every command, with its syntax and examples: [Chat commands](commands.md).

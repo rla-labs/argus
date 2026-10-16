@@ -12,7 +12,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
-import { TOOL_GROUPS, type ModelRef, type Scope } from '@argus-agent/types'
+import { OpsError, TOOL_GROUPS, type ModelRef, type Scope } from '@argus-agent/types'
 import { RUN_TRAIL_ACTION, type RunTrail } from '@argus-agent/projects'
 import {
   formatAge,
@@ -904,6 +904,65 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           lines.push('', run.status === 'running' ? 'Still running: the tools and the reply show here when it ends.' : 'No details were kept for this run.')
         }
         return result(lines.join('\n'))
+      },
+    },
+
+    // ── /undo ──────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'undo',
+        description: 'Put a project’s folder back as it was before a run',
+        syntax: '/undo [project-id] [list | # | run-id]',
+        detail:
+          'Before each run Argus records the project’s folder. /undo puts it back as it was ' +
+          'before the last run: changed and deleted files return, files the run created go. ' +
+          'list shows the last 20 runs, with what each changed; # (from the list) or a run id ' +
+          'goes back further. The state an undo replaces is recorded too, so an undo can be ' +
+          'undone. Skipped, and left alone: node_modules, .venv, dist, what .gitignore and ' +
+          '.argusignore list, and files over snapshots.max_file_mb. Not while the project runs.',
+        examples: ['/undo site-firma', '/undo site-firma list', '/undo site-firma 3'],
+        mutating: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const tokens = tokenize(input)
+        const named = tokens[0] !== undefined && (projects.configOf(tokens[0]) !== undefined || store.projects.get(tokens[0]) !== undefined)
+        const projectId = named ? tokens.shift() : projectOf(undefined, context)
+        if (projectId === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        const state = projectState(projectId)
+        if (!state.found) return errorResult(state.text)
+        const which = tokens[0]
+        try {
+          const entries = await projects.undoList(projectId)
+          if (which?.toLowerCase() === 'list') {
+            if (entries.length === 0) return result(`${projectId} has no snapshots yet: one is taken before each run.`)
+            const now = options.now()
+            const lines = [`Snapshots of ${projectId}, newest first (/undo ${projectId} # goes back to before that one):`]
+            for (const [index, entry] of entries.entries()) {
+              const what = entry.kind === 'undo' ? 'the state an undo replaced' : `run ${truncate(entry.id, 8)}`
+              const asked = entry.kind === 'run' ? store.inbound.get(entry.id) : undefined
+              const text = asked === undefined ? undefined : requestText(asked.payload)
+              const { files, added, removed } = entry.changes
+              const changed = files === 0 ? 'no changes' : `${files} file(s), +${added} −${removed}`
+              lines.push(`${index + 1}. ${formatAge(entry.at, now)}: ${what}; since then ${changed}${text === undefined ? '' : `\n   Asked: ${truncate(text.split('\n')[0] ?? '', 80)}`}`)
+            }
+            return result(lines.join('\n'))
+          }
+          if (state.running) return errorResult(`${projectId} is running. Stop it first with /stop ${projectId}, then /undo.`)
+          const target =
+            which === undefined
+              ? undefined
+              : /^\d+$/.test(which)
+                ? entries[Number(which) - 1]?.id
+                : entries.find((entry) => entry.id === which || entry.id.startsWith(which))?.id
+          if (which !== undefined && target === undefined) return errorResult(`No snapshot "${which}" for ${projectId}. See /undo ${projectId} list.`)
+          const restored = await projects.undo(projectId, target)
+          if (restored === undefined) return result(`${projectId} has no snapshots yet: one is taken before each run.`)
+          const what = restored.kind === 'undo' ? 'the state an earlier undo replaced' : `before run ${truncate(restored.id, 8)}`
+          return result(`${projectId} is back to ${what} (${formatAge(restored.at, options.now())}). To undo this, see /undo ${projectId} list.`)
+        } catch (error) {
+          if (error instanceof OpsError) return errorResult(error.message)
+          throw error
+        }
       },
     },
 

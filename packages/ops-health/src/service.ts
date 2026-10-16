@@ -431,6 +431,7 @@ export class OpsHealth {
       skips,
       errors,
       disk: diskUsage(this.options.dataDir),
+      snapshotBytes: this.options.projects.snapshotBytes(),
     }
   }
 

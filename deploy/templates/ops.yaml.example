@@ -266,6 +266,16 @@ memory:
   index_turns: true
   recall_limit: 5
 
+# ── snapshots (/undo) ───────────────────────────────────────────────────────────
+
+snapshots:
+  # Before each run of a project its folder is recorded, so /undo can put it back.
+  # Never recorded: node_modules, .venv, dist, what .gitignore and .argusignore list.
+  enabled: true
+  keep_days: 14
+  # Larger files are not recorded, and an undo leaves them alone.
+  max_file_mb: 20
+
 # ── health ──────────────────────────────────────────────────────────────────────
 
 health:

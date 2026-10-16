@@ -25,6 +25,8 @@ export interface OpsErrorCodeMap {
   'PROJECT_NOT_FOUND': true
   /** A project's file exists but does not validate; it is ignored until fixed. */
   'PROJECT_INVALID': true
+  /** Snapshots are off (`snapshots.enabled`) or git is missing, so there is nothing to undo with. */
+  'UNDO_UNAVAILABLE': true
   /** Another Argus Agent process already uses this data directory. */
   'INSTANCE_LOCKED': true
   /** A project exists but its status forbids the operation (`paused`, `archived`). */

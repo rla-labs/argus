@@ -42,6 +42,8 @@ export interface DailySnapshot {
   readonly errors: Readonly<Record<string, number>>
   /** Disk usage of the data directory. */
   readonly disk: { readonly usedPct: number; readonly freeBytes: number } | undefined
+  /** What the `/undo` snapshots take, in bytes. */
+  readonly snapshotBytes?: number
 }
 
 /**
@@ -104,7 +106,8 @@ export function dailyReport(snapshot: DailySnapshot): string {
   lines.push(
     snapshot.disk === undefined
       ? 'Disk: unknown'
-      : `Disk: ${Math.round(snapshot.disk.usedPct)}% used, ${formatBytes(snapshot.disk.freeBytes)} free`,
+      : `Disk: ${Math.round(snapshot.disk.usedPct)}% used, ${formatBytes(snapshot.disk.freeBytes)} free` +
+          ((snapshot.snapshotBytes ?? 0) > 0 ? `; undo snapshots ${formatBytes(snapshot.snapshotBytes ?? 0)}` : ''),
   )
 
   return lines.join('\n')

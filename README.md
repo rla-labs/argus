@@ -87,6 +87,11 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Approvals.** A risky action becomes a question in Telegram or on the web:
   *Approve*, *Deny*, *Approve this kind for the rest of the run*, or *Always allow* this
   exact command. No answer means no.
+- **Confined commands.** Every command an agent runs is confined by the kernel
+  (Landlock): it reads and writes its own project's folder and nothing else of Argus's,
+  not the database, not the other projects, not the conversations, not the keys.
+- **Undo.** Before each run Argus records the project's folder; `/undo` puts it back as
+  it was, and an undo can itself be undone. *(On `main`, for 0.5.0.)*
 - **Hard cost control.** Every execution passes through one governor, which enforces
   concurrency and budgets before anything starts and again at every step. Prices for
   DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter) ship with Argus
@@ -105,6 +110,18 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
 
+## Coming in 0.5.0
+
+Work in progress on `main`, not released yet: fewer approvals, because more actions are
+safe by construction.
+
+- **`/undo`** (done): every run of a project can be taken back
+  ([how](docs/user/commands.md#undo-project-id-list----run-id)).
+- **`git` and `uv` in the image** (done), for snapshots and for Python MCP servers.
+- **Next:** precise rules (`*.example.com`, `docker logs *`, a `web_fetch` that refuses
+  private addresses), layered templates, and **extensions**: skills and MCP tools
+  installed once by the admin, confined, and enabled per project.
+
 ## New in 0.4.0
 
 Channels that stand on their own: Telegram is optional. A person is a **user** of
@@ -113,8 +130,9 @@ passwords, a persistent chat and inbox, invitations (`/users`), every page Teleg
 commands offer, and a one-time **setup link** that creates the admin on an install with
 no bot. Approvals are asked on every channel of the user and closed on the others.
 **Public mode** for the web: an authenticator code for every sign-in, a Caddy overlay
-with automatic HTTPS. Upgrading from 0.3 needs no manual step: the admin and the
-allowed users become users, with their Telegram identities.
+with automatic HTTPS. A project's commands now run confined to its own folder. Upgrading
+from 0.3 needs no manual step: the admin and the allowed users become users, with their
+Telegram identities.
 
 ## New in 0.3.0
 
@@ -166,6 +184,9 @@ What has been verified:
   into users with their Telegram identities (`pnpm test:native-vps --web-only`,
   `--upgrade`). Public mode (TOTP, Caddy) is covered by automated tests, not yet by a
   live deployment.
+- **The command sandbox inside the real image**, hardened as compose runs it: a
+  project's shell cannot read the database, another project, a conversation, the keys
+  or the application, nor write outside its folder (`pnpm test:docker-sandbox`).
 - **A live run with a real Telegram bot and real billed models.** `/help`, `/new`,
   a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
   GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
@@ -188,7 +209,8 @@ What is not verified yet:
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **Autonomy with guard rails:** a stronger sandbox, extensions, layered templates.
+1. **Autonomy with guard rails** (0.5.0, in progress): undo, precise rules, extensions,
+   layered templates.
 2. **More channels and more people.** Slack or Discord, and more roles than admin and
    operator, so a team can share one Argus.
 3. **Memory that finds meaning**, not only words, and **parallel work** inside one
