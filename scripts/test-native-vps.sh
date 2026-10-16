@@ -7,8 +7,10 @@
 #   pnpm test:native-vps               a Telegram install: health, smoke, backup, kill -9
 #   pnpm test:native-vps --web-only    no Telegram: the setup link creates the admin, the
 #                                      web chat answers, `argus setup-link --admin` works
-#   pnpm test:native-vps --upgrade     install v0.3.2, then upgrade to origin/main: the
-#                                      admin and the allowed user become users
+#   pnpm test:native-vps --upgrade [v] install v (default v0.4.0), then upgrade to
+#                                      origin/main: the users are kept (from 0.3, the admin
+#                                      and the allowed user become users), a project file
+#                                      is left as it was, git is there for /undo
 #
 # It needs Docker and runs the container --privileged, because systemd and the unit's own
 # hardening (namespaces, syscall filters) need it. It is NOT part of `pnpm test`.
@@ -21,6 +23,7 @@ IMAGE="argus-vps-test"
 NAME="argus-vps-test-$$"
 TOKEN="123456789:FAKE-TOKEN-FOR-TESTING"
 MODE="${1:-}"
+FROM="${2:-v0.4.0}"
 FAILED=0
 
 pass() { printf '  ok %s\n' "$*"; }
@@ -96,16 +99,19 @@ if [ "${MODE}" = "--web-only" ]; then
 fi
 
 if [ "${MODE}" = "--upgrade" ]; then
-  echo "==> v0.3.2 with install-native.sh (a few minutes)"
+  echo "==> ${FROM} with install-native.sh (a few minutes)"
   vps git config --global --add safe.directory '*'
   # Through a bare copy the service account can read: the upgrade fetches as that account.
   vps git clone -q --bare "${REPO}" /srv/argus-src.git
   vps chmod -R a+rX /srv/argus-src.git
   vps git clone -q /srv/argus-src.git /opt/argus-agent
-  vps git -C /opt/argus-agent checkout -q v0.3.2
+  vps git -C /opt/argus-agent checkout -q "${FROM}"
   run_install -e TELEGRAM_BOT_TOKEN="${TOKEN}" -e ARGUS_AGENT_ADMIN_ID=123456789
   # One more Telegram user, as 0.3 had them: allowed in ops.yaml.
   vps sed -i "s|^  admin: '123456789'|  admin: '123456789'\n  allowed_users:\n    - { channel: telegram, userId: '555' }|" /srv/argus-agent/data/config/ops.yaml
+  # A project as the old version wrote them: every setting in its file, no template.
+  vps bash -c 'mkdir -p /srv/argus-agent/data/projects/oldsite && printf "id: oldsite\ncwd: /srv/argus-agent/data/projects/oldsite\nprovider: openrouter\nmodel: deepseek/deepseek-v4-flash\ntools:\n  read: allow\n  write: allow\n  shell: ask\n  web: ask\napprovals:\n  auto_allow: [git status, git diff]\n" > /srv/argus-agent/data/config/projects/oldsite.yaml && chown -R ops:ops /srv/argus-agent/data/projects/oldsite /srv/argus-agent/data/config/projects/oldsite.yaml'
+  before="$(vps sha256sum /srv/argus-agent/data/config/projects/oldsite.yaml)"
   vps chown -R ops:ops /srv/argus-src.git
   vps systemctl restart argus-agent
   echo "==> upgrade-native.sh to origin/main (a few minutes)"
@@ -121,6 +127,9 @@ if [ "${MODE}" = "--upgrade" ]; then
   check "the allowed user is an operator" grep -q '"role":"operator","channel":"telegram","external_id":"555"' <<<"${users}"
   check "there is no setup link: the admin exists" vps bash -c '! test -f /srv/argus-agent/data/state/setup-link'
   check "smoke-native.sh passes" vps bash -c 'bash /opt/argus-agent/deploy/native/smoke-native.sh --quiet >/dev/null 2>&1'
+  check "the old project's file is untouched" test "${before}" = "$(vps sha256sum /srv/argus-agent/data/config/projects/oldsite.yaml)"
+  check "git is there, for the /undo snapshots" vps bash -c 'git --version >/dev/null'
+  check "the upgrade brought 0.5 (extensions)" vps test -f /opt/argus-agent/packages/ops-projects/lib/extensions.js
   echo
   if [ "${FAILED}" = "0" ]; then echo "native VPS test (upgrade): PASSED"; else echo "native VPS test (upgrade): FAILED"; exit 1; fi
   exit 0

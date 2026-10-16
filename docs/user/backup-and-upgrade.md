@@ -419,6 +419,26 @@ docker exec argus-agent node -e '
 '
 ```
 
+### Upgrading to 0.5.0
+
+Nothing to do by hand, and no database migration. Your project files are read as they
+are: a project made before 0.5.0 keeps every setting it has. What changes for you:
+
+- **Before each run, a project's folder is recorded** for [`/undo`](commands.md#undo-project-id-list----run-id),
+  in `state/<id>/snapshots.git` (left out of the backups). The native install needs
+  `git` for it (`argus doctor` says if it is missing); the Docker image has it.
+- **Scheduled runs no longer wait for an answer**: what they would ask about is refused at
+  once, and the chat gets the rule that would allow it. To keep them asking, set
+  [`approvals.unattended_timeout_s`](configuration.md#approvals).
+- **Skills in a project's folder are no longer read** (`.agents/skills`, `.dsh/skills`). If
+  you put one there, add it again with [`/skill add`](commands.md#skill-project-id--add-project-id-name-text--remove-project-id-name).
+- **The commands that only read** (`ls`, `cat`, `grep`, …) **stop asking**, and the
+  `site` template runs commands unasked; projects already made from it keep the settings
+  written in their file.
+- **New:** [extensions](extensions.md), `/template`, `/rule`, `/skill`.
+- **Docker:** run `git pull` in your checkout before `argus upgrade`, so the backup script
+  leaves the snapshots and the extensions' staging area out.
+
 ### Upgrading to 0.4.0
 
 Nothing to do by hand. At the first start the database gains its users (migrations 2 to

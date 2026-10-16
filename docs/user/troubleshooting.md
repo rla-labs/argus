@@ -65,6 +65,18 @@ log instead.
 **An overlap is not notified.** It is logged and counted, because a periodic overlap
 would flood the chat.
 
+### "A scheduled run was blocked"
+
+A scheduled run asks nobody: what it would have asked about is refused, and the chat
+says so once per action. That is the design, not a fault.
+
+| Check | Fix |
+|---|---|
+| The message's button **Always allow “…”** | The admin's press adds that rule; the next run goes through |
+| No button, only a `/rule …` line | The rule is too long for a Telegram button: send the line |
+| A command you do not want to allow | Leave it: the run goes on without it. Or change the prompt so it does not need it |
+| You want it to ask after all | `approvals.unattended_timeout_s` in `ops.yaml`: how many seconds a scheduled run waits for an answer |
+
 ### "The project forgot something"
 
 | Check | Fix |
@@ -109,8 +121,28 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 |---|---|
 | `grep 'MCP server .* is left out'` | The reason: a `${NAME}` not set (`/key NAME value`), a program not found, a server down |
 | Added or changed it after the agent started? | `/reset <project>`: the agent connects when it starts |
-| `npx` in the Docker image | Available; `uvx` (Python servers) is not |
+| `npx` and `uvx` in the Docker image | Both available |
 | `/tools <project>` | The server is listed, with its `access` |
+
+### An extension's tools or skills do not appear
+
+| Check | Fix |
+|---|---|
+| `/ext` | Is it installed, and **used by** this project? `/ext enable <project> <name>` |
+| Enabled after the agent started? | `/reset <project>`: the agent gets them when it starts |
+| `argus doctor` → `extension <name>` | Its files changed since install: it is not used. `/ext update <name>` or `/ext remove <name>` |
+| `argus doctor` → `project <id>` warns "left out" | The project lists an extension that is not installed |
+| `grep 'MCP server .* is left out'` | Its server could not start: the sandbox is unavailable, or a secret it declares is not set (`/key NAME value`) |
+| `/ext install` says "Not installed: … failed" | Its install command failed; the last lines of its output are in the message |
+
+### "/undo is not available"
+
+| Check | Fix |
+|---|---|
+| `argus doctor` → `undo` | `git` is not installed (native install): `apt-get install git` |
+| `snapshots.enabled` in `ops.yaml` | `false` turns snapshots off |
+| "has no snapshots yet" | One is taken before each run: there is nothing to undo before the first |
+| A file is not put back | Files listed in `.gitignore` or `.argusignore`, `node_modules`, `.venv`, `dist` and files over `snapshots.max_file_mb` are not recorded |
 
 ### A project asked another and got no answer
 
@@ -201,6 +233,7 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 | `du -sh ${data_dir}/*` | Which part |
 | `ls ${data_dir}/backups` | Lower `health.backup_keep` |
 | `${data_dir}/state/*/recall.sqlite` | Derived state: **delete it and it rebuilds** |
+| `${data_dir}/state/*/snapshots.git` | The `/undo` snapshots (the daily report's disk line counts them): lower `snapshots.keep_days` or `snapshots.max_file_mb` |
 
 ## Five checks that answer most reports
 

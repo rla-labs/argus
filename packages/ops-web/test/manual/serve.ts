@@ -3,6 +3,7 @@
  * A local web interface with sample projects, for looking at the page in a browser.
  * Not part of the suite: `pnpm exec tsx test/manual/serve.ts`, then open the printed link.
  */
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,6 +11,7 @@ import { BASE_ENTRIES, bootOps, persistenceEntry } from '@argus-agent/testkit'
 import type { OpsCommands } from '@argus-agent/commands'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsWeb } from '@argus-agent/web'
+import { Extensions } from '@argus-agent/projects'
 
 const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-manual-'))
 mkdirSync(join(dataDir, 'config', 'projects'), { recursive: true })
@@ -17,6 +19,14 @@ for (const [id, description] of [['site-firma', 'The company website'], ['news',
   mkdirSync(join(dataDir, 'projects', id as string), { recursive: true })
   writeFileSync(join(dataDir, 'config', 'projects', `${id}.yaml`), `id: ${id}\ncwd: ${JSON.stringify(join(dataDir, 'projects', id as string))}\nprovider: fake\nmodel: fake-model\ndescription: ${description}\n`)
 }
+// An installed extension, for the project page's Extensions section.
+const repo = mkdtempSync(join(tmpdir(), 'ops-web-manual-ext-'))
+writeFileSync(join(repo, 'extension.yaml'), 'name: notes\nversion: 1.0.0\nsummary: Note-taking tools\nmcp:\n  notes: {command: node, args: ["${EXTENSION_DIR}/server.js"], access: ask}\n')
+const git = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@a', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@a' }
+for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env: git })
+const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+
 const boot = await bootOps({
   dataDir,
   bareModuleBaseUrl: import.meta.url,
@@ -51,6 +61,8 @@ const boot = await bootOps({
 })
 const ctx = boot.ctx as unknown as { opsCommands: OpsCommands; opsWeb: OpsWeb; opsStore: OpsStore }
 const user = { id: ctx.opsStore.users.admin()?.id ?? '', role: 'admin' as const }
+// A pending approval whose rule can be named, for the Approvals page's Always allow.
+ctx.opsStore.approvals.insert({ id: 'manual-1', run_id: null, project_id: 'site-firma', request_json: JSON.stringify({ toolName: 'bash', action: 'npm run build', kind: 'command', always: { key: 'approvals.auto_allow', entry: 'npm run build' } }), status: 'pending' }, Date.now())
 const link = async (): Promise<void> => {
   const out = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user, isAdmin: true, now: Date.now() })
   console.log(out.text)

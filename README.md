@@ -55,6 +55,10 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Integrations through MCP.** A project can use the tools of MCP servers (GitHub, a
   database, a calendar). Each server is visible to that one project, its secrets stay
   out of the project's files, and its calls go through the same approvals.
+- **Extensions and skills.** Tools (MCP servers) and skills the admin installs once from
+  a git repository, pinned and checked at every start, and enables per project; their
+  servers run confined to the project's folder. A project's own skills are added with
+  `/skill`, outside its folder, so its agent cannot write itself one.
 - **Projects that work together.** With delegation allowed, one project can ask
   another a question; the work is paid from the other project's budget and runs under
   its rules.
@@ -86,12 +90,13 @@ And it should tell you, in plain words, what happened and what it needs from you
   exceptions for single tools and a list of sites it may fetch.
 - **Approvals.** A risky action becomes a question in Telegram or on the web:
   *Approve*, *Deny*, *Approve this kind for the rest of the run*, or *Always allow* this
-  exact command. No answer means no.
+  exact command. No answer means no. Commands that only read never ask, and a scheduled
+  run never waits: it is refused what it would ask for, and you get the rule as a button.
 - **Confined commands.** Every command an agent runs is confined by the kernel
   (Landlock): it reads and writes its own project's folder and nothing else of Argus's,
   not the database, not the other projects, not the conversations, not the keys.
 - **Undo.** Before each run Argus records the project's folder; `/undo` puts it back as
-  it was, and an undo can itself be undone. *(On `main`, for 0.5.0.)*
+  it was, and an undo can itself be undone.
 - **Hard cost control.** Every execution passes through one governor, which enforces
   concurrency and budgets before anything starts and again at every step. Prices for
   DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter) ship with Argus
@@ -110,33 +115,19 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
 
-## Coming in 0.5.0
+## New in 0.5.0
 
-Work in progress on `main`, not released yet: fewer approvals, because more actions are
-safe by construction.
-
-- **`/undo`** (done): every run of a project can be taken back
-  ([how](docs/user/commands.md#undo-project-id-list----run-id)).
-- **Precise rules** (done): commands that only read (`ls`, `cat`, `grep`, `find`, …) no
-  longer ask, `docker logs *` allows any arguments of one command, `*.example.com` its
-  subdomains only ([rules](docs/user/configuration.md#auto_allow--matched-on-parsed-argv)).
-- **`git` and `uv` in the image** (done), for snapshots and for Python MCP servers.
-- **Layered templates** (done): a project made from a template follows it, so improving
-  the template improves its projects; what a project changes with `/set` stays its own
-  ([how](docs/user/configuration.md#templates--your-own-kinds-of-project)).
-- **Skills per project** (done): `/skill add` gives a project a how-to its agent loads
-  when needed, kept outside the folder; the agent can no longer write itself one.
-- **Extensions, installed** (done): `/ext install <git-url | path>` fetches skills and MCP
-  tools pinned to a commit, shows what they bring, installs them in the sandbox, read-only,
-  and checks their files at every start ([how](docs/user/extensions.md)).
-- **Extensions in projects** (done): `/ext enable <project> <name>` gives a project an
-  extension's tools, run confined to its folder, its skills and its instructions.
-- **Schedules that never wait** (done): a scheduled run is refused what it would ask for,
-  at once, and the chat gets the rule that would allow it as a button; `/rule` adds one by
-  hand, and a question approved again and again suggests one.
-- **Templates re-tuned** (done): a `site` project runs its commands unasked, confined to its
-  folder and undoable; a test counts what each built-in template asks in a typical day.
-- **Next:** a first-party `office` extension (Word, Excel, PowerPoint), then the release.
+Autonomy with guard rails: fewer approvals, because more actions are safe by
+construction. **`/undo`** takes any of a project's last runs back. **Precise rules**: the
+commands that only read no longer ask, `docker logs *` allows one command's arguments,
+`*.example.com` its subdomains only. **Layered templates**: a project made from a
+template follows its improvements, and keeps what you changed. **Skills** per project,
+kept where its agent cannot write. **Extensions**: tools and skills installed once from
+git (`/ext install`), pinned and hashed, their install and their servers confined, enabled
+per project. **Scheduled runs never wait**: what they would ask about is refused at once,
+with the rule that would allow it as a button (`/rule`). The `site` template runs its
+commands unasked, confined to its folder. Upgrading from 0.4 needs no manual step;
+[what changes](docs/user/backup-and-upgrade.md#upgrading-to-050).
 
 ## New in 0.4.0
 
@@ -207,6 +198,10 @@ What has been verified:
   a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
   GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
   `pnpm test:live` repeats it.
+- **0.5.0 in the real image and on a fresh Ubuntu:** an extension installed in the
+  sandbox cannot read the keys, and its MCP server works in the project's folder but
+  cannot read the database (`pnpm test:docker-sandbox`); an upgrade from 0.4.0 keeps the
+  users and leaves an old project's file as it was (`pnpm test:native-vps --upgrade`).
 - **`web_fetch` never reaches a private address:** the server itself, the private
   network and the cloud metadata service are refused, by IP or by name
   (`test/spikes/08-web-fetch-addresses.test.ts`).
@@ -228,8 +223,8 @@ What is not verified yet:
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **Autonomy with guard rails** (0.5.0, in progress): undo, precise rules, extensions,
-   layered templates.
+1. **Extensions to use** (0.6.0): a first-party `office` extension (Word, Excel,
+   PowerPoint) and more, on the extension mechanism of 0.5.0.
 2. **More channels and more people.** Slack or Discord, and more roles than admin and
    operator, so a team can share one Argus.
 3. **Memory that finds meaning**, not only words, and **parallel work** inside one
