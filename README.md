@@ -4,8 +4,8 @@
 
 **An operating system for AI agents: one you can leave running and trust.**
 
-**Current release: [0.4.0](https://github.com/rla-labs/argus/releases/tag/v0.4.0)**
-(image `ghcr.io/rla-labs/argus:0.4.0`). Self-hosted, controlled from its own web
+**Current release: [0.5.0](https://github.com/rla-labs/argus/releases/tag/v0.5.0)**
+(image `ghcr.io/rla-labs/argus:0.5.0`). Self-hosted, controlled from its own web
 interface, from Telegram, or both.
 
 *Formerly **dsh-ops**. The plugins keep their `ops-*` names.*
