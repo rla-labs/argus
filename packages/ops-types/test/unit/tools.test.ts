@@ -41,4 +41,12 @@ describe('hostAllowed', () => {
     expect(hostAllowed('not a url', hosts)).toBe(false)
     expect(hostAllowed('https://ycombinator.com', [])).toBe(false)
   })
+
+  it('*.example.com covers the subdomains only', () => {
+    const hosts = ['*.example.com']
+    expect(hostAllowed('https://a.example.com', hosts)).toBe(true)
+    expect(hostAllowed('https://a.b.example.com', hosts)).toBe(true)
+    expect(hostAllowed('https://example.com', hosts)).toBe(false)
+    expect(hostAllowed('https://badexample.com', hosts)).toBe(false)
+  })
 })

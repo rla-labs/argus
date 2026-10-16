@@ -124,7 +124,8 @@ export function hiddenTools(policy: ToolPolicy): string[] {
  * Whether a URL's host is one a policy lets `web_fetch` reach unasked.
  *
  * @param url the URL the call names.
- * @param hosts the allowed hosts; each covers its subdomains.
+ * @param hosts the allowed hosts: `example.com` covers it and its subdomains,
+ *   `*.example.com` its subdomains only.
  * @returns whether it matches.
  */
 export function hostAllowed(url: string, hosts: readonly string[]): boolean {
@@ -135,8 +136,10 @@ export function hostAllowed(url: string, hosts: readonly string[]): boolean {
     return false
   }
   return hosts.some((entry) => {
-    const allowed = entry.trim().toLowerCase().replace(/^\*\./, '')
-    return allowed.length > 0 && (host === allowed || host.endsWith(`.${allowed}`))
+    const trimmed = entry.trim().toLowerCase()
+    const subdomainsOnly = trimmed.startsWith('*.')
+    const allowed = subdomainsOnly ? trimmed.slice(2) : trimmed
+    return allowed.length > 0 && ((!subdomainsOnly && host === allowed) || host.endsWith(`.${allowed}`))
   })
 }
 

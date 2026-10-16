@@ -66,18 +66,18 @@ approvals:
   mode: ask
   # Each entry is a COMMAND LINE, matched on parsed argv tokens:
   #
-  #   - git status        matches `git status` and `git status --short`
   #   - npm test          matches `npm test` and `npm test -- --watch`
+  #   - docker logs *     matches `docker logs web-1 --tail 50`: a final * takes any
+  #                       further arguments (a * anywhere else is refused)
   #
-  # It does NOT match `git push`, `git status; rm -rf /`, or `git status && rm -rf /`
+  # It does NOT match `npm install`, `npm test; rm -rf /`, or `npm test && rm -rf /`
   # — a compound command is refused however neatly its prefix matches.
   #
-  # Write the rule as you would type the command, and extend it with a flag rather
-  # than relying on a prefix:
+  # Commands that only read (ls, cat, grep, find, df, ps, ...) need no rule: they count
+  # as reads. Write the rule as you would type the command:
   auto_allow: []
-  # - git status
-  # - git diff
   # - npm test
+  # - docker logs *
 
   # How long the question waits. After it, the answer is NO. Silence is the likeliest
   # outcome for an operator who is asleep.

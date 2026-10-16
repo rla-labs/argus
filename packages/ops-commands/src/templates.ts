@@ -29,12 +29,8 @@ export interface ProjectTemplate {
 /** Keys a template may not set: `/new` decides them. */
 const RESERVED = ['id', 'cwd', 'provider', 'model']
 
-/**
- * Commands every template lets run unasked. Only ones that read nothing outside
- * what the agent's own tools see: `cat` would read any file the folder rules keep
- * from it, so it asks.
- */
-const LOOKING = ['ls', 'pwd', 'date']
+// Commands that only read (`ls`, `cat`, `grep`, `find`, `df`, `ps`, …) need no rule:
+// the gate counts them as reads (`isReadOnlyCommand`), and every template allows reads.
 
 export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
   {
@@ -49,9 +45,8 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
     ].join('\n'),
     settings: {
       tools: { read: 'allow', write: 'allow', shell: 'ask', web: 'ask' },
-      // Not `npm run …` nor `git commit`: the agent writes package.json and .git/hooks,
-      // so either would run code it wrote, unasked.
-      approvals: { auto_allow: [...LOOKING, 'git status', 'git diff', 'git log'] },
+      // No `npm run …` and no git: the agent writes package.json and .git (its hooks,
+      // and the config even `git status` obeys), so each would run code it wrote, unasked.
     },
   },
   {
@@ -82,7 +77,6 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
     ].join('\n'),
     settings: {
       tools: { read: 'allow', write: 'allow', shell: 'ask', web: 'allow' },
-      approvals: { auto_allow: [...LOOKING] },
     },
   },
   {
@@ -99,7 +93,7 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
     settings: {
       tools: { read: 'allow', write: 'ask', shell: 'ask', web: 'ask' },
       approvals: {
-        auto_allow: [...LOOKING, 'uptime', 'df', 'free', 'du', 'ps', 'top -b -n 1', 'systemctl status', 'journalctl', 'docker ps', 'docker logs', 'docker stats --no-stream', 'ping -c', 'ss', 'ip addr'],
+        auto_allow: ['top -b -n 1', 'systemctl status *', 'journalctl *', 'docker ps', 'docker logs *', 'docker stats --no-stream', 'ping -c *', 'ss', 'ip addr'],
       },
       limits: { max_steps_per_run: 80 },
     },

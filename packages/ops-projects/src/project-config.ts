@@ -97,6 +97,35 @@ const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_host
 /** What one tool's exception may be. */
 const ACCESS_VALUES = ['off', 'deny', 'ask', 'allow']
 
+/** A `web_hosts` entry: a host name, or `*.` and one (its subdomains only). */
+const HOST_ENTRY = /^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i
+
+/**
+ * The rule lists' entries that cannot mean what they seem to: a `*` anywhere but at
+ * the end of a command rule, a host that is not a host name.
+ *
+ * @param document the parsed project file.
+ * @returns the issues.
+ */
+function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
+  const listOf = (block: unknown, key: string): unknown[] => {
+    const value = block !== null && typeof block === 'object' ? (block as Record<string, unknown>)[key] : undefined
+    return Array.isArray(value) ? value : []
+  }
+  const issues: ProjectConfigIssue[] = []
+  for (const [index, rule] of listOf(document['approvals'], 'auto_allow').entries()) {
+    if (typeof rule === 'string' && rule.split(/\s+/).slice(0, -1).some((token) => token.includes('*'))) {
+      issues.push({ path: `approvals.auto_allow.${index}`, message: `"${rule}": * may only end a rule, alone ("docker logs *")` })
+    }
+  }
+  for (const [index, host] of listOf(document['tools'], 'web_hosts').entries()) {
+    if (typeof host === 'string' && !HOST_ENTRY.test(host.trim())) {
+      issues.push({ path: `tools.web_hosts.${index}`, message: `"${host}": a host name (example.com, which covers its subdomains) or *.example.com (its subdomains only)` })
+    }
+  }
+  return issues
+}
+
 /** The keys one `mcp:` server may hold. */
 const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'timeout_s']
 
@@ -357,6 +386,7 @@ export function parseProjectConfig(
   }
 
   issues.push(...mcpIssues(document['mcp']))
+  issues.push(...ruleIssues(document))
 
   if (issues.length > 0) {
     throw new ProjectConfigError(`${options.sourcePath} is not a valid project`, issues, {

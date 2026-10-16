@@ -238,6 +238,48 @@ describe('matchAllowList — the bypass attacks', () => {
 
 // ── classification ─────────────────────────────────────────────────────────
 
+describe('matchAllowList — a trailing *', () => {
+  const rules = ['docker logs *', 'git status']
+  const allowed = (line: string) => matchAllowList(tokenizeCommand(line), rules).allowed
+
+  it('allows any further arguments of that one command', () => {
+    expect(allowed('docker logs web-1')).toBe(true)
+    expect(allowed('docker logs web-1 --tail 50')).toBe(true)
+    expect(allowed('docker logs')).toBe(true)
+    expect(allowed('docker rm web-1')).toBe(false)
+    expect(allowed('docker')).toBe(false)
+  })
+
+  it('refuses a second command however it is attached', () => {
+    expect(allowed('docker logs x;rm -rf /')).toBe(false)
+    expect(allowed('docker logs x; rm -rf /')).toBe(false)
+    expect(allowed('docker logs x && rm -rf /')).toBe(false)
+    expect(allowed('docker logs x|sh')).toBe(false)
+    expect(allowed('docker logs $(id)')).toBe(false)
+    expect(allowed('docker logs x>/etc/passwd')).toBe(false)
+    expect(allowed('docker logs x\nrm -rf /')).toBe(false)
+  })
+
+  it('a line break is a command separator for every rule', () => {
+    expect(tokenizeCommand('git status\nrm -rf /')).toEqual(['git', 'status', ';', 'rm', '-rf', '/'])
+    expect(tokenizeCommand('echo "a\nb"')).toEqual(['echo', 'a\nb'])
+    expect(allowed('git status\n--short')).toBe(false)
+  })
+
+  it('the gate splits a command exactly as the allowlist does', async () => {
+    const { argumentsOf } = await import('@argus-agent/governor')
+    const { argv } = argumentsOf({ command: 'docker logs x\nrm -rf /' })
+    expect(argv).toEqual(tokenizeCommand('docker logs x\nrm -rf /'))
+    expect(matchAllowList(argv, rules).allowed).toBe(false)
+    expect(argumentsOf({ command: 'docker logs "x' }).argv).toEqual([])
+  })
+
+  it('a * that does not end the rule matches only a literal *', () => {
+    expect(matchAllowList(tokenizeCommand('docker x logs'), ['docker * logs']).allowed).toBe(false)
+    expect(matchAllowList(tokenizeCommand('*'), ['*']).allowed).toBe(true)
+  })
+})
+
 describe('isInside', () => {
   it('keeps paths in the folder and refuses every way out of it', () => {
     const base = mkdtempSync(join(tmpdir(), 'ops-inside-'))

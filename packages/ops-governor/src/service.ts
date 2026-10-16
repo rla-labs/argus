@@ -14,6 +14,7 @@ import {
   formatModelRef,
   projectOwner,
   scopeOfOwner,
+  tokenizeCommand,
   type ContentBlockLike,
   type MicroUsd,
   type ModelRef,
@@ -1442,40 +1443,7 @@ export function argumentsOf(args: unknown): { readonly argv: readonly string[]; 
     return { argv: command.filter((token): token is string => typeof token === 'string'), path }
   }
   if (typeof command === 'string') {
-    return { argv: splitCommand(command), path }
+    return { argv: tokenizeCommand(command), path }
   }
   return { argv: [], path }
-}
-
-/** Split a command line on whitespace, respecting simple quoting. */
-function splitCommand(line: string): string[] {
-  const tokens: string[] = []
-  let current = ''
-  let started = false
-  let quote: '"' | "'" | undefined
-
-  for (const char of line) {
-    if (quote !== undefined) {
-      if (char === quote) quote = undefined
-      else current += char
-      continue
-    }
-    if (char === '"' || char === "'") {
-      quote = char
-      started = true
-      continue
-    }
-    if (char === ' ' || char === '\t' || char === '\n') {
-      if (started) {
-        tokens.push(current)
-        current = ''
-        started = false
-      }
-      continue
-    }
-    current += char
-    started = true
-  }
-  if (started) tokens.push(current)
-  return tokens
 }

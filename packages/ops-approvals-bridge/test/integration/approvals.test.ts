@@ -227,6 +227,21 @@ describe('the gate', () => {
     expect(ran.sort()).toEqual(['bash', 'read'])
   }, 60_000)
 
+  it('counts a read-only command as a read, and asks for its forms that write', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({ dataDir, projects: { alpha: projectDocument(dataDir, 'alpha') } })
+    const agent = await booted.projects.ensureAgent('alpha')
+    const gate = (command: string) => booted.bridge.gate({ name: 'bash', arguments: { command }, callId: command, agent: agent as never })?.kind ?? 'run'
+    // tools.read is allow by default, tools.shell ask.
+    for (const command of ['cat notes.md', 'ls -la src', 'grep -rn TODO .', 'find . -name "*.md"', 'wc -l a b', 'tail -n 20 log.txt', 'du -sh .']) {
+      expect(gate(command), command).toBe('run')
+    }
+    for (const command of ['find . -delete', 'find . -exec rm {} +', 'cat a > b', 'cat a;rm b', 'cat a\nrm b', 'git status', 'rm -rf build', 'date -s 2020-01-01']) {
+      expect(gate(command), command).toBe('ask')
+    }
+  }, 60_000)
+
   it('runs an allow-listed command under the default mode without asking', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
     dirs.push(dataDir)

@@ -610,13 +610,15 @@ a few commands that run unasked, and its first [instructions](#instructions-proj
 
 | Template | For | Tools | Runs unasked |
 |---|---|---|---|
-| `site` | a website or web app | read, write; shell and web ask | `ls`, `pwd`, `date`, `git status`, `git diff`, `git log` |
+| `site` | a website or web app | read, write; shell and web ask | the commands that only read |
 | `research` | research on the web, written up as sourced notes | read, write, web; no shell | — |
-| `reports` | recurring reports kept as dated files | read, write, web; shell asks | `ls`, `pwd`, `date` |
-| `devops` | checking and running servers and services | read; write, shell and web ask; 80 steps a run | `ls`, `df`, `free`, `uptime`, `ps`, `systemctl status`, `journalctl`, `docker ps`, `docker logs`, ... |
+| `reports` | recurring reports kept as dated files | read, write, web; shell asks | the commands that only read |
+| `devops` | checking and running servers and services | read; write, shell and web ask; 80 steps a run | the commands that only read, and `systemctl status *`, `journalctl *`, `docker ps`, `docker logs *`, `ping -c *`, ... |
 
-Commands the agent could steer into running its own code (`npm run …`, `git commit`,
-which runs hooks) still ask: add them with `/set <id> approvals.auto_allow [...]` if
+The commands that only read (`ls`, `cat`, `grep`, `find`, `df`, `ps`, …) run unasked in
+every project that allows reading ([which ones](configuration.md#auto_allow--matched-on-parsed-argv)).
+Commands the agent could steer into running its own code (`npm run …`, and any `git`
+command: the agent writes the repository's configuration and hooks) still ask: add them with `/set <id> approvals.auto_allow [...]` if
 you want them. Without a template the project asks before writing, running or browsing.
 Your own templates go in `config/templates/<name>.yaml`; see
 [configuration](configuration.md#templates--your-own-kinds-of-project).

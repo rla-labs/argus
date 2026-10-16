@@ -19,6 +19,7 @@
  *
  * @module @argus-agent/approvals-bridge/argv
  */
+import { tokenizeCommand } from '@argus-agent/types'
 
 /** What a request's action looks like, once parsed. */
 export interface ParsedAction {
@@ -35,71 +36,9 @@ export interface ParsedAction {
 /** The category of an action, used to scope a run-wide approval. */
 export type ActionKind = 'command' | 'file-write' | 'file-read' | 'network' | 'other'
 
-/**
- * Split a command line into argv tokens.
- *
- * Handles quoting the way a shell would — single quotes verbatim, double quotes
- * with backslash escapes — because a rule written against an unquoted form must
- * not match a quoted one and vice versa. It does **not** interpret shell
- * metacharacters: `;`, `&&`, `|` and `$()` are ordinary characters, which is
- * exactly what makes the token comparison safe.
- *
- * Returns `[]` for a malformed line (an unterminated quote), which matches no rule
- * and therefore asks.
- *
- * @param line the command line.
- * @returns the tokens.
- */
-export function tokenizeCommand(line: string): string[] {
-  const tokens: string[] = []
-  let current = ''
-  let started = false
-  let quote: '"' | "'" | undefined
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index] as string
-
-    if (quote === "'") {
-      if (char === "'") quote = undefined
-      else current += char
-      continue
-    }
-    if (quote === '"') {
-      if (char === '"') quote = undefined
-      else if (char === '\\' && index + 1 < line.length) {
-        index += 1
-        current += line[index] as string
-      } else current += char
-      continue
-    }
-
-    if (char === "'" || char === '"') {
-      quote = char
-      started = true
-      continue
-    }
-    if (char === '\\' && index + 1 < line.length) {
-      index += 1
-      current += line[index] as string
-      started = true
-      continue
-    }
-    if (char === ' ' || char === '\t' || char === '\n') {
-      if (started) {
-        tokens.push(current)
-        current = ''
-        started = false
-      }
-      continue
-    }
-    current += char
-    started = true
-  }
-
-  if (quote !== undefined) return [] // an unterminated quote: unusable, so it asks
-  if (started) tokens.push(current)
-  return tokens
-}
+// One tokenizer for the gate and the allowlist: two that disagreed on a line break
+// would let one see a single command where the other saw two.
+export { tokenizeCommand }
 
 /**
  * Tokens that chain, background, substitute or redirect a command.
@@ -165,14 +104,21 @@ export function isCompound(argv: readonly string[]): boolean {
  * @returns whether it matches.
  */
 export function matchesRule(argv: readonly string[], rule: readonly string[]): boolean {
-  if (rule.length === 0 || argv.length < rule.length) return false
+  // A trailing `*` stands for any further arguments ("docker logs *").
+  const wildcard = rule.length > 1 && rule.at(-1) === '*'
+  const fixed = wildcard ? rule.slice(0, -1) : rule
+  if (fixed.length === 0 || argv.length < fixed.length) return false
   // One rule names one command. A compound argv is more than one, so it goes to a
   // human however neatly its prefix matches.
   if (isCompound(argv)) return false
-  for (let index = 0; index < rule.length; index += 1) {
-    // Exact comparison. Not `includes`, not `startsWith` on a joined string.
-    if (argv[index] !== rule[index]) return false
+  for (let index = 0; index < fixed.length; index += 1) {
+    // Exact comparison. Not `includes`, not `startsWith` on a joined string. A `*`
+    // anywhere but at the end is an ordinary token, matching only itself.
+    if (argv[index] !== fixed[index]) return false
   }
+  // Any arguments, but plain ones: a metacharacter glued to a word (`x;rm`) is not a
+  // token of its own, so `isCompound` cannot see it, and here nothing else would.
+  if (wildcard) return argv.slice(fixed.length).every((token) => !/[;&|<>$`(){}\\]/.test(token))
   // The rule must account for the WHOLE argv once trailing options are allowed.
   // Without this, a line break followed by a second command — which tokenizes to
   // a plain five-token
@@ -206,6 +152,40 @@ function coversRest(argv: readonly string[], matched: number): boolean {
     return false
   }
   return true
+}
+
+/**
+ * Commands whose every form only reads, by name, with the options that would make
+ * them write or run something else. Fixed in code: no model decides it.
+ */
+const READ_ONLY: ReadonlyMap<string, { readonly refuse: (token: string) => boolean }> = new Map([
+  ...['ls', 'pwd', 'stat', 'du', 'df', 'wc', 'cat', 'head', 'tail', 'grep', 'uptime', 'free', 'id', 'whoami', 'uname'].map(
+    (name) => [name, { refuse: () => false }] as const,
+  ),
+  // `date -s` sets the clock: refused, with any other option, for simplicity.
+  ['date', { refuse: (token: string) => token.startsWith('-') && !token.startsWith('+') }],
+  ['ps', { refuse: () => false }],
+  // `find` can delete, run a command, or write a file.
+  ['find', { refuse: (token: string) => /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/.test(token) }],
+  // Not git: even `git status` runs what the repository's own config names
+  // (core.fsmonitor, a diff driver), and the agent can write `.git/config`.
+])
+
+/**
+ * Whether a command only reads: one command, on the fixed list, with none of the
+ * options that write. The gate counts such a command as `read`, not `shell`: under
+ * Argus's sandbox it reads only the project's folder and the system.
+ *
+ * @param argv the parsed tokens.
+ * @returns whether it only reads.
+ */
+export function isReadOnlyCommand(argv: readonly string[]): boolean {
+  const [name, ...rest] = argv
+  const entry = name === undefined ? undefined : READ_ONLY.get(name)
+  if (entry === undefined || isCompound(argv)) return false
+  // No metacharacter glued to a word either: `cat x;rm y` is two commands.
+  if (rest.some((token) => /[;&|<>$`(){}\\]/.test(token))) return false
+  return !rest.some(entry.refuse)
 }
 
 /** The result of consulting the allowlist. */

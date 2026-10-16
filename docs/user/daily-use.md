@@ -245,12 +245,14 @@ If the same harmless command keeps asking, press **Always allow**, or put it on 
 project's allowlist yourself:
 
 ```
-/set site-firma approvals.auto_allow [git status, git diff, npm test]
+/set site-firma approvals.auto_allow [npm test, docker logs *]
 ```
 
-A rule matches the command and its flags (`git status --short`), never something
-chained onto it (`git status; rm -rf /` does not match). Keep the list to read-only and
-test commands. Anything that deletes, pushes or deploys is worth one tap.
+A rule matches the command and its flags (`npm test --silent`), never something
+chained onto it (`npm test; rm -rf /` does not match); a `*` at its end takes any
+further arguments. Keep the list to test and inspection commands. Anything that
+deletes, pushes or deploys is worth one tap. Commands that only read (`ls`, `cat`,
+`grep`, `find`, …) need no rule: they count as reads and run unasked.
 
 `/approvals` shows what is waiting and the last decisions, including those the
 allowlist took for you (`policy`).

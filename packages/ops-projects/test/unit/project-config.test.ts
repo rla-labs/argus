@@ -271,6 +271,14 @@ describe('the tools block', () => {
     expect(parseFails({ tools: { exceptions: { web_search: 'sometimes' } } }).issues.map((issue) => issue.path)).toContain('tools.exceptions.web_search')
     expect(parseFails({ tools: { exceptions: ['web_search'] } }).issues.map((issue) => issue.path)).toContain('tools.exceptions')
   })
+
+  it('takes a * only at the end of a command rule, and host names in web_hosts', () => {
+    expect(parse({ approvals: { auto_allow: ['docker logs *'] }, tools: { web_hosts: ['example.com', '*.example.org'] } }).approvals.auto_allow).toEqual(['docker logs *'])
+    expect(parseFails({ approvals: { auto_allow: ['docker * logs'] } }).issues.map((issue) => issue.path)).toContain('approvals.auto_allow.0')
+    for (const host of ['https://example.com', 'example.*', 'a.*.example.com', 'example.com/path']) {
+      expect(parseFails({ tools: { web_hosts: [host] } }).issues.map((issue) => issue.path)).toContain('tools.web_hosts.0')
+    }
+  })
 })
 
 describe('mcp', () => {

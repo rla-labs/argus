@@ -117,10 +117,12 @@ safe by construction.
 
 - **`/undo`** (done): every run of a project can be taken back
   ([how](docs/user/commands.md#undo-project-id-list----run-id)).
+- **Precise rules** (done): commands that only read (`ls`, `cat`, `grep`, `find`, …) no
+  longer ask, `docker logs *` allows any arguments of one command, `*.example.com` its
+  subdomains only ([rules](docs/user/configuration.md#auto_allow--matched-on-parsed-argv)).
 - **`git` and `uv` in the image** (done), for snapshots and for Python MCP servers.
-- **Next:** precise rules (`*.example.com`, `docker logs *`, a `web_fetch` that refuses
-  private addresses), layered templates, and **extensions**: skills and MCP tools
-  installed once by the admin, confined, and enabled per project.
+- **Next:** layered templates, and **extensions**: skills and MCP tools installed once
+  by the admin, confined, and enabled per project.
 
 ## New in 0.4.0
 
@@ -191,6 +193,9 @@ What has been verified:
   a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
   GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
   `pnpm test:live` repeats it.
+- **`web_fetch` never reaches a private address:** the server itself, the private
+  network and the cloud metadata service are refused, by IP or by name
+  (`test/spikes/08-web-fetch-addresses.test.ts`).
 - **Cost accounting against a provider's own bill.** Every request to DeepInfra
   matched DeepInfra's reported token counts (cached tokens included) and its
   billed cost to within 1 µUSD.

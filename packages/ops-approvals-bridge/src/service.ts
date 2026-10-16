@@ -30,7 +30,7 @@ import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
-import { parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
+import { isReadOnlyCommand, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
 import { ALWAYS, APPROVE, APPROVE_ALL, DENY, alwaysButton, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
 import type { ApprovalsSection } from './config.js'
@@ -131,7 +131,11 @@ export class OpsApprovalsBridge {
     if (exec.agent === undefined) return undefined
     const owner = this.options.projects.ownerOf(exec.agent.id as string)
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
-    const group = toolGroupOf(exec.name)
+    const { argv, path } = argumentsOf(exec.arguments)
+    // A command on the fixed read-only list is a read: under the sandbox it reads only
+    // the project's folder and the system.
+    const named = toolGroupOf(exec.name)
+    const group = named === 'shell' && isReadOnlyCommand(argv) ? 'read' : named
     const project = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId) : undefined
     const exception = project?.tools.exceptions[exec.name]
     if (group === 'quiet' && exception === undefined) return undefined
@@ -150,7 +154,6 @@ export class OpsApprovalsBridge {
       return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (${rule}: ${access}). Do not look for another way to do the same thing.` }
     }
 
-    const { argv, path } = argumentsOf(exec.arguments)
     const record = (typeof exec.arguments === 'object' && exec.arguments !== null ? exec.arguments : {}) as Record<string, unknown>
     if (group === 'read' || group === 'write') {
       const root = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.cwd : this.options.projects.taskDirOf(owner.runId)

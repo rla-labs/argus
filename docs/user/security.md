@@ -227,6 +227,24 @@ environment (`/proc/<pid>/environ`).
 **What it does not confine: the network.** A command can reach whatever the server can.
 The approvals for `shell` and `web` are what stand between an agent and the internet.
 
+Because of this boundary, the commands that only read (`ls`, `cat`, `grep`, `find`,
+`df`, `ps`, …, a fixed list in Argus's code) count as reads and run unasked where
+reading is allowed: they can read only what the agent's own file tools can. Their forms
+that write or run something else (`find -exec`, a redirection) still ask, and `git` is
+not on the list, because it runs what the repository's own configuration names.
+
+### `web_fetch` reaches the public web only
+
+`web_fetch` refuses every address that is not public: the server itself (`localhost`,
+`127.0.0.1`, Argus's own ports), the private network (`10.x`, `172.16–31.x`,
+`192.168.x`), link-local addresses and the cloud metadata service (`169.254.169.254`),
+and their IPv6 forms. It resolves the name once, refuses the whole answer if any address
+is not public, and connects only to the addresses it checked, so a name that changes its
+answer between the check and the connection (DNS rebinding) cannot slip through. A
+redirect to another site is refused. This is dsh's fetch backend, and Argus keeps it;
+`test/spikes/08-web-fetch-addresses.test.ts` checks it. A shell command (`curl`) is not
+covered: that is the `shell` approval's job.
+
 ### Without Landlock, commands do not run
 
 On a kernel without Landlock (older than 5.13, or with it switched off), Argus **refuses

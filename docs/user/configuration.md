@@ -402,8 +402,8 @@ budget:
 approvals:
   mode: ask                  # ask | deny | auto
   auto_allow:
-    - git status
     - npm test
+    - docker logs *
   timeout_minutes: 30
 
 tools:
@@ -447,12 +447,27 @@ Each entry is a **command line**, matched on parsed tokens:
 
 | Rule | Matches | Does NOT match |
 |---|---|---|
-| `git status` | `git status`, `git status --short` | `git push` |
-| `npm test` | `npm test`, `npm test -- --watch` | `npm install` |
+| `npm test` | `npm test`, `npm test -- --watch` | `npm install`, `npm test src` |
+| `docker logs *` | `docker logs web-1`, `docker logs web-1 --tail 50` | `docker rm web-1` |
 
-**A compound command is refused however neatly its prefix matches.** `git status; rm
--rf /` and `git status && rm -rf /` do not match the rule `git status`, because the
-match is on the whole parsed command rather than on a string prefix.
+Without `*`, a rule takes options after it (`--short`) but no further words: `npm test`
+does not match `npm test src`. **A `*` at the end** takes any further arguments. It may
+only end a rule; one anywhere else is refused when the project loads.
+
+**A compound command is refused however neatly its prefix matches.** `npm test; rm -rf
+/`, `npm test && rm -rf /` and `npm test` with `rm -rf /` on the next line do not match
+the rule `npm test`, because the match is on the whole parsed command rather than on a
+string prefix. Under `*`, an argument with a shell character glued to it (`x;rm`,
+`x|sh`, `$(…)`) is refused too.
+
+**Commands that only read need no rule.** `ls`, `pwd`, `date`, `stat`, `du`, `df`,
+`wc`, `cat`, `head`, `tail`, `grep`, `find`, `uptime`, `free`, `ps`, `id`, `whoami` and
+`uname` count as reads (the `read` group, `allow` by default), not as shell commands:
+the [sandbox](security.md#sandbox) lets them read only the project's folder and the
+system. Their forms that write or run something else (`find -delete`, `find -exec`,
+`date -s`, a redirection `>`) are shell commands as before. `git` is not on the list:
+even `git status` runs what the repository's own configuration names, and the agent
+can write that.
 
 Write the rule as you would type the command, and extend it with a flag rather than
 relying on a prefix.
@@ -480,7 +495,15 @@ Each group takes one of four values:
 **A read or write outside the project's folder asks even under `allow`**, and is
 refused under `deny`. `web_hosts` lists sites `web_fetch` reaches unasked when `web` is
 `ask`; an entry covers its subdomains, so `ycombinator.com` covers
-`news.ycombinator.com`. A search has no site, so it still asks.
+`news.ycombinator.com`, and `*.substack.com` covers the subdomains only, not
+`substack.com`. An entry that is not a host name (a URL, a `*` elsewhere) is refused
+when the project loads. A search has no site, so it still asks.
+
+**`web_fetch` never reaches a private address**, whatever the rules say: the server
+itself (`localhost`, `127.0.0.1`), the private network (`10.x`, `192.168.x`, …), a cloud
+metadata service (`169.254.169.254`) and their IPv6 forms are refused, by IP or by a name
+that resolves to one, and a redirect cannot leave the site. So `web: allow` is safe for
+reading the public web.
 
 The bookkeeping tools (the agent's todo list, goals, background jobs, skills,
 `present`) and `send_file` are always allowed. A misspelt group is refused when the
