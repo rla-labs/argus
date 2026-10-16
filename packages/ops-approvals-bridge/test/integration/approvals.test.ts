@@ -451,6 +451,89 @@ describe('the gate', () => {
     expect(booted.store.approvals.recent(5).filter((row) => row.status === 'pending')).toHaveLength(0)
   }, 60_000)
 
+  it('refuses a scheduled run at once, tells the chat with the rule as a button, and the rule then lets it run', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-sched-'))
+    dirs.push(dataDir)
+    const command = { name: 'bash', arguments: '{"command":"docker logs app"}' }
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: projectDocument(dataDir, 'alpha') },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  admin: console:dev\n` +
+        `channel:\n  default_address: console:dev\n`,
+      script: [
+        { text: 'working', toolCalls: [{ ...command, id: 'c1' }] },
+        { text: 'done' },
+        { text: 'again', toolCalls: [{ ...command, id: 'c2' }] },
+        { text: 'done' },
+      ],
+    })
+    const adapter = await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    let ran = 0
+    agent.ctx.tools.register(
+      defineTool({
+        name: 'bash',
+        description: 'bash',
+        parameters: {},
+        output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+        execute: async () => {
+          ran += 1
+          return 'ok'
+        },
+      }),
+    )
+    const go = (): void => void booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
+    go()
+    await waitFor(() => booted.governor.status().running.length === 0 && booted.store.approvals.recent(1)[0]?.status === 'denied', { timeoutMs: 30_000, label: 'the refused run' })
+    expect(ran).toBe(0)
+    expect(adapter.pendingCount).toBe(0)
+    const report = adapter.sent.find((sent) => sent.message.text?.includes('was blocked'))
+    expect(report?.message.text).toContain('A scheduled run of alpha was blocked: docker logs app')
+    expect(report?.message.buttons?.[0]?.value).toBe('/rule alpha docker logs app')
+
+    await booted.channel.handleButton({ questionId: 'report', value: '/rule alpha docker logs app', address: { channel: 'console', chatId: 'dev' }, userId: 'dev', timestamp: Date.now() })
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['docker logs app'])
+    go()
+    await waitFor(() => ran === 1 && booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'the run, allowed' })
+  }, 60_000)
+
+  it('asks a scheduled run only for unattended_timeout_s, and suggests a rule for an action approved again and again', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-sched2-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: projectDocument(dataDir, 'alpha') },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  admin: console:dev\n` +
+        `channel:\n  default_address: console:dev\n` +
+        `approvals:\n  unattended_timeout_s: 5\n`,
+      script: [{ text: 'working', toolCalls: [{ name: 'bash', arguments: '{"command":"docker ps -a"}', id: 'c1' }] }, { text: 'done' }],
+    })
+    const adapter = await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    agent.ctx.tools.register(defineTool({ name: 'bash', description: 'bash', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'ok' }))
+    // Two earlier approvals of the same action by a person.
+    for (const n of [1, 2]) {
+      booted.store.approvals.insert({ id: `old-${n}`, run_id: null, project_id: 'alpha', request_json: JSON.stringify({ action: 'docker ps -a' }), status: 'pending' }, Date.now() - n * 3_600_000)
+      booted.store.approvals.decide(`old-${n}`, 'granted', 'someone', Date.now() - n * 3_600_000)
+    }
+    void booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
+    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 30_000, label: 'the question' })
+    expect(adapter.pendingQuestion?.text).toContain('A scheduled run: no answer in 5 second(s) means NO.')
+    expect(adapter.pendingQuestion?.text).toContain('Approved 2 times in the last 7 days')
+    adapter.timeout()
+    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 30_000, label: 'the run' })
+    expect(booted.store.approvals.recent(1)[0]?.status).toBe('timeout')
+    expect(adapter.texts().some((text) => text.includes('A scheduled run of alpha was blocked: docker ps -a'))).toBe(true)
+  }, 60_000)
+
   it('follows a tool\'s exception over its group, the always-allowed ones included', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
     dirs.push(dataDir)

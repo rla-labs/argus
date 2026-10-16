@@ -131,8 +131,10 @@ safe by construction.
   and checks their files at every start ([how](docs/user/extensions.md)).
 - **Extensions in projects** (done): `/ext enable <project> <name>` gives a project an
   extension's tools, run confined to its folder, its skills and its instructions.
-- **Next:** suggested rules after an approval, schedules checked before they run, then the
-  built-in templates re-tuned and a first-party `office` extension.
+- **Schedules that never wait** (done): a scheduled run is refused what it would ask for,
+  at once, and the chat gets the rule that would allow it as a button; `/rule` adds one by
+  hand, and a question approved again and again suggests one.
+- **Next:** the built-in templates re-tuned, and a first-party `office` extension.
 
 ## New in 0.4.0
 

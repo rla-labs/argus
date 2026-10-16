@@ -48,6 +48,7 @@
   "approvals.approve": "Aprobă",
   "approvals.approveAll": "Tot de acest fel, în rularea asta",
   "approvals.deny": "Refuză",
+  "approvals.always": "Permite mereu „{rule}” în {project}",
   "approvals.gone": "Întrebarea a primit deja răspuns sau a expirat.",
   "runs.title": "Rulări active",
   "runs.none": "Nu rulează nimic.",

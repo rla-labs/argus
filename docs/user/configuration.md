@@ -269,11 +269,14 @@ spend six times the money on work that is no longer relevant.
 | `timeout_minutes` | int | `30` | How long a person has to answer. |
 | `ask_timeout_s` | int | `30` | How long the **channel** has to deliver the question. |
 | `allow_run_grant` | boolean | `true` | Whether "approve all of this kind for this run" is offered. |
+| `unattended_timeout_s` | int | `0` | How long a **scheduled** run waits for an answer. `0`: nobody is asked; the action is refused at once and the chat is told, with the rule that would allow it. |
 
 A question about a single command or a page fetch in a project also offers **Always
 allow**: the admin's press adds that exact command to the project's
 `approvals.auto_allow` (or the site to `tools.web_hosts`), through `/set`. Anyone
-else's press approves once.
+else's press approves once. When the same action was approved by someone twice already
+in the last 7 days, the question says so. [`/rule`](commands.md#rule-project-id-command--host-host--admin)
+adds such a rule by hand.
 | `max_action_length` | int | `500` | Truncation length in the question text. |
 
 **`approvals_adhoc` defaults to `deny`** because a one-off task has no allowlist, and

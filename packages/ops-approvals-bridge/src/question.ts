@@ -86,6 +86,21 @@ export interface QuestionInput {
   readonly timeoutMinutes: number
   /** How many other requests are pending, so the operator knows it is not alone. */
   readonly alsoPending: number
+  /** How many times the same action was approved by a person in this project in the last 7 days. */
+  readonly repeated?: number
+  /** A scheduled run's wait, in seconds, instead of `timeoutMinutes`. */
+  readonly unattendedSeconds?: number
+}
+
+/**
+ * The command that makes a rule: what a button or a person sends.
+ *
+ * @param rule the rule.
+ * @param projectId the project.
+ * @returns the command line.
+ */
+export function ruleCommand(rule: AlwaysRule, projectId: string): string {
+  return `/rule ${projectId} ${rule.key === 'tools.web_hosts' ? 'host ' : ''}${rule.entry}`
 }
 
 /**
@@ -117,8 +132,13 @@ export function approvalQuestion(input: QuestionInput): string {
   }
   lines.push(
     '',
-    `No answer in ${input.timeoutMinutes} minute(s) means NO.`,
+    input.unattendedSeconds === undefined
+      ? `No answer in ${input.timeoutMinutes} minute(s) means NO.`
+      : `A scheduled run: no answer in ${input.unattendedSeconds} second(s) means NO.`,
   )
+  if ((input.repeated ?? 0) >= 2) {
+    lines.push(`Approved ${input.repeated} times in the last 7 days: “Always allow” makes it a rule.`)
+  }
   if (input.alsoPending > 0) {
     lines.push(`${input.alsoPending} other request(s) are waiting; each is answered on its own.`)
   }

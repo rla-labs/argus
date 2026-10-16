@@ -1707,6 +1707,20 @@ describe('/ext', () => {
   }, 60_000)
 })
 
+describe('/rule', () => {
+  it('adds a command or a host the project then runs unasked; refuses what cannot be named exactly; the admin\'s only', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect(await run(booted, '/rule alpha docker logs *')).toContain('alpha now runs docker logs * unasked')
+    expect(await run(booted, '/rule alpha host news.ycombinator.com')).toContain('fetches news.ycombinator.com unasked')
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['docker logs *'])
+    expect(booted.projects.configOf('alpha')?.tools.web_hosts).toEqual(['news.ycombinator.com'])
+    expect(await run(booted, '/rule alpha docker logs *')).toContain('already allows')
+    expect(await run(booted, '/rule alpha rm -rf / ; ls')).toContain('cannot be a rule')
+    expect(await run(booted, '/rule alpha git * status')).toContain('cannot be a rule')
+    expect(await run(booted, '/rule alpha ls', contextFor({ isAdmin: false }))).toMatch(/admin/i)
+  }, 30_000)
+})
+
 describe('/skill', () => {
   it('adds, lists and removes a project\'s skills outside its folder; changing them is the admin\'s', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })

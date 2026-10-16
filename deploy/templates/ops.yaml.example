@@ -253,6 +253,10 @@ approvals:
   # The longest action rendering inside a question. A very long command is truncated
   # in the MESSAGE only; the full text is what runs.
   max_action_length: 500
+  # How long a SCHEDULED run waits for an answer, in seconds. 0 (the default): nobody
+  # is asked; the action is refused at once, and the chat is told, with the rule that
+  # would allow it from now on.
+  unattended_timeout_s: 0
 
 # ── memory ──────────────────────────────────────────────────────────────────────
 

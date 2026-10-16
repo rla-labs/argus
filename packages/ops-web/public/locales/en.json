@@ -48,6 +48,7 @@
   "approvals.approve": "Approve",
   "approvals.approveAll": "All of this kind, this run",
   "approvals.deny": "Deny",
+  "approvals.always": "Always allow “{rule}” in {project}",
   "approvals.gone": "That question was answered or expired already.",
   "runs.title": "Live runs",
   "runs.none": "Nothing is running.",

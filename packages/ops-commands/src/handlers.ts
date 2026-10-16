@@ -1761,6 +1761,39 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /rule ──────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'rule',
+        description: 'Let a project run a command, or fetch a site, unasked (admin)',
+        syntax: '/rule <project-id> <command…> | /rule <project-id> host <host>',
+        detail:
+          'Adds a rule to the project\'s file, as "Always allow" does: a command to ' +
+          'approvals.auto_allow (exactly that command; a final * takes any further plain ' +
+          'arguments), or a host to tools.web_hosts. The project then keeps the whole list as ' +
+          'its own. A scheduled run that was blocked offers this as a button. Only the admin.',
+        examples: ['/rule servers docker logs *', '/rule news host news.ycombinator.com'],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input): CommandResult {
+        const [projectId, first] = tokenize(input)
+        const config = projectId === undefined ? undefined : projects.configOf(projectId)
+        if (config === undefined || first === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'rule needs a project and a command, or host and a host name.')
+        const host = first === 'host'
+        const entry = restAfter(input, host ? 2 : 1).trim().replace(/\s+/g, ' ')
+        // Plain words only, so the rule reads back as the tokens it was written as.
+        const plain = host ? /^(\*\.)?[a-z0-9.-]+$/i.test(entry) : /^[\w./:=@+-]+( [\w./:=@+-]+)*( \*)?$/.test(entry)
+        if (!plain || entry.length > 120) return errorResult(`"${entry}" cannot be a rule: ${host ? 'a host name' : 'plain words, optionally ending in *'}, up to 120 characters.`)
+        const key = host ? ['tools', 'web_hosts'] : ['approvals', 'auto_allow']
+        const current = host ? config.tools.web_hosts : config.approvals.auto_allow
+        if (current.includes(entry)) return result(`${projectId} already allows ${entry}.`)
+        const written = writeSetting(config.id, (doc) => doc.setIn(key, [...current, entry]))
+        if (written !== undefined) return errorResult(`Not changed. ${written}`)
+        return result(`${projectId} now ${host ? 'fetches' : 'runs'} ${entry} unasked. Undo: /set ${projectId} ${key.join('.')} ${JSON.stringify(current)}`)
+      },
+    },
+
     // ── /template ──────────────────────────────────────────────────────────
     {
       spec: {

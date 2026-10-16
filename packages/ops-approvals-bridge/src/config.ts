@@ -21,6 +21,8 @@ export interface ApprovalsSection {
   readonly allow_run_grant: boolean
   /** The longest action rendering in a question. */
   readonly max_action_length: number
+  /** How long a scheduled run waits for an answer; 0 refuses at once. */
+  readonly unattended_timeout_s: number
 }
 
 /** The bridge's schema, including `approvals_adhoc`. */
@@ -38,6 +40,9 @@ export const approvalsSchema: Schema = z
     ask_timeout_s: z.number().min(1).default(30),
     allow_run_grant: z.boolean().default(true),
     max_action_length: z.number().min(50).default(500),
+    // Nobody watches a scheduled run: by default it is refused what it would ask for,
+    // and the chat is told, with the rule that would allow it.
+    unattended_timeout_s: z.number().min(0).default(0),
   })
   .default({})
 

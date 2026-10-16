@@ -21,7 +21,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -32,7 +32,7 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
+`/set`, `/rule`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions, the skills or the memory stays open to everyone.
 
@@ -324,6 +324,24 @@ When     Project     Action      Outcome  By
 single command or a page fetch also offers **Always allow**: the admin's press adds that
 exact command (or that site) to the project's rules, so it never asks again; see
 [approvals without the noise](daily-use.md#approvals-without-the-noise).
+
+---
+
+## `/rule <project-id> <command…> | host <host>`  *(admin)*
+
+Lets a project run a command, or fetch a site, without asking: what **Always allow**
+saves, typed by hand.
+
+```
+/rule servers docker logs *
+/rule news host news.ycombinator.com
+```
+
+A command is matched whole; a final `*` takes any further plain arguments of that one
+command ([rules](configuration.md#auto_allow--matched-on-parsed-argv)). A host covers its
+subdomains; `*.example.com` only them. Plain words only: anything with `;`, `|`, `$`,
+quotes or a `*` elsewhere is refused. The reply says how to undo it. A scheduled run that
+was blocked offers this command as a button.
 
 ---
 

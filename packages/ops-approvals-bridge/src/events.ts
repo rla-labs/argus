@@ -18,6 +18,8 @@ export type ApprovalEnding =
   | 'timeout'
   /** No channel could be reached. Denied. */
   | 'unavailable'
+  /** A scheduled run: nobody was asked, or nobody answered within `unattended_timeout_s`. Denied. */
+  | 'unattended'
   /** An internal failure. Denied. */
   | 'error'
   /** Allowed automatically: an allowlist rule or a run grant. */

@@ -23,7 +23,7 @@ interface Overview {
   projects: Array<{ id: string; description: string | null; status: string; model: string; running: boolean; waiting: boolean; dayPct: number | null; dayMicros: number; invalid: string | null }>
   spend: { dayMicros: number; dayLimitMicros: number | null; monthMicros: number; monthLimitMicros: number | null; trend: Array<{ day: string; micros: number }> }
   runs: Array<{ runId: string; who: string; model: string; steps: number; startedAt: number; micros: number }>
-  approvals: Array<{ id: string; projectId: string | null; action: string; kind: string; at: number }>
+  approvals: Array<{ id: string; projectId: string | null; action: string; kind: string; at: number; always: string | null }>
   schedules: Array<{ id: string; cron: string; who: string; what: string; enabled: boolean; next: number }>
   log: Array<{ at: number; actor: string; action: string; target: string | null }>
 }
@@ -103,7 +103,7 @@ function Icon({ view }: { view: Exclude<View, 'setup'> }): VNode {
 
 
 /** Approve / deny buttons for one pending approval. */
-function ApprovalCard({ approval, onDone }: { approval: Overview['approvals'][number]; onDone: (message?: string) => void }): VNode {
+function ApprovalCard({ approval, admin, onDone }: { approval: Overview['approvals'][number]; admin: boolean; onDone: (message?: string) => void }): VNode {
   const [busy, setBusy] = useState(false)
   const answer = async (value: string): Promise<void> => {
     setBusy(true)
@@ -118,6 +118,9 @@ function ApprovalCard({ approval, onDone }: { approval: Overview['approvals'][nu
       <button class="btn primary" type="button" disabled=${busy} onClick=${() => answer('approve')}>${t('approvals.approve')}</button>
       <button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('approve-all')}>${t('approvals.approveAll')}</button>
       <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('deny')}>${t('approvals.deny')}</button>
+      ${admin && approval.always !== null && approval.projectId !== null
+        ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('always')}>${t('approvals.always', { rule: approval.always.length > 40 ? `${approval.always.slice(0, 39)}…` : approval.always, project: approval.projectId })}</button>`
+        : null}
     </div>
   </div>`
 }
@@ -324,7 +327,7 @@ function UsersView({ version, run, outcome }: { version: number; run: (line: str
 
 // ── views ──────────────────────────────────────────────────────────────────
 
-function OverviewView({ data, refresh, run }: { data: Overview; refresh: () => void; run: (line: string) => void }): VNode {
+function OverviewView({ data, refresh, run, admin }: { data: Overview; refresh: () => void; run: (line: string) => void; admin: boolean }): VNode {
   const upcoming = data.schedules.filter((row) => row.enabled && row.next - data.now < 24 * 3_600_000).sort((a, b) => a.next - b.next)
   const [gone, setGone] = useState<string | undefined>()
   return html`
@@ -351,7 +354,7 @@ function OverviewView({ data, refresh, run }: { data: Overview; refresh: () => v
           <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl" style="color:var(--amber)">${t('approvals.pending', { count: data.approvals.length })}</span></div>
           ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
           ${data.approvals.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
-          ${data.approvals.slice(0, 2).map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
+          ${data.approvals.slice(0, 2).map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
         </section>
       </div>
     </div>
@@ -386,13 +389,13 @@ function OverviewView({ data, refresh, run }: { data: Overview; refresh: () => v
     </div>`
 }
 
-function ApprovalsView({ data, refresh }: { data: Overview; refresh: () => void }): VNode {
+function ApprovalsView({ data, refresh, admin }: { data: Overview; refresh: () => void; admin: boolean }): VNode {
   const [gone, setGone] = useState<string | undefined>()
   return html`<section class="hud">
     <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl">${t('approvals.pending', { count: data.approvals.length })}</span></div>
     ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
     ${data.approvals.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
-    ${data.approvals.map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
+    ${data.approvals.map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
   </section>`
 }
 
@@ -740,8 +743,8 @@ function App(): VNode {
         ${failure === undefined ? null : html`<div class="notice err">${t('common.error', { message: failure })}</div>`}
         ${view === 'overview' && unfinished ? html`<div class="notice" role="status">${t('setup.banner')} <a class="link" href="#setup">${t('setup.bannerLink')}</a></div>` : null}
         ${view === 'setup' && me?.role === 'admin' && settingsData !== undefined ? html`<${SetupView} data=${settingsData} me=${me} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`} version=${pageVersion} onFinish=${() => go('overview')} />` : null}
-        ${view === 'overview' ? (overviewData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${Notice} outcome=${outcome} onButton=${run} /><${OverviewView} data=${overviewData} refresh=${loadOverview} run=${run} />`) : null}
-        ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} />` : null}
+        ${view === 'overview' ? (overviewData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${Notice} outcome=${outcome} onButton=${run} /><${OverviewView} data=${overviewData} refresh=${loadOverview} run=${run} admin=${me?.role === 'admin'} />`) : null}
+        ${view === 'approvals' && overviewData !== undefined ? html`<${ApprovalsView} data=${overviewData} refresh=${loadOverview} admin=${me?.role === 'admin'} />` : null}
         ${view === 'chat' ? html`<${ChatView} version=${chatVersion} />` : null}
         ${view === 'settings' ? (settingsData === undefined ? html`<p class="empty">${t('common.loading')}</p>` : html`<${SettingsView} key=${JSON.stringify(settingsData.defaults)} data=${settingsData} run=${run} outcome=${html`<${Notice} outcome=${outcome} onButton=${run} />`}
             account=${me === undefined ? null : html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${TotpSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />`) : null}

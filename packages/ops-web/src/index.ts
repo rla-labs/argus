@@ -13,7 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { DoctorFinding } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
-import { APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
+import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { governorConfigOf } from '@argus-agent/governor'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
@@ -257,7 +257,7 @@ export async function apply(ctx: Context): Promise<void> {
       settings: () => ({ ...settings(sources), system }),
       runCommand,
       answerApproval: (approvalId, value, session) =>
-        [APPROVE, DENY, APPROVE_ALL].includes(value) &&
+        [APPROVE, DENY, APPROVE_ALL, ALWAYS].includes(value) &&
         ctx.opsChannel.answerQuestion(`approval:${approvalId}`, value, { address: { channel: 'web', chatId: session.userId }, userId: session.userId }),
       onChange: (listener) => {
         listeners.add(listener)

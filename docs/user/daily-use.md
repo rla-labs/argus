@@ -243,11 +243,12 @@ No answer before `approvals.timeout_minutes` means **no**.
 
 The question reaches the person who asked for the work on every channel they use (Telegram
 and the web chat); the first answer counts, and the other copies say who answered. Work
-asked for in a group is asked about in that group. Scheduled work is asked about to the
-admin. The answer to the work itself stays in the chat it was asked from.
+asked for in a group is asked about in that group. Scheduled work asks nobody: see
+[scheduled work](#scheduled-work). The answer to the work itself stays in the chat it was asked from.
 
-If the same harmless command keeps asking, press **Always allow**, or put it on the
-project's allowlist yourself:
+If the same harmless command keeps asking, press **Always allow** (after the second
+approval in a week the question reminds you), send `/rule <project> <command>`, or put it
+on the project's allowlist yourself:
 
 ```
 /set site-firma approvals.auto_allow [npm test, docker logs *]
@@ -311,6 +312,14 @@ A schedule fires **once** per due time, even across a restart. A run that is sti
 when the next one is due is skipped, and the skip is counted in the daily report. If a
 schedule runs on a project with a tight budget, pausing the project also skips its
 schedules. That is deliberate: you are told about it, but it does not start new work.
+
+**A scheduled run never waits for you.** Something it would have to ask about is refused
+at once, the run goes on without it, and the schedule's chat gets one message per
+action: *A scheduled run of servers was blocked: docker logs app*, with a button **Always
+allow “docker logs app” in servers** (the admin's). So after a schedule's first run you
+see exactly what it needs; press the buttons for what you trust, and the next run goes
+through. To let a scheduled run ask and wait a little instead, set
+[`approvals.unattended_timeout_s`](configuration.md#approvals).
 
 Write a scheduled prompt so it can run with nobody watching: say what to check, what
 counts as a problem, and what to report. "Report only if something is wrong" keeps the

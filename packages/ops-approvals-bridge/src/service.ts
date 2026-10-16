@@ -32,7 +32,7 @@ import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
 import { isReadOnlyCommand, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
-import { ALWAYS, APPROVE, APPROVE_ALL, DENY, alwaysButton, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, sanitize } from './question.js'
+import { ALWAYS, APPROVE, APPROVE_ALL, DENY, alwaysButton, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, ruleCommand, sanitize, type AlwaysRule } from './question.js'
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
 
@@ -92,6 +92,8 @@ export class OpsApprovalsBridge {
    * stays; clear by age if a long-lived process ever shows it growing.
    */
   private readonly gated = new Map<string, ParsedAction>()
+  /** `runId|action` already reported as blocked in a scheduled run; dropped with the run. */
+  private readonly blocked = new Set<string>()
   /** Tool names in no group, each warned about once. */
   private readonly unclassified = new Set<string>()
   /** The decision for each request, for diagnostics. */
@@ -264,6 +266,8 @@ export class OpsApprovalsBridge {
           action: base.action,
           kind: base.kind,
           decision: decision.kind,
+          // What "Always allow" would write, so the web can offer it too.
+          always: projectId === null ? null : (alwaysRuleOf(request.toolName, parsed) ?? null),
         }),
         status: 'pending',
       },
@@ -300,6 +304,13 @@ export class OpsApprovalsBridge {
     parsed: ParsedAction | undefined,
     projectId: string | null,
   ): Promise<ApprovalOutcome> {
+    // Offered only where the rule can be named exactly, and only in a project: a task has no file.
+    const always = projectId === null ? undefined : alwaysRuleOf(base.toolName, parsed)
+    const unattended = this.isUnattended(base.runId)
+    if (unattended && this.options.config.unattended_timeout_s === 0) {
+      await this.reportBlocked(base, always)
+      return toOutcome(this.finish(id, base, 'unattended', 'denied', 'a scheduled run: nobody is asked'))
+    }
     const address = this.addressFor(projectId, base.runId)
     if (address === undefined) {
       // No channel at all: deny. The plan is explicit that absence means no.
@@ -320,14 +331,14 @@ export class OpsApprovalsBridge {
       reason: request.reason,
       timeoutMinutes,
       alsoPending: Math.max(0, this.options.store.approvals.listPending().length - 1),
+      ...(always === undefined || projectId === null ? {} : { repeated: this.timesApproved(projectId, id, base.action) }),
+      ...(unattended ? { unattendedSeconds: this.options.config.unattended_timeout_s } : {}),
     })
 
     // The question id is OURS, so the answer can be attributed to the person who
     // pressed the button: the channel correlates by id, and two pending questions
     // can offer the same button value.
     const questionId = `approval:${id}`
-    // Offered only where the rule can be named exactly, and only in a project: a task has no file.
-    const always = projectId === null ? undefined : alwaysRuleOf(base.toolName, parsed)
     const buttons = this.options.config.allow_run_grant ? approvalButtons() : approvalButtons().slice(0, 2)
     let answer
     try {
@@ -335,7 +346,7 @@ export class OpsApprovalsBridge {
         address,
         question,
         always === undefined ? buttons : [...buttons, alwaysButton(always, projectId as string)],
-        timeoutMinutes * 60_000,
+        unattended ? this.options.config.unattended_timeout_s * 1000 : timeoutMinutes * 60_000,
         questionId,
       )
     } catch (error) {
@@ -344,6 +355,10 @@ export class OpsApprovalsBridge {
       return toOutcome(this.finish(id, base, 'error', 'denied', `the question could not be sent: ${detail}`))
     }
 
+    if (answer === 'timeout' && unattended) {
+      await this.reportBlocked(base, always)
+      return toOutcome(this.finish(id, base, 'unattended', 'timeout', `a scheduled run: no answer within ${this.options.config.unattended_timeout_s} second(s)`))
+    }
     if (answer === 'timeout') {
       // The default the plan requires. `expirePending` is not used here: the row is
       // decided directly, so the decision and the outcome cannot disagree.
@@ -453,6 +468,59 @@ export class OpsApprovalsBridge {
     return this.options.channel.defaultAddress()
   }
 
+  /** Whether a run was started by a schedule: nobody is watching it. */
+  private isUnattended(runId: string): boolean {
+    const inbound = this.options.store.runs.get(runId)?.inbound_id
+    return inbound !== null && inbound !== undefined && this.options.store.inbound.get(inbound)?.source === 'scheduler'
+  }
+
+  /**
+   * How many times a person approved the same action in a project in the last 7 days.
+   *
+   * @param projectId the project.
+   * @param id this request, left out.
+   * @param action the rendered action.
+   * @returns the count.
+   */
+  private timesApproved(projectId: string, id: string, action: string): number {
+    const since = this.options.now() - 7 * 86_400_000
+    return this.options.store.approvals.byProject(projectId, 200).filter((row) => {
+      if (row.id === id || row.status !== 'granted' || row.decided_by === null || (row.decided_at ?? 0) < since) return false
+      try {
+        return (JSON.parse(row.request_json) as { action?: string }).action === action
+      } catch {
+        return false
+      }
+    }).length
+  }
+
+  /**
+   * Tell the chat a scheduled run went on without an action, once per run and action,
+   * with the command that would allow it (a button when it fits one).
+   *
+   * @param base the request.
+   * @param always the rule that would allow it, when it can be named.
+   */
+  private async reportBlocked(base: { projectId: string | null; runId: string; action: string }, always: AlwaysRule | undefined): Promise<void> {
+    const key = `${base.runId}|${base.action}`
+    if (this.blocked.has(key)) return
+    this.blocked.add(key)
+    const address = this.addressFor(base.projectId, base.runId)
+    if (address === undefined || !this.options.channel.canReach(address)) return
+    const where = base.projectId === null ? 'A scheduled task' : `A scheduled run of ${base.projectId}`
+    const command = always === undefined || base.projectId === null ? undefined : ruleCommand(always, base.projectId)
+    // A button's value is cut at 64 bytes on Telegram: a cut rule would allow something else.
+    const button = command !== undefined && Buffer.byteLength(command) <= 64 ? [{ ...alwaysButton(always as AlwaysRule, base.projectId as string), value: command }] : []
+    try {
+      await this.options.channel.send(address, {
+        text: `${where} was blocked: ${base.action}\nNobody is asked during a scheduled run, so it went on without it.${command === undefined ? '' : `\nTo allow it from now on (admin): ${command}`}`,
+        ...(button.length > 0 ? { buttons: button } : {}),
+      })
+    } catch (error) {
+      this.ctx.logger('ops-approvals').warn('could not report a blocked scheduled action: %s', (error as Error).message)
+    }
+  }
+
   /** The timeout for a project. */
   private timeoutMinutesFor(projectId: string | null): number {
     if (projectId === null) return this.options.config.timeout_minutes
@@ -558,6 +626,9 @@ export class OpsApprovalsBridge {
   forgetRun(runId: string): void {
     for (const key of this.grants.keys()) {
       if (key.startsWith(`${runId}|`)) this.grants.delete(key)
+    }
+    for (const key of this.blocked) {
+      if (key.startsWith(`${runId}|`)) this.blocked.delete(key)
     }
   }
 

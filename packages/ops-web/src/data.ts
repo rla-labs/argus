@@ -77,7 +77,7 @@ export interface Overview {
     readonly trend: ReadonlyArray<{ readonly day: string; readonly micros: number }>
   }
   readonly runs: ReadonlyArray<{ readonly runId: string; readonly who: string; readonly model: string; readonly steps: number; readonly startedAt: number; readonly micros: number }>
-  readonly approvals: ReadonlyArray<{ readonly id: string; readonly projectId: string | null; readonly action: string; readonly kind: string; readonly at: number }>
+  readonly approvals: ReadonlyArray<{ readonly id: string; readonly projectId: string | null; readonly action: string; readonly kind: string; readonly at: number; readonly always: string | null }>
   readonly schedules: ReadonlyArray<{ readonly id: string; readonly cron: string; readonly who: string; readonly what: string; readonly enabled: boolean; readonly next: number }>
   readonly log: ReadonlyArray<{ readonly at: number; readonly actor: string; readonly action: string; readonly target: string | null }>
 }
@@ -172,6 +172,8 @@ export function overview(sources: DataSources): Overview {
         action: typeof request['action'] === 'string' ? request['action'] : String(request['toolName'] ?? '?'),
         kind: typeof request['kind'] === 'string' ? request['kind'] : 'other',
         at: row.created_at,
+        // What "Always allow" would add, recorded by the bridge when the rule can be named.
+        always: typeof (request['always'] as { entry?: unknown } | null)?.entry === 'string' ? (request['always'] as { entry: string }).entry : null,
       }
     }),
     schedules: (sources.schedules()?.list() ?? []).map((row) => ({
