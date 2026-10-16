@@ -19,6 +19,7 @@ import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
 import type { BudgetDefaults, ProjectConfig } from './project-config.js'
 import { loadTemplates, templateIssues } from './templates.js'
+import { Extensions } from './extensions.js'
 import './events.js'
 
 export * from './project-config.js'
@@ -29,6 +30,7 @@ export * from './service.js'
 export * from './run-trail.js'
 export * from './snapshots.js'
 export * from './templates.js'
+export * from './extensions.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -68,10 +70,19 @@ export function apply(ctx: Context): void {
   const section = ctx.opsConfigRegistry.extend('snapshots', snapshotsSchema)
   ctx.effect(() => section)
   const settings = () => snapshotsOf(ctx.opsRawConfig)
+  // `install` runs in the command sandbox, or not at all.
+  const extensions = new Extensions(join(paths.dataDirAbs, 'extensions'), async (argv, root) => {
+    const sandbox = ctx.get('sandbox' as never) as unknown as { confine(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }): Promise<{ argv: readonly string[] }> } | undefined
+    if (sandbox === undefined) throw new Error('no ctx.sandbox')
+    return (await sandbox.confine(argv, { mode: 'workspace-write', workspaceRoot: root })).argv
+  })
+  extensions.clearStaging()
+  for (const { name, problem } of extensions.verify()) ctx.logger('ops-projects').warn('extension %s is not used: %s', name, problem)
   const service = new OpsProjects(ctx, ctx.opsStore, {
     scratchDir: paths.scratchDir,
     projectsRoot,
     stateDir: paths.stateDir,
+    extensions,
     snapshots: new Snapshots(paths.stateDir, settings),
     snapshotSettings: settings,
   })

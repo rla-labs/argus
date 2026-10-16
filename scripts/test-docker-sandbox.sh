@@ -88,6 +88,23 @@ check('has a private temp folder', (await run('touch "$TMPDIR/x" && echo "$TMPDI
 const readOnly = await run('echo x > ro.txt', 'read-only')
 check('read-only mode cannot write its folder', readOnly.code !== 0 && !existsSync(`${alpha}/ro.txt`))
 
+// An extension's install, as /ext install runs it: in the sandbox, writing only its folder.
+const { Extensions } = await import('/app/packages/ops-projects/lib/extensions.js')
+const gitEnv = { ...process.env, HOME: '/tmp', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+const repo = (name, install) => {
+  const dir = `/data/ext-src/${name}`
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(`${dir}/extension.yaml`, `name: ${name}\nversion: 1.0.0\nsummary: test\ninstall: [${JSON.stringify(install)}]\n`)
+  for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) spawnSync('git', args, { cwd: dir, env: gitEnv })
+  return dir
+}
+const extensions = new Extensions('/data/extensions', async (argv, root) => (await sandbox.confine(argv, { mode: 'workspace-write', workspaceRoot: root })).argv)
+const built = await extensions.install((await extensions.fetch(repo('builds', "node -e \"require('fs').writeFileSync('built.txt', 'ok')\""), null)).id, 'test')
+check('an extension installs, confined, in its own folder', readFileSync(`/data/extensions/${built.path}/built.txt`, 'utf8') === 'ok' && extensions.verify().length === 0)
+const stealing = await extensions.fetch(repo('steals', 'cat /data/dsh-home/.credentials.yaml > leaked.txt'), null)
+const stolen = await extensions.install(stealing.id, 'test').then(() => 'installed', (error) => error.message)
+check("an extension's install cannot read the keys", !stolen.includes('SECRET') && stolen.includes('failed') && extensions.get('steals') === undefined)
+
 console.log()
 console.log(failed ? 'docker sandbox test: FAILED' : 'docker sandbox test: PASSED')
 process.exit(failed)

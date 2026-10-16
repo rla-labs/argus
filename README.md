@@ -126,8 +126,10 @@ safe by construction.
   ([how](docs/user/configuration.md#templates--your-own-kinds-of-project)).
 - **Skills per project** (done): `/skill add` gives a project a how-to its agent loads
   when needed, kept outside the folder; the agent can no longer write itself one.
-- **Next:** **extensions**: skills and MCP tools installed once by the admin, confined,
-  and enabled per project.
+- **Extensions, installed** (done): `/ext install <git-url | path>` fetches skills and MCP
+  tools pinned to a commit, shows what they bring, installs them in the sandbox, read-only,
+  and checks their files at every start ([how](docs/user/extensions.md)).
+- **Next:** enabling an extension per project, with its tools confined to the project.
 
 ## New in 0.4.0
 
@@ -291,6 +293,7 @@ The user documentation starts at [`docs/user/`](docs/user/README.md):
   and how to work well with them
 - [The web interface](docs/user/web.md): reaching it privately, signing in
 - [Chat commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
+  [Extensions](docs/user/extensions.md),
   [Backup, restore and upgrades](docs/user/backup-and-upgrade.md),
   [Security](docs/user/security.md), [Troubleshooting](docs/user/troubleshooting.md)
 

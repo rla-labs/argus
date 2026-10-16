@@ -177,6 +177,7 @@ dim "  archiving the data directory (excluding scratch/, the undo snapshots and 
 TAR_EXCLUDES=(
   --exclude='./scratch'
   --exclude='./state/*/snapshots.git'
+  --exclude='./extensions/.staging'
   --exclude='./ops.sqlite'
   --exclude='./ops.sqlite-wal'
   --exclude='./ops.sqlite-shm'

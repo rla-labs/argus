@@ -40,6 +40,7 @@ import type { ProjectConfig } from './project-config.js'
 import type { InvalidProject } from './project-loader.js'
 import { projectModelRef } from './project-config.js'
 import type { SnapshotEntry, Snapshots, SnapshotSettings } from './snapshots.js'
+import type { Extensions } from './extensions.js'
 
 /** What a delivery targets. */
 export type AgentTarget =
@@ -105,6 +106,8 @@ export class OpsProjects {
   private readonly stateDir: string | undefined
   private readonly projectsRoot: string
   private readonly snapshots: Snapshots | undefined
+  /** The installed extensions (`/ext`); undefined in a bare composition. */
+  readonly extensions: Extensions | undefined
   private readonly snapshotSettings: () => SnapshotSettings
   private gitPresent: boolean | undefined
   private disposed = false
@@ -112,7 +115,7 @@ export class OpsProjects {
   constructor(
     ctx: Context,
     store: OpsStore,
-    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings },
+    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions },
   ) {
     this.ctx = ctx
     this.store = store
@@ -120,6 +123,7 @@ export class OpsProjects {
     this.stateDir = options.stateDir
     this.projectsRoot = options.projectsRoot
     this.snapshots = options.snapshots
+    this.extensions = options.extensions
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
   }
 
@@ -302,6 +306,9 @@ export class OpsProjects {
         ? [{ ok: true, warn: true, check: `project ${id}`, detail: 'tools.web and tools.shell are both allow: a web page it reads can steer the commands it runs', fix: `if that is not intended: /set ${id} tools.shell ask` }]
         : []
     })
+    for (const { name, problem } of this.extensions?.verify() ?? []) {
+      risky.push({ ok: false, check: `extension ${name}`, detail: `${problem}; it is not used`, fix: `reinstall it: /ext update ${name}, or /ext remove ${name}` })
+    }
     for (const problem of this.templateProblems) {
       risky.push({ ok: true, warn: true, check: 'the templates', detail: problem, fix: 'fix the template file, then send /reload' })
     }

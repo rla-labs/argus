@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { layerTemplate, loadTemplates } from '@argus-agent/projects'
+import { layerTemplate, loadTemplates, parseSource, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 
 /** Return a failed parse as an error that shows the syntax. */
@@ -1767,6 +1767,115 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /ext ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'ext',
+        description: 'Extensions: skills and tools installed once (admin to change)',
+        syntax: '/ext [list] | /ext install <git-url | path>[@ref] | /ext update <name>[@ref] | /ext remove <name>',
+        detail:
+          'An extension is a git repository with an extension.yaml: MCP tools, skills and ' +
+          'instructions, installed once for every project to use. install fetches it (an ' +
+          'https:// URL, or the absolute path of a repository on the server), pinned to a commit, ' +
+          'shows what it brings and asks; its install commands then run in the command sandbox, ' +
+          'writing only in its own folder. update fetches its source again and shows what changes ' +
+          'in what it may do. Seeing them is anyone\'s; installing, updating and removing are the admin\'s.',
+        examples: ['/ext', '/ext install https://github.com/rla-labs/argus-extensions-office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
+        mutating: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const extensions = projects.extensions
+        if (extensions === undefined) return errorResult('Extensions are not available on this deployment.')
+        const [action = 'list', argument] = tokenize(input)
+        if (action === 'list') {
+          const installed = extensions.installed()
+          if (installed.length === 0) return result('No extension is installed. Install one: /ext install <git-url | path>')
+          const broken = new Map(extensions.verify().map((entry) => [entry.name, entry.problem]))
+          const lines = installed.map((entry) => {
+            const problem = broken.get(entry.name)
+            const manifest = problem === undefined ? extensions.manifestOf(entry.name) : undefined
+            const what = manifest === undefined ? `NOT USED: ${problem}` : `${manifest.summary}${describeParts(manifest).length > 0 ? `\n    ${describeParts(manifest).join('; ')}` : ''}`
+            return `${entry.name} ${entry.version} (${entry.commit.slice(0, 7)})\n    ${what}\n    from ${entry.source}${entry.ref === null ? '' : `@${entry.ref}`}`
+          })
+          return result(`Extensions:\n${lines.join('\n')}`)
+        }
+        if (!context.isAdmin) return errorResult('Only the admin can install, update or remove an extension.')
+        if (argument === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs ${action === 'install' ? 'a git URL or a path' : 'an extension\'s name'}.`)
+        try {
+          if (action === 'install' || action === 'update') {
+            let source: string
+            let ref: string | null
+            if (action === 'install') {
+              const parsed = parseSource(argument)
+              if (!parsed.ok) return errorResult(parsed.message)
+              ;({ source, ref } = parsed)
+            } else {
+              const [name = '', asked] = argument.split('@')
+              const entry = extensions.get(name)
+              if (entry === undefined) return errorResult(`No extension "${name}" is installed. /ext lists them.`)
+              source = entry.source
+              ref = asked ?? entry.ref
+            }
+            const staged = await extensions.fetch(source, ref)
+            if (action === 'update' && staged.manifest.name !== argument.split('@')[0]) {
+              extensions.discard(staged.id)
+              return errorResult(`${source} is now the extension "${staged.manifest.name}", not "${argument.split('@')[0]}".`)
+            }
+            return deps.service.requestConfirmationFor(`/ext-confirm ${staged.id}`, context, describeStaged(staged))
+          }
+          if (action === 'remove') {
+            if (extensions.get(argument) === undefined) return errorResult(`No extension "${argument}" is installed. /ext lists them.`)
+            return deps.service.requestConfirmationFor(`/ext-remove-confirm ${argument}`, context, `Remove the extension ${argument}? Its files are deleted; install it again to get it back.`)
+          }
+        } catch (err) {
+          if (err instanceof OpsError) return errorResult(err.message)
+          throw err
+        }
+        return failWith({ syntax: this.spec.syntax } as CommandSpec, `No /ext ${action}.`)
+      },
+    },
+
+    // ── /ext-confirm ───────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'ext-confirm',
+        description: 'Internal: the confirmed form of /ext install and /ext update',
+        syntax: '/ext-confirm <staging-id>',
+        detail: 'Runs the install the confirmation asked for. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        adminOnly: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const extensions = projects.extensions
+        if (extensions === undefined) return errorResult('Extensions are not available on this deployment.')
+        try {
+          const entry = await extensions.install(tokenize(input)[0] ?? '', context.userId)
+          return result(`Installed ${entry.name} ${entry.version} (${entry.commit.slice(0, 7)}) in ${join(extensions.dir, entry.path)}.`)
+        } catch (err) {
+          if (err instanceof OpsError) return errorResult(err.message)
+          throw err
+        }
+      },
+    },
+
+    // ── /ext-remove-confirm ────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'ext-remove-confirm',
+        description: 'Internal: the confirmed form of /ext remove',
+        syntax: '/ext-remove-confirm <name>',
+        detail: 'Removes the extension the confirmation asked about. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(input): CommandResult {
+        const name = tokenize(input)[0] ?? ''
+        return projects.extensions?.remove(name) === true ? result(`Removed the extension ${name}.`) : errorResult(`No extension "${name}" is installed.`)
+      },
+    },
+
     // ── /archive ───────────────────────────────────────────────────────────
     {
       spec: {
@@ -2326,6 +2435,47 @@ function settingValue(text: string): { ok: true; value: unknown } | { ok: false;
   } catch (err) {
     return { ok: false, message: (err as Error).message.split('\n')[0] ?? 'unparseable' }
   }
+}
+
+/** What an extension may do, one part each: its tools, skills, secrets, network. */
+function describeParts(manifest: ExtensionManifest): string[] {
+  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${[server.command, ...server.args].join(' ')}, access ${server.access})`)
+  return [
+    ...(servers.length > 0 ? [`tools: ${servers.join(', ')}`] : []),
+    ...(manifest.skills.length > 0 ? [`skills: ${manifest.skills.join(', ')}`] : []),
+    ...(manifest.requires.secrets.length > 0 ? [`secrets: ${manifest.requires.secrets.join(', ')}`] : []),
+    ...(manifest.requires.network ? ['needs the network'] : []),
+  ]
+}
+
+/**
+ * The question `/ext install` and `/ext update` ask: what the extension brings, and for an
+ * update, what changes in what it may do.
+ *
+ * @param staged the fetched extension.
+ * @returns the question.
+ */
+function describeStaged(staged: StagedExtension): string {
+  const { manifest, installed } = staged
+  const head = installed === undefined
+    ? `Install ${manifest.name} ${manifest.version} (${staged.commit.slice(0, 7)}) from ${staged.source}?`
+    : `Update ${manifest.name} ${installed.version} (${installed.commit.slice(0, 7)}) to ${manifest.version} (${staged.commit.slice(0, 7)})?`
+  const lines = [head, manifest.summary, '']
+  const servers = Object.entries(manifest.mcp)
+  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${[server.command, ...server.args].join(' ')}, access ${server.access}`).join('\n')}`)
+  lines.push(`Skills: ${manifest.skills.length === 0 ? 'none' : manifest.skills.join(', ')}`)
+  lines.push(`Secrets it reads: ${manifest.requires.secrets.length === 0 ? 'none' : manifest.requires.secrets.join(', ')}`)
+  lines.push(`Network: ${manifest.requires.network ? 'yes' : 'not needed'}`)
+  if (manifest.install.length > 0) lines.push(`Runs now, in the sandbox (only its own folder, with the network):\n${manifest.install.map((line) => `  ${line}`).join('\n')}`)
+  if (manifest.instructions.length > 0) lines.push(`Adds to the instructions of a project that enables it:\n  ${manifest.instructions.length > 300 ? `${manifest.instructions.slice(0, 300)}…` : manifest.instructions}`)
+  if (installed !== undefined) {
+    const was = staged.installedManifest === undefined ? [] : describeParts(staged.installedManifest)
+    const now = describeParts(manifest)
+    const gone = was.filter((part) => !now.includes(part))
+    const added = now.filter((part) => !was.includes(part))
+    lines.push('', gone.length + added.length === 0 ? 'What it may do does not change.' : `What changes:\n${[...gone.map((part) => `  - ${part}`), ...added.map((part) => `  + ${part}`)].join('\n')}`)
+  }
+  return lines.join('\n')
 }
 
 /** A skill's name, as dsh requires it: kebab-case. */

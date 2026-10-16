@@ -15,6 +15,7 @@ What is backed up, what is not, and how to restore.
    ├── state/              ← per-project memory (MEMORY.md), instructions (INSTRUCTIONS.md)
    │                          and skills (skills/)
    │   └── <id>/snapshots.git ← the /undo snapshots           ← EXCLUDED from the archive
+   ├── extensions/         ← installed extensions and lock.yaml (.staging/ EXCLUDED)
    ├── memory/             ← the global USER.md
    ├── config/             ← ops.yaml, projects/*.yaml and templates/*.yaml
    ├── dsh-home/           ← the composed profile, dsh's own state, and the keys

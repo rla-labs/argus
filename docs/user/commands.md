@@ -20,7 +20,7 @@ For which command fits which moment, read
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
-| Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathref--update-nameref--remove-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
@@ -32,7 +32,7 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/archive`, `/allow`
+`/set`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions, the skills or the memory stays open to everyone.
 
@@ -700,6 +700,28 @@ Followed by: servers, backups
 
 An edited template file reaches the projects that follow it at the next
 [`/reload`](#reload).
+
+---
+
+## `/ext [list] | install <git-url | path>[@ref] | update <name>[@ref] | remove <name>`
+
+[Extensions](extensions.md): tools, skills and instructions installed once, from a git
+repository, outside every project.
+
+```
+/ext
+/ext install https://github.com/rla-labs/argus-extensions-office@v1.2.0
+/ext install /srv/argus-agent/data/ext-src/office
+/ext update office
+/ext remove office
+```
+
+`install` fetches the repository pinned to a commit, shows what it brings (its tools and
+their access, its skills, the secrets it reads, the network, the commands it runs to
+install) and asks. Its install commands run in the command sandbox, writing only in its
+folder. `update` fetches the same source again and also shows what changes in what it
+may do. `remove` asks, then deletes its files. `/ext` lists them, with any whose files
+changed since install. Seeing them is anyone's; the rest is the admin's.
 
 ---
 

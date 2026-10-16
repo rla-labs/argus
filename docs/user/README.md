@@ -17,6 +17,7 @@ supported alternative.
 | Use the dashboard, approvals and settings in a browser | [The web interface](web.md) |
 | Look up one command | [Chat commands](commands.md) |
 | Change a setting | [Configuration](configuration.md) |
+| Add tools and skills from a git repository | [Extensions](extensions.md) |
 | Back up, restore, or upgrade | [Backup, restore and upgrades](backup-and-upgrade.md) |
 | Know what it protects you from, and what it does not | [Security](security.md) |
 | Fix something | [Troubleshooting](troubleshooting.md) |

@@ -27,6 +27,12 @@ export interface OpsErrorCodeMap {
   'PROJECT_INVALID': true
   /** Snapshots are off (`snapshots.enabled`) or git is missing, so there is nothing to undo with. */
   'UNDO_UNAVAILABLE': true
+  /** An extension's repository cannot be fetched, or its `extension.yaml` is not valid. */
+  'EXTENSION_INVALID': true
+  /** No such extension is installed, or nothing is waiting under that staging id. */
+  'EXTENSION_NOT_FOUND': true
+  /** An extension's `install` failed, or the command sandbox to run it is missing. */
+  'EXTENSION_INSTALL_FAILED': true
   /** Another Argus Agent process already uses this data directory. */
   'INSTANCE_LOCKED': true
   /** A project exists but its status forbids the operation (`paused`, `archived`). */

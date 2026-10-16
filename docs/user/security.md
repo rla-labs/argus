@@ -158,6 +158,19 @@ tools from other systems, and as trusted as the programs behind them:
 | What it returns goes to the model | A server that reads e-mail or web pages can carry instructions in its answers; keep `access: ask` for such a server unless the project's other tools are harmless. |
 | It belongs to one project | Another project, a `/task` and the front desk never see it. |
 
+## Extensions
+
+[Extensions](extensions.md) are code from other people. What stands between it and your
+data:
+
+| What | Why it matters |
+|---|---|
+| Only the admin installs one, after seeing its tools, skills, secrets and install commands | Nothing arrives unasked. |
+| It is pinned to a commit, and its files are hashed | At every start a changed file is caught; that extension is not used. |
+| Its `install` commands run in the command sandbox, writing only in its folder | A hostile package script cannot read the keys, the database or a project. It **can** use the network, and send what is in its own folder. |
+| Nothing is installed without the sandbox | No Landlock, no install. |
+| Its folder is read-only and outside every project | No agent can change it. |
+
 ## Skills
 
 A skill is a how-to an agent reads when a task calls for it; the agent sees each skill's
