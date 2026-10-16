@@ -12,6 +12,7 @@ import { mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OpsStore } from '@argus-agent/store'
 import type { BudgetDefaults, ProjectConfig } from './project-config.js'
+import type { ProjectTemplate } from './templates.js'
 import { ProjectConfigError, parseProjectYaml } from './project-config.js'
 
 /** What one sync did. */
@@ -69,6 +70,8 @@ export interface LoadOptions {
   readonly projectsRoot: string
   /** A project's budget when its file sets none: ops.yaml `budgets.default_*_usd`. */
   readonly budgetDefaults?: BudgetDefaults
+  /** The templates a project's `template:` may name. */
+  readonly templates?: ReadonlyMap<string, ProjectTemplate>
   /**
    * Whether a malformed file is fatal.
    *
@@ -121,7 +124,13 @@ export function loadProjectConfigs(options: LoadOptions): LoadResult {
     const expectedId = name.replace(/\.ya?ml$/, '')
     try {
       const text = readFileSync(path, 'utf8')
-      configs.push(parseProjectYaml(text, { sourcePath: path, projectsRoot, expectedId, ...(options.budgetDefaults === undefined ? {} : { budgetDefaults: options.budgetDefaults }) }))
+      configs.push(parseProjectYaml(text, {
+        sourcePath: path,
+        projectsRoot,
+        expectedId,
+        ...(options.budgetDefaults === undefined ? {} : { budgetDefaults: options.budgetDefaults }),
+        ...(options.templates === undefined ? {} : { templates: options.templates }),
+      }))
     } catch (error) {
       errors.push({ path, error: error as Error })
     }

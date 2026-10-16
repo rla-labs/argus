@@ -20,7 +20,7 @@ For which command fits which moment, read
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
-| Projects | [`/new`](#new-id-template-providermodel) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
@@ -623,6 +623,12 @@ you want them. Without a template the project asks before writing, running or br
 Your own templates go in `config/templates/<name>.yaml`; see
 [configuration](configuration.md#templates--your-own-kinds-of-project).
 
+**The project follows its template.** Its file says `template: research` and holds only
+its id, folder, description and model; the rest comes from the template, so a later
+improvement of the template reaches it. What you change with [`/set`](#set-project-id-key-value--admin)
+is the project's own from then on, and the template no longer touches it.
+[`/tools`](#tools-project-id) shows which values still come from the template.
+
 ```
 Created project market from the research template using deepseek/deepseek-flash.
   folder  /var/lib/argus-agent/projects/market
@@ -638,6 +644,36 @@ a template's is generic.
 The id must be lowercase letters, digits and dashes, 2 to 41 characters — the
 same rule the loader enforces, so a command can never write a file that fails the
 next reload. An existing project is refused rather than overwritten.
+
+---
+
+## `/template [name]`
+
+Lists the templates, or shows one: its settings, the instructions a new project starts
+with, and the projects that follow it.
+
+```
+/template
+/template devops
+```
+
+```
+devops: checks and runs servers and services
+
+Settings:
+  tools:
+    read: allow
+    write: ask
+  ...
+
+Instructions a new project starts with:
+- Look before you act: ...
+
+Followed by: servers, backups
+```
+
+An edited template file reaches the projects that follow it at the next
+[`/reload`](#reload).
 
 ---
 
@@ -677,6 +713,7 @@ the file stays as it was and the reply says why.
 /set site-firma tools.web_hosts [news.ycombinator.com]
 /set site-firma description The company website and its blog
 /set site-firma model openrouter/deepseek/deepseek-v4-flash
+/set site-firma template none
 ```
 
 | Key | What it changes |
@@ -691,10 +728,17 @@ the file stays as it was and the reply says why.
 | `tools.exceptions.<tool>` | One tool's access over its group's, e.g. `tools.exceptions.web_search allow` |
 | `mcp.<server>.access`, `mcp.<server>.timeout_s`, ... | An MCP server's settings; `access` applies to the next call, the rest after `/reset` |
 | `memory.user_profile`, `progress`, `preset` | The rest |
+| `template` | `none`: write the template's settings into the file and stop following it (nothing changes in how the project behaves); a name: follow that template |
 
 A misspelt key is refused with the list of the real ones. `id` and `cwd` cannot be
 changed: they are the project's identity and its folder. A number, `true`/`false`,
 `null` and a `[list]` are read as such; anything else is the text as typed.
+
+**In a project that follows a template**, a key you set is the project's own: the
+template's later changes no longer reach it, and the reply says so. A list is written
+whole and replaces the template's, so `/set servers approvals.auto_allow [docker ps]`
+also removes the template's other rules. A block such as `tools` is merged key by key:
+setting `tools.shell` leaves `tools.web` following the template.
 
 A change of `model`, `preset` or `fallback_model` reaches a running agent only after
 `/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
@@ -798,9 +842,11 @@ not see them), `deny` (refused), `ask` (you are asked) or `allow` (runs unasked)
 the sites `web_fetch` reaches unasked. A read or write outside the project's folder asks
 even under `allow`. Change a group with `/set <project> tools.<group> <value>`; the
 groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
-Then come the tools that differ from their group (`tools.exceptions`, set with
+Then come the commands that run unasked (`approvals.auto_allow`), the tools that differ from their group (`tools.exceptions`, set with
 `/set <project> tools.exceptions.<tool> <value>`), and the project's MCP servers, each
-with its `access` (`/set <project> mcp.<server>.access allow`).
+with its `access` (`/set <project> mcp.<server>.access allow`). In a project made from
+a template, a value that still comes from it is marked with the template's name:
+`shell   ask (devops)`.
 
 ```
 /tools

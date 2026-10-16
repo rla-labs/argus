@@ -17,7 +17,7 @@ import type { OpsMeter } from '@argus-agent/meter'
 import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
 import { buildHandlers } from './handlers.js'
-import { loadTemplates } from './templates.js'
+import { loadTemplates } from '@argus-agent/projects'
 import {
   errorResult,
   result,

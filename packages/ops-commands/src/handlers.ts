@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { loadTemplates } from './templates.js'
+import { layerTemplate, loadTemplates } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 
 /** Return a failed parse as an error that shows the syntax. */
@@ -145,6 +145,48 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
   async function modelRefusal(model: { provider: string; model: string }): Promise<string | undefined> {
     await meter.ensurePriced(model)
     return projects.checkModel(model)?.message
+  }
+
+  /**
+   * `/set <project> template none | <name>`: stop following a template (its settings are
+   * written into the file, so nothing changes), or follow one.
+   *
+   * @param projectId the project.
+   * @param file its file.
+   * @param name `none`, or a template's name.
+   * @returns what happened.
+   */
+  function setTemplate(projectId: string, file: string, name: string): CommandResult {
+    const loaded = projects.configOf(projectId)
+    if (loaded === undefined) return errorResult(`${projectId} does not validate; fix its file first, then /reload.`)
+    const { templates } = loadTemplates(options.templatesDir)
+    const original = readFileSync(file, 'utf8')
+    const doc = parseDocument(original)
+    let done: string
+    if (name === 'none') {
+      const template = loaded.template === null ? undefined : templates.get(loaded.template)
+      if (template === undefined) return errorResult(`${projectId} follows no template.`)
+      const layered = layerTemplate(template.settings, doc.toJS() as Record<string, unknown>)
+      for (const key of Object.keys(template.settings)) doc.set(key, layered[key])
+      doc.delete('template')
+      done = `${projectId} no longer follows the ${template.name} template: its settings are written in ${file}.`
+    } else {
+      if (!templates.has(name)) return errorResult(`No template "${name}". Templates: ${[...templates.keys()].join(', ')}.`)
+      doc.set('template', name)
+      done = `${projectId} follows the ${name} template: what its file does not set comes from it.`
+    }
+    writeFileSync(file, doc.toString())
+    let why: string | undefined
+    try {
+      options.reloadProjects()
+      why = projects.invalidOf(projectId)?.reason
+    } catch (err) {
+      why = (err as Error).message
+    }
+    if (why === undefined) return result(done)
+    writeFileSync(file, original)
+    options.reloadProjects()
+    return errorResult(`Not changed. ${why}`)
   }
 
   /** `project:<id>` as a scope string. */
@@ -1286,7 +1328,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'so the project is usable at once. The id must be lowercase letters, digits and ' +
           'dashes. A template (site, research, reports, devops, or one in config/templates/) ' +
           'sets the tools, the commands that run unasked, and the first instructions; send ' +
-          '/new alone to list them. Without a model it uses tasks.model. A model whose ' +
+          '/new alone to list them. The project follows its template: what you change with /set ' +
+          'is its own, the rest follows later changes to the template. Without a model it uses tasks.model. A model whose ' +
           'provider has no API key or no price is refused.',
         examples: ['/new', '/new site-firma site', '/new market research zai/glm-5.3-flash', '/new notes openrouter/deepseek/deepseek-v4-flash'],
         mutating: true,
@@ -1340,10 +1383,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             toYaml({
               id,
               cwd,
+              // The template's settings stay in the template, so a later improvement reaches the project.
+              ...(template === undefined ? {} : { template: template.name }),
               description: template?.description || `Created by ${context.userId} with /new.`,
               provider: parsed.value.provider,
               model: parsed.value.model,
-              ...template?.settings,
             }),
           )
           options.reloadProjects()
@@ -1384,12 +1428,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_per_run, ' +
           'approvals.mode, approvals.auto_allow, description, fallback_model, preset, progress. ' +
           '`model` takes provider/model. id and cwd cannot be changed. A list is written ' +
-          '[like, this]. Only the admin can run it.',
+          '[like, this], whole: it replaces the template\'s. `template none` writes the ' +
+          'template\'s settings into the file and stops following it; `template <name>` follows ' +
+          'one. Only the admin can run it.',
         examples: [
           '/set site-firma budget.day_usd 5',
           '/set site-firma approvals.auto_allow [git status, npm test]',
           '/set site-firma model openrouter/deepseek/deepseek-v4-flash',
           '/set site-firma description The company website and its blog',
+          '/set site-firma template none',
         ],
         mutating: true,
         adminOnly: true,
@@ -1406,6 +1453,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (path[0] === 'id' || path[0] === 'cwd') {
           return errorResult(`${key} cannot be changed: it is the project's identity and its folder.`)
         }
+        if (key === 'template') return setTemplate(projectId, file, text)
         // A loaded project has every key, defaults included, so a key it lacks is a
         // typo that the file would keep and nothing would read.
         const loaded = projects.configOf(projectId)
@@ -1450,7 +1498,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const later = ['model', 'provider', 'preset', 'fallback_model'].includes(path[0] ?? '') || (path[0] === 'mcp' && path[2] !== 'access')
           ? ' The running agent keeps the old one until /reset.'
           : ''
-        return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${later}`)
+        const template = loaded?.template ?? null
+        const own = template !== null && loaded!.fromTemplate.some((inherited) => inherited === key || inherited.startsWith(`${key}.`))
+          ? ` It is the project's own now: changes to the ${template} template no longer reach it.`
+          : ''
+        return result(`${projectId}: ${key} = ${shown}. Written to ${file}.${own}${later}`)
       },
     },
 
@@ -1606,22 +1658,63 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (projectId === undefined) {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
         }
-        const tools = projects.configOf(projectId)?.tools
-        if (tools === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
+        const config = projects.configOf(projectId)
+        if (config === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
+        const { tools } = config
+        // What the project's file does not set, it takes from its template, and follows its changes.
+        const inherited = new Set(config.fromTemplate)
+        const from = (key: string): string => (inherited.has(key) ? ` (${config.template})` : '')
+        const width = config.template === null ? 6 : 9 + config.template.length
         const rows = (Object.keys(TOOL_GROUPS) as Array<keyof typeof TOOL_GROUPS>).map(
-          (group) => `${group.padEnd(7)} ${tools[group].padEnd(6)} ${TOOL_GROUPS[group].join(', ')}`,
+          (group) => `${group.padEnd(7)} ${(tools[group] + from(`tools.${group}`)).padEnd(width)} ${TOOL_GROUPS[group].join(', ')}`,
         )
-        rows.push(`${'other'.padEnd(7)} ${tools.other.padEnd(6)} any tool not listed above`)
-        const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}` : ''
-        const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}`)
+        rows.push(`${'other'.padEnd(7)} ${(tools.other + from('tools.other')).padEnd(width)} any tool not listed above`)
+        const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}${from('tools.web_hosts')}` : ''
+        const commands = config.approvals.auto_allow.length > 0 ? `\nCommands unasked: ${config.approvals.auto_allow.join(', ')}${from('approvals.auto_allow')}` : ''
+        const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
-        const servers = Object.entries(projects.configOf(projectId)?.mcp ?? {}).map(
-          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.command ?? server.url ?? ''}`,
+        const servers = Object.entries(config.mcp).map(
+          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.command ?? server.url ?? ''}${from(`mcp.${name}.access`)}`,
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
+        const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}${named}${mcp}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${mcp}${follows}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
+        )
+      },
+    },
+
+    // ── /template ──────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'template',
+        description: 'Show the project templates, or one',
+        syntax: '/template [name]',
+        detail:
+          'Without a name, lists the templates: the built-in ones and those in config/templates/. ' +
+          'With one, shows its settings, the instructions a new project starts with, and the ' +
+          'projects that follow it. A project follows its template in what its own file does ' +
+          'not set, so an edit to a template file reaches them at /reload.',
+        examples: ['/template', '/template devops'],
+        mutating: false,
+      },
+      run(input): CommandResult {
+        const name = tokenize(input)[0]?.toLowerCase()
+        const { templates, problems } = loadTemplates(options.templatesDir)
+        if (name === undefined) {
+          const list = [...templates.values()].map((template) => `  ${template.name.padEnd(10)} ${template.summary}`)
+          const broken = problems.length > 0 ? `\n\nNot loaded:\n${problems.map((line) => `  ${line}`).join('\n')}` : ''
+          return result(`Templates:\n${list.join('\n')}${broken}\n\nOne in full: /template <name>. A project from one: /new <id> <name>.`)
+        }
+        const template = templates.get(name)
+        if (template === undefined) return errorResult(`No template "${name}". Templates: ${[...templates.keys()].join(', ')}.`)
+        const following = projects.configuredIds().filter((id) => projects.configOf(id)?.template === template.name)
+        const settings = Object.keys(template.settings).length === 0 ? '  (the defaults)\n' : `${toYaml(template.settings).trimEnd().replace(/^/gm, '  ')}\n`
+        return result(
+          `${template.name}: ${template.summary}\n\nSettings:\n${settings}\n` +
+            `Instructions a new project starts with:\n${template.instructions || '(none)'}\n\n` +
+            `Followed by: ${following.length > 0 ? following.join(', ') : 'no project'}`,
         )
       },
     },
@@ -2191,7 +2284,7 @@ function settingValue(text: string): { ok: true; value: unknown } | { ok: false;
 function settingKeys(config: unknown, prefix = ''): string[] {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) return [prefix]
   return Object.entries(config as Record<string, unknown>)
-    .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath'].includes(key))
+    .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath', 'template', 'fromTemplate'].includes(key))
     .flatMap(([key, value]) => settingKeys(value, prefix.length === 0 ? key : `${prefix}.${key}`))
 }
 

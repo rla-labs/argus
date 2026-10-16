@@ -1243,6 +1243,45 @@ describe('/new', () => {
     expect(list).toContain('bad.yaml: cannot set model')
     await run(booted, '/new store shop')
     expect(booted.projects.configOf('store')?.tools.web).toBe('deny')
+    // argus doctor names the template that did not load.
+    expect(booted.projects.doctor().map((finding) => finding.detail)).toContain('templates/bad.yaml: cannot set model: /new decides them')
+  }, 30_000)
+
+  it('writes only the template\'s name; the project follows the template until /set makes a value its own', async () => {
+    const booted = await bootCommands()
+    instructionsIn(booted)
+    const templates = join(booted.dataDir, 'config', 'templates')
+    const file = join(booted.dataDir, 'config', 'projects', 'box.yaml')
+    mkdirSync(templates, { recursive: true })
+    writeFileSync(join(templates, 'ops.yaml'), 'summary: servers\ntools:\n  shell: ask\napprovals:\n  auto_allow: [docker ps, uptime]\n')
+    await run(booted, '/new box ops')
+    const text = readFileSync(file, 'utf8')
+    expect(text).toContain('template: ops')
+    expect(text).not.toContain('auto_allow')
+
+    // A later change of the template reaches it.
+    writeFileSync(join(templates, 'ops.yaml'), 'summary: servers\ntools:\n  shell: ask\napprovals:\n  auto_allow: [docker ps, uptime, df -h]\n')
+    await run(booted, '/reload')
+    expect(booted.projects.configOf('box')?.approvals.auto_allow).toEqual(['docker ps', 'uptime', 'df -h'])
+    const tools = await run(booted, '/tools box')
+    expect(tools).toContain('shell   ask (ops)')
+    expect(tools).toContain('Commands unasked: docker ps, uptime, df -h (ops)')
+    expect(await run(booted, '/template ops')).toMatch(/auto_allow:[\s\S]*Followed by: box/)
+
+    // The project's own list replaces the template's: a rule can be removed.
+    expect(await run(booted, '/set box approvals.auto_allow [docker ps]')).toContain('changes to the ops template no longer reach it')
+    expect(booted.projects.configOf('box')?.approvals.auto_allow).toEqual(['docker ps'])
+    expect(await run(booted, '/tools box')).toContain('Commands unasked: docker ps\n')
+
+    // Detached, it keeps the same settings, written in its file.
+    const before = booted.projects.configOf('box')
+    expect(await run(booted, '/set box template none')).toContain('no longer follows the ops template')
+    const after = booted.projects.configOf('box')
+    expect(after?.template).toBeNull()
+    expect(after?.tools).toEqual(before?.tools)
+    expect(after?.approvals).toEqual(before?.approvals)
+    expect(readFileSync(file, 'utf8')).not.toContain('template:')
+    expect(await run(booted, '/set box template nope')).toContain('No template "nope"')
   }, 30_000)
 
   it('creates a project that is usable at once', async () => {

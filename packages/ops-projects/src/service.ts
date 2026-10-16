@@ -97,6 +97,7 @@ export class OpsProjects {
   private readonly modelChecks = new Set<ModelCheck>()
   /** Re-run the load, so a project is re-checked when a check comes or goes. */
   private reloader: (() => void) | undefined
+  private templateProblems: readonly string[] = []
   private readonly store: OpsStore
   private readonly ctx: Context
   private readonly scratchDir: string
@@ -298,6 +299,9 @@ export class OpsProjects {
         ? [{ ok: true, warn: true, check: `project ${id}`, detail: 'tools.web and tools.shell are both allow: a web page it reads can steer the commands it runs', fix: `if that is not intended: /set ${id} tools.shell ask` }]
         : []
     })
+    for (const problem of this.templateProblems) {
+      risky.push({ ok: true, warn: true, check: 'the templates', detail: problem, fix: 'fix the template file, then send /reload' })
+    }
     if (this.snapshotSettings().enabled && !this.undoAvailable()) {
       risky.push({ ok: true, warn: true, check: 'undo', detail: 'git is not installed: no snapshots are taken, /undo is off', fix: 'apt-get install git (or your distribution\'s equivalent)' })
     }
@@ -319,6 +323,11 @@ export class OpsProjects {
   /** Re-check every project's model: something a check reads changed (a price arrived). */
   recheckModels(): void {
     this.reload()
+  }
+
+  /** @internal Set by the plugin at each load: what is wrong with the templates. */
+  setTemplateProblems(problems: readonly string[]): void {
+    this.templateProblems = problems
   }
 
   /** @internal Set by the plugin: how to reload the project files. */

@@ -1,17 +1,19 @@
 // == ARGUS AGENT PROJECT ==
 /**
- * `@argus-agent/commands/templates` — the kinds of project `/new` can start from.
+ * `@argus-agent/projects/templates` — the kinds of project `/new` can start from.
  *
  * A template is the settings a kind of work needs (its tools, its unasked commands,
  * its limits) and the instructions its agent starts with. Four are built in; a
  * `<config_dir>/templates/<name>.yaml` adds one, or replaces a built-in of the
- * same name.
+ * same name. A project file that says `template: <name>` follows it: what the file
+ * does not set comes from the template, so a later change to the template reaches it.
  *
- * @module @argus-agent/commands/templates
+ * @module @argus-agent/projects/templates
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
+import { leafPaths, parseProjectConfig } from './project-config.js'
 
 /** A kind of project. */
 export interface ProjectTemplate {
@@ -142,4 +144,30 @@ function templateOf(name: string, document: unknown): ProjectTemplate {
     instructions: text(instructions),
     settings,
   }
+}
+
+/**
+ * `argus doctor`: the templates whose settings a project could not hold.
+ *
+ * @param templates the loaded templates.
+ * @returns one line per problem: a value that does not validate, a key no project has.
+ */
+export function templateIssues(templates: ReadonlyMap<string, ProjectTemplate>): string[] {
+  const check = (settings: Readonly<Record<string, unknown>>, name: string) =>
+    parseProjectConfig(
+      { id: 'template-check', cwd: '/projects/template-check', provider: 'p', model: 'm', ...settings },
+      { sourcePath: `template ${name}`, projectsRoot: '/projects' },
+    )
+  // Every key a project has, from one with the defaults: the schema keeps a key it does not know.
+  const known = new Set(leafPaths(check({}, 'defaults')))
+  return [...templates.values()].flatMap((template) => {
+    try {
+      check(template.settings, template.name)
+    } catch (error) {
+      return [(error as Error).message]
+    }
+    // A tool's exception and an MCP server are named freely; any other unknown key is a typo.
+    const unknown = leafPaths(template.settings).filter((path) => !/^(mcp|tools\.exceptions)\./.test(path) && !known.has(path))
+    return unknown.length === 0 ? [] : [`template ${template.name}: not a project setting: ${unknown.join(', ')}`]
+  })
 }

@@ -102,6 +102,11 @@ it its first **instructions**. Without one, the project asks before writing, run
 command or using the web. Your own templates go in `config/templates/`
 ([configuration](configuration.md#templates--your-own-kinds-of-project)).
 
+The project keeps following its template: improve the template, and every project made
+from it improves at the next `/reload`. Whatever you change in one project with `/set`
+is that project's own and stays as you set it; `/tools <project>` shows which values
+still come from the template, and `/template <name>` shows a template.
+
 Then, two sentences make the difference:
 
 - **A description**, for routing: `/set market description Market research for the

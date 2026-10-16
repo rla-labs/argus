@@ -13,6 +13,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
+import type { ProjectTemplate } from './templates.js'
 
 /**
  * A project slug.
@@ -82,6 +83,10 @@ export interface ProjectConfig {
   /** The MCP servers its agent connects to, by name. */
   readonly mcp: Readonly<Record<string, McpServer>>
   readonly progress: boolean
+  /** The template it follows (`template:`), or null for a fully explicit project. */
+  readonly template: string | null
+  /** The dotted keys whose value comes from the template: the project's file does not set them. */
+  readonly fromTemplate: readonly string[]
   /** The file this was read from. */
   readonly sourcePath: string
 }
@@ -246,6 +251,57 @@ export class ProjectConfigError extends OpsError {
   }
 }
 
+/** Whether a parsed YAML value is a mapping. */
+function isMapping(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * A project file over its template: mappings merge key by key; anything else the file
+ * sets, a list included, replaces the template's.
+ *
+ * @param base the template's settings.
+ * @param over the project file.
+ * @returns the effective document.
+ */
+export function layerTemplate(base: Readonly<Record<string, unknown>>, over: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const layered: Record<string, unknown> = { ...base }
+  for (const [key, value] of Object.entries(over)) {
+    const under = layered[key]
+    layered[key] = isMapping(under) && isMapping(value) ? layerTemplate(under, value) : value
+  }
+  return layered
+}
+
+/**
+ * Every leaf of a document, dotted: a list is a leaf.
+ *
+ * @param value the document.
+ * @param prefix the path so far.
+ * @returns the dotted paths.
+ */
+export function leafPaths(value: unknown, prefix = ''): string[] {
+  if (!isMapping(value)) return prefix.length > 0 ? [prefix] : []
+  return Object.entries(value).flatMap(([key, child]) => leafPaths(child, prefix.length === 0 ? key : `${prefix}.${key}`))
+}
+
+/**
+ * The template's leaves the project file does not set.
+ *
+ * @param base the template's settings.
+ * @param own the project file.
+ * @param prefix the path so far.
+ * @returns the dotted paths.
+ */
+function inherited(base: Readonly<Record<string, unknown>>, own: Readonly<Record<string, unknown>>, prefix = ''): string[] {
+  return Object.entries(base).flatMap(([key, value]) => {
+    const path = prefix.length === 0 ? key : `${prefix}.${key}`
+    if (!(key in own)) return leafPaths(value, path)
+    const mine = own[key]
+    return isMapping(value) && isMapping(mine) ? inherited(value, mine, path) : []
+  })
+}
+
 /**
  * Treat an empty string as absent.
  * @param value the parsed value.
@@ -314,15 +370,30 @@ export function defaultProjectCwd(projectId: string, projectsRoot: string): stri
  */
 export function parseProjectConfig(
   raw: unknown,
-  options: { sourcePath: string; projectsRoot: string; expectedId?: string; budgetDefaults?: BudgetDefaults },
+  options: ParseOptions,
 ): ProjectConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new ProjectConfigError(`${options.sourcePath} must contain a mapping at the top level`, [
       { path: '(root)', message: `found ${Array.isArray(raw) ? 'a list' : typeof raw}` },
     ])
   }
-  const document = raw as Record<string, unknown>
   const issues: ProjectConfigIssue[] = []
+  // A project made from a template holds only what it changed; the rest is the template's.
+  const { template: named, ...own } = raw as Record<string, unknown>
+  let document: Record<string, unknown> = own
+  let template: string | null = null
+  let fromTemplate: string[] = []
+  if (named !== undefined && named !== null) {
+    const found = typeof named === 'string' ? options.templates?.get(named) : undefined
+    if (found === undefined) {
+      const names = [...(options.templates?.keys() ?? [])].join(', ')
+      issues.push({ path: 'template', message: `no template ${JSON.stringify(named)}${names.length > 0 ? `; there are ${names}` : ''}` })
+    } else {
+      document = layerTemplate(found.settings, own)
+      template = found.name
+      fromTemplate = inherited(found.settings, own)
+    }
+  }
 
   const id = document['id']
   if (typeof id !== 'string' || !PROJECT_ID_PATTERN.test(id)) {
@@ -438,6 +509,8 @@ export function parseProjectConfig(
       ]),
     ),
     progress: validated['progress'] as boolean,
+    template,
+    fromTemplate,
     sourcePath: options.sourcePath,
   }
 }
@@ -446,6 +519,16 @@ export function parseProjectConfig(
 export interface BudgetDefaults {
   readonly day_usd: number
   readonly month_usd: number
+}
+
+/** How to read one project file. */
+export interface ParseOptions {
+  readonly sourcePath: string
+  readonly projectsRoot: string
+  readonly expectedId?: string
+  readonly budgetDefaults?: BudgetDefaults
+  /** The templates a `template:` key may name. */
+  readonly templates?: ReadonlyMap<string, ProjectTemplate>
 }
 
 /**
@@ -458,7 +541,7 @@ export interface BudgetDefaults {
  */
 export function parseProjectYaml(
   text: string,
-  options: { sourcePath: string; projectsRoot: string; expectedId?: string; budgetDefaults?: BudgetDefaults },
+  options: ParseOptions,
 ): ProjectConfig {
   let parsed: unknown
   try {

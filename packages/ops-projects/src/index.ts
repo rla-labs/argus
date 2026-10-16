@@ -18,6 +18,7 @@ import { Snapshots, snapshotsOf, snapshotsSchema } from './snapshots.js'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
 import type { BudgetDefaults, ProjectConfig } from './project-config.js'
+import { loadTemplates, templateIssues } from './templates.js'
 import './events.js'
 
 export * from './project-config.js'
@@ -27,6 +28,7 @@ export * from './capability.js'
 export * from './service.js'
 export * from './run-trail.js'
 export * from './snapshots.js'
+export * from './templates.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -172,7 +174,10 @@ export interface ReloadReport extends SyncReport {
 function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
   const paths = pathsOf(ctx.opsRawConfig)
   const projectsRoot = join(paths.dataDirAbs, 'projects')
-  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig) })
+  // Read on every load, so an edited template reaches the projects that follow it at /reload.
+  const { templates, problems } = loadTemplates(join(paths.configDirAbs, 'templates'))
+  service.setTemplateProblems([...problems.map((line) => `templates/${line}`), ...templateIssues(templates)])
+  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig), templates })
   // A file that validates can still name a model that cannot run: no key, no price.
   const failing = files.configs.flatMap((config) => {
     const models: Array<[string, ModelRef | undefined]> = [

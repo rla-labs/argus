@@ -121,8 +121,11 @@ safe by construction.
   longer ask, `docker logs *` allows any arguments of one command, `*.example.com` its
   subdomains only ([rules](docs/user/configuration.md#auto_allow--matched-on-parsed-argv)).
 - **`git` and `uv` in the image** (done), for snapshots and for Python MCP servers.
-- **Next:** layered templates, and **extensions**: skills and MCP tools installed once
-  by the admin, confined, and enabled per project.
+- **Layered templates** (done): a project made from a template follows it, so improving
+  the template improves its projects; what a project changes with `/set` stays its own
+  ([how](docs/user/configuration.md#templates--your-own-kinds-of-project)).
+- **Next:** **extensions**: skills and MCP tools installed once by the admin, confined,
+  and enabled per project.
 
 ## New in 0.4.0
 

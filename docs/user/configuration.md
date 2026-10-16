@@ -624,10 +624,40 @@ approvals:
   auto_allow: ["ls"]
 ```
 
-Everything other than `summary`, `description` and `instructions` is copied into the
-new project's file, so any project setting can be in a template. `id`, `cwd`,
-`provider` and `model` cannot: `/new` sets them. A template that does not read is
-named in `/new`'s list, and a project it would make invalid is reported by `/new`.
+Everything other than `summary`, `description` and `instructions` is a project
+setting, so any project setting can be in a template. `id`, `cwd`, `provider` and
+`model` cannot: `/new` sets them. The description and the instructions are written once,
+when the project is made; the instructions are the project's own from then on.
+
+**A project made from a template follows it.** `/new` writes only this:
+
+```yaml
+id: shop-ro
+cwd: /var/lib/argus-agent/projects/shop-ro
+template: shop
+description: Runs the online shop: products, orders and the newsletter.
+provider: deepseek
+model: deepseek-flash
+```
+
+Its settings are the template's, with whatever its own file sets over them:
+
+- a block (`tools`, `limits`, `budget`, `approvals`, `mcp`, …) is merged key by key, so
+  `tools: {shell: allow}` changes the shell and leaves the other groups to the template;
+- anything else the file sets replaces the template's value, a list included: a
+  project's own `approvals.auto_allow` or `tools.web_hosts` is the whole list, so it can
+  drop a rule the template has.
+
+What the file does not set follows later edits of the template, at the next `/reload`.
+[`/tools`](commands.md#tools-project-id) marks the values that come from the template,
+and [`/template <name>`](commands.md#template-name) shows a template and the projects
+that follow it. `/set <id> template none` writes the template's settings into the file
+and ends the link; the project behaves exactly as before.
+
+A project whose `template:` names no template does not load (it is ignored, not
+archived, until fixed). `argus doctor` names a template file that does not read, a value
+no project could hold, and a key that is not a project setting. Projects made before
+0.5.0 have no `template:` key and hold all their settings: they are unchanged.
 
 ### Precedence
 
