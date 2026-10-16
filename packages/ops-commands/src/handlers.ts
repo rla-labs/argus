@@ -1753,9 +1753,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`,
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
+        const { limits } = config
+        const limitsLine = `\nLimits per run: ${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}, ${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}, stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${mcp}${follows}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
         )
       },

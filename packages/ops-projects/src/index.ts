@@ -17,7 +17,7 @@ import { OpsProjects } from './service.js'
 import { Snapshots, snapshotsOf, snapshotsSchema } from './snapshots.js'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
-import type { BudgetDefaults, ProjectConfig } from './project-config.js'
+import type { BudgetDefaults, ProjectConfig, ProjectLimits } from './project-config.js'
 import { loadTemplates, templateIssues } from './templates.js'
 import { Extensions } from './extensions.js'
 import './events.js'
@@ -189,7 +189,7 @@ function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
   // Read on every load, so an edited template reaches the projects that follow it at /reload.
   const { templates, problems } = loadTemplates(join(paths.configDirAbs, 'templates'))
   service.setTemplateProblems([...problems.map((line) => `templates/${line}`), ...templateIssues(templates)])
-  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig), templates, ...(service.extensions === undefined ? {} : { extensions: service.extensions.usable() }) })
+  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig), limitsDefaults: limitsDefaultsOf(ctx.opsRawConfig), templates, ...(service.extensions === undefined ? {} : { extensions: service.extensions.usable() }) })
   // A file that validates can still name a model that cannot run: no key, no price.
   const failing = files.configs.flatMap((config) => {
     const models: Array<[string, ModelRef | undefined]> = [
@@ -240,6 +240,14 @@ function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
  * file sets none. Absent keys keep the project schema's own defaults ($3 / $40, the same
  * as the governor's).
  */
+function limitsDefaultsOf(raw: Record<string, unknown>): Partial<ProjectLimits> {
+  const limits = raw['limits']
+  if (limits === null || typeof limits !== 'object') return {}
+  return Object.fromEntries(
+    Object.entries(limits as Record<string, unknown>).filter(([key, value]) => ['max_steps_per_run', 'max_wallclock_min', 'loop_repeat_threshold', 'max_tokens_per_request'].includes(key) && typeof value === 'number'),
+  )
+}
+
 function budgetDefaultsOf(raw: Record<string, unknown>): BudgetDefaults | undefined {
   const budgets = raw['budgets']
   if (budgets === null || typeof budgets !== 'object') return undefined

@@ -113,7 +113,8 @@ concurrency:
 # ── limits ──────────────────────────────────────────────────────────────────────
 #
 # Per-run ceilings. They exist so a runaway loop stops rather than spending until
-# someone notices.
+# someone notices. A project's own limits (or its template's) win over these.
+# max_subagent_depth has no effect: dsh nests subagents one level deep for every agent.
 
 limits:
   max_steps_per_run: 60

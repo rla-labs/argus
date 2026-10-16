@@ -11,7 +11,7 @@
 import { mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OpsStore } from '@argus-agent/store'
-import type { BudgetDefaults, ProjectConfig } from './project-config.js'
+import type { BudgetDefaults, ProjectConfig, ProjectLimits } from './project-config.js'
 import type { ProjectTemplate } from './templates.js'
 import type { UsableExtension } from './extensions.js'
 import { ProjectConfigError, parseProjectYaml } from './project-config.js'
@@ -71,6 +71,8 @@ export interface LoadOptions {
   readonly projectsRoot: string
   /** A project's budget when its file sets none: ops.yaml `budgets.default_*_usd`. */
   readonly budgetDefaults?: BudgetDefaults
+  /** A project's per-run limits when its file sets none: ops.yaml `limits`. */
+  readonly limitsDefaults?: Partial<ProjectLimits>
   /** The templates a project's `template:` may name. */
   readonly templates?: ReadonlyMap<string, ProjectTemplate>
   /** The extensions a project's `extensions:` may name. */
@@ -132,6 +134,7 @@ export function loadProjectConfigs(options: LoadOptions): LoadResult {
         projectsRoot,
         expectedId,
         ...(options.budgetDefaults === undefined ? {} : { budgetDefaults: options.budgetDefaults }),
+        ...(options.limitsDefaults === undefined ? {} : { limitsDefaults: options.limitsDefaults }),
         ...(options.templates === undefined ? {} : { templates: options.templates }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
       }))

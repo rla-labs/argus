@@ -530,10 +530,16 @@ export function parseProjectConfig(
   // A budget the file does not set comes from ops.yaml (`budgets.default_*_usd`), which is
   // what the installer asks for as "per project"; the file's own value always wins.
   const budget = document['budget']
-  const withDefaults =
+  const budgeted =
     options.budgetDefaults === undefined || (budget !== undefined && (budget === null || typeof budget !== 'object'))
       ? document
       : { ...document, budget: { ...options.budgetDefaults, ...(budget as Record<string, unknown> | undefined) } }
+  // The same for the per-run limits: ops.yaml `limits`, under the file's (or its template's).
+  const limits = document['limits']
+  const withDefaults =
+    options.limitsDefaults === undefined || (limits !== undefined && !isMapping(limits))
+      ? budgeted
+      : { ...budgeted, limits: { ...options.limitsDefaults, ...(limits as Record<string, unknown> | undefined) } }
 
   let validated: Record<string, unknown>
   let mcp: Record<string, Record<string, unknown>>
@@ -596,6 +602,8 @@ export interface ParseOptions {
   readonly projectsRoot: string
   readonly expectedId?: string
   readonly budgetDefaults?: BudgetDefaults
+  /** ops.yaml `limits`: a project's per-run limits where its file and template set none. */
+  readonly limitsDefaults?: Partial<ProjectLimits>
   /** The templates a `template:` key may name. */
   readonly templates?: ReadonlyMap<string, ProjectTemplate>
   /** The extensions an `extensions:` key may name: installed and intact. */

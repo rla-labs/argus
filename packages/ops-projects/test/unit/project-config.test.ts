@@ -354,3 +354,14 @@ describe('the budget defaults from ops.yaml', () => {
     expect(parse().budget).toMatchObject({ day_usd: 3, month_usd: 40 })
   })
 })
+
+describe('the limits defaults from ops.yaml', () => {
+  const limitsDefaults = { max_steps_per_run: 100, loop_repeat_threshold: 7 }
+  const withDefaults = (overrides: Record<string, unknown> = {}) =>
+    parseProjectConfig(doc(overrides), { sourcePath: SOURCE, projectsRoot: ROOT, expectedId: 'site', limitsDefaults })
+
+  it('apply where the file sets no limit, key by key, and never over the file', () => {
+    expect(withDefaults().limits).toMatchObject({ max_steps_per_run: 100, loop_repeat_threshold: 7, max_wallclock_min: 45 })
+    expect(withDefaults({ limits: { max_steps_per_run: 80 } }).limits).toMatchObject({ max_steps_per_run: 80, loop_repeat_threshold: 7 })
+  })
+})

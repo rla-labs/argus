@@ -150,15 +150,20 @@ trying to find out what is wrong is the last to be served.
 
 ## `limits`
 
-Per-run ceilings, overridable per project.
+Per-run ceilings. These are the defaults: a project's own `limits:` (or its template's)
+wins, key by key, and `/tools <project>` shows the ones in force. A task and the front
+desk use these.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `max_steps_per_run` | int | `60` | Tool-call steps before a run stops. |
 | `max_wallclock_min` | int | `45` | Wall-clock minutes before a run stops. |
 | `max_tokens_per_request` | int | `8000` | Tokens in one model request. |
-| `max_subagent_depth` | int | `1` | How deep subagents may nest. |
-| `loop_repeat_threshold` | int | `5` | Identical tool calls before a loop is declared. |
+| `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
+| `loop_repeat_threshold` | int | `5` | Identical tool calls in a row before a loop is declared. |
+
+Before 0.6, a project's own `limits:` were read but not applied (except
+`max_tokens_per_request`): `ops.yaml`'s applied to every project. They apply now.
 
 These exist so a runaway loop **stops** rather than spending until someone notices.
 

@@ -688,6 +688,29 @@ describe('per-run limits', () => {
     expect(booted.store.runs.recent(1)[0]?.status).toBe('limit_stopped')
   }, 45_000)
 
+  it('applies the project\'s own step limit over ops.yaml\'s', async () => {
+    const booted = await bootGovernor({
+      projects: { alpha: { limits: { max_steps_per_run: 3 } } },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_steps_per_run: 50\n  loop_repeat_threshold: 99\n${PRICING}`,
+      script: [{ text: 'x', usage: { inputTokens: 10, outputTokens: 0 } }],
+      repeatLast: true,
+    })
+    expect(booted.projects.configOf('alpha')?.limits).toMatchObject({ max_steps_per_run: 3, loop_repeat_threshold: 99 })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    agent.ctx.tools.register(defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }))
+    let counter = 0
+    booted.boot.fake!.setScript(
+      Array.from({ length: 40 }, () => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: ++counter }), id: `c${counter}` }] })),
+    )
+    const details: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'step limit')
+    // FACT: before 0.6 the project's 3 was ignored and ops.yaml's 50 applied.
+    expect(details).toContain('the run reached its 3-step limit')
+  }, 45_000)
+
   it('stops a run that exceeds its wall-clock limit', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },

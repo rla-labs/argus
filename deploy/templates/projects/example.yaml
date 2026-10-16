@@ -32,7 +32,8 @@ preset: null
 
 # ── limits ──────────────────────────────────────────────────────────────────────
 #
-# Per-run ceilings, overriding the deployment's.
+# Per-run ceilings, overriding the deployment's (ops.yaml limits), key by key.
+# max_subagent_depth has no effect: tools.agents decides whether subagents are used.
 
 limits:
   max_steps_per_run: 60

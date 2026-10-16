@@ -36,6 +36,7 @@ import {
   toolCallKey,
   type RejectCode,
   type StopReason,
+  type StepLimits,
 } from './decide.js'
 import {
   applicableScopes,
@@ -838,6 +839,22 @@ export class OpsGovernor {
   // ── step enforcement ─────────────────────────────────────────────────────
 
   /**
+   * A run's limits: its project's (which already fall back to ops.yaml `limits`), or
+   * ops.yaml's for a task and the front desk.
+   *
+   * @param owner the run's owner.
+   * @returns the limits a step is checked against.
+   */
+  private stepLimitsOf(owner: Owner): StepLimits {
+    const limits = (owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.limits : undefined) ?? this.options.config.limits
+    return {
+      maxSteps: limits.max_steps_per_run,
+      maxWallclockMs: limits.max_wallclock_min * 60_000,
+      loopRepeatThreshold: limits.loop_repeat_threshold,
+    }
+  }
+
+  /**
    * Decide whether a step may proceed. Called from the `agent/pre-step` listener.
    *
    * @param sessionId the session whose step is starting.
@@ -861,11 +878,7 @@ export class OpsGovernor {
           ? {}
           : { budgetScope: this.worstBudgetScope(track.owner) }),
       },
-      {
-        maxSteps: this.options.config.limits.max_steps_per_run,
-        maxWallclockMs: this.options.config.limits.max_wallclock_min * 60_000,
-        loopRepeatThreshold: this.options.config.limits.loop_repeat_threshold,
-      },
+      this.stepLimitsOf(track.owner),
       this.options.now(),
     )
 
@@ -1017,7 +1030,7 @@ export class OpsGovernor {
     track.lastToolCall = { name, args }
     // Keep only what the threshold needs: the history is a loop detector, not a
     // log, and an unbounded array would grow with the run.
-    const keep = this.options.config.limits.loop_repeat_threshold
+    const keep = this.stepLimitsOf(track.owner).loopRepeatThreshold
     if (track.recentToolCalls.length > keep) {
       track.recentToolCalls.splice(0, track.recentToolCalls.length - keep)
     }
