@@ -189,7 +189,7 @@ function loadAndSync(ctx: Context, service: OpsProjects): ReloadReport {
   // Read on every load, so an edited template reaches the projects that follow it at /reload.
   const { templates, problems } = loadTemplates(join(paths.configDirAbs, 'templates'))
   service.setTemplateProblems([...problems.map((line) => `templates/${line}`), ...templateIssues(templates)])
-  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig), templates })
+  const files = loadProjectConfigs({ projectsDir: paths.projectsDir, projectsRoot, strict: false, budgetDefaults: budgetDefaultsOf(ctx.opsRawConfig), templates, ...(service.extensions === undefined ? {} : { extensions: service.extensions.usable() }) })
   // A file that validates can still name a model that cannot run: no key, no price.
   const failing = files.configs.flatMap((config) => {
     const models: Array<[string, ModelRef | undefined]> = [

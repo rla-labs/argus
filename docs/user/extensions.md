@@ -5,8 +5,6 @@ An extension adds to what Argus's agents can do: **tools** (an MCP server), **sk
 The admin installs it once, from a git repository, and it is kept outside every
 project, where no agent can change it.
 
-> **0.5.0, in progress.** Installing, updating and removing work. Enabling an extension
-> in a project, which starts its tools and adds its skills there, is the next step.
 
 ## Installing one
 
@@ -55,6 +53,32 @@ Argus then:
 changed is not used, and `argus doctor` says so; `/ext update <name>` or `/ext remove
 <name>` fixes it.
 
+## Enabling one in a project
+
+```
+/ext enable site-firma office
+/ext disable site-firma office
+```
+
+`enable` adds it to the project's [`extensions`](configuration.md#extensions--tools-skills-and-instructions-installed-once)
+list. From the project's next conversation (`/reset <project>` starts one now) its agent
+has:
+
+- **its tools.** Each MCP server is started **confined**: it reads the system and the
+  extension's folder, reads and writes the project's folder (its working directory) and a
+  private temp folder, and nothing else; not the database, the keys, the conversations or
+  another project. Its environment holds the secrets it declares, set with `/key`.
+  Without the command sandbox it does not start. Its access is the one you saw at
+  install; `/tools <project>` shows it, and `/set <project> mcp.<server>.access ask`
+  changes it for that project.
+- **its skills**, beside the project's own (`/skill`).
+- **its instructions**, in its prompt after the project's.
+
+`disable` takes all three away, and the project's settings for its servers with them.
+Other projects, `/task` and the front desk never see an extension they did not enable.
+Enabling and disabling are the admin's; on the web, a project's page has an
+**Extensions** section that does the same.
+
 ## Updating and removing
 
 ```
@@ -62,6 +86,9 @@ changed is not used, and `argus doctor` says so; `/ext update <name>` or `/ext r
 /ext update office       # its source again, same ref (or: office@v1.3.0)
 /ext remove office
 ```
+
+An update or a removal reaches the projects at their next conversation; a project that
+still lists a removed extension runs without it, and `argus doctor` says so.
 
 `update` fetches the same source and shows the same question, plus **what changes in what
 it may do**: a tool added, an access widened, a new secret, the network. Nothing changes
@@ -82,8 +109,8 @@ install:                        # run once, at install, in the sandbox, with net
 skills: [skills/office-docs]    # folders inside the repository, each with a SKILL.md
 mcp:
   office:
-    command: node               # a local program, run from the extension's folder
-    args: [server/index.js]
+    command: node               # a local program, run in the project's folder
+    args: ["${EXTENSION_DIR}/server/index.js"]   # ${EXTENSION_DIR}: the installed extension
     access: allow               # the access the admin is asked to accept: deny, ask, allow
     timeout_s: 60
 requires:
@@ -98,8 +125,8 @@ instructions: |                 # added to a project's instructions while it is 
 | `name` | 2 to 41 characters; also its folder |
 | `version` | Any short version string; shown and recorded |
 | `install` | Shell lines, run in order in the extension's folder; one that fails stops the install. Ten minutes in all. |
-| `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run |
-| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `timeout_s` |
+| `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run. A skill is read through its parent folder, so keep an extension's skills side by side (`skills/<name>/`). |
+| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. |
 | `requires.secrets` | `NAMES_LIKE_THIS` |
 | `instructions` | Up to 8 KB |
 

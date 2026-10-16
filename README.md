@@ -129,7 +129,10 @@ safe by construction.
 - **Extensions, installed** (done): `/ext install <git-url | path>` fetches skills and MCP
   tools pinned to a commit, shows what they bring, installs them in the sandbox, read-only,
   and checks their files at every start ([how](docs/user/extensions.md)).
-- **Next:** enabling an extension per project, with its tools confined to the project.
+- **Extensions in projects** (done): `/ext enable <project> <name>` gives a project an
+  extension's tools, run confined to its folder, its skills and its instructions.
+- **Next:** suggested rules after an approval, schedules checked before they run, then the
+  built-in templates re-tuned and a first-party `office` extension.
 
 ## New in 0.4.0
 

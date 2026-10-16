@@ -14,6 +14,7 @@ import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 import type { ProjectTemplate } from './templates.js'
+import { EXTENSION_NAME, type UsableExtension } from './extensions.js'
 
 /**
  * A project slug.
@@ -83,12 +84,25 @@ export interface ProjectConfig {
   /** The MCP servers its agent connects to, by name. */
   readonly mcp: Readonly<Record<string, McpServer>>
   readonly progress: boolean
+  /** The enabled extensions it can use (`extensions:`): their skills and instructions. Their servers are in `mcp`. */
+  readonly extensions: readonly ProjectExtension[]
+  /** Extensions `extensions:` names that are not installed, or whose files changed: left out. */
+  readonly extensionsMissing: readonly string[]
   /** The template it follows (`template:`), or null for a fully explicit project. */
   readonly template: string | null
   /** The dotted keys whose value comes from the template: the project's file does not set them. */
   readonly fromTemplate: readonly string[]
   /** The file this was read from. */
   readonly sourcePath: string
+}
+
+/** An enabled extension, as its project's agent uses it. */
+export interface ProjectExtension {
+  readonly name: string
+  readonly dir: string
+  /** Its skill folders, absolute. */
+  readonly skills: readonly string[]
+  readonly instructions: string
 }
 
 /** One group's access, with its default. */
@@ -395,6 +409,54 @@ export function parseProjectConfig(
     }
   }
 
+  // The enabled extensions' servers are a layer under the file's own `mcp:` block, which
+  // may set only their access and timeout.
+  const enabled: ProjectExtension[] = []
+  const extensionsMissing: string[] = []
+  const brought = new Map<string, UsableExtension>()
+  const listed = document['extensions']
+  if (listed !== undefined && listed !== null) {
+    if (!Array.isArray(listed) || listed.some((name) => typeof name !== 'string' || !EXTENSION_NAME.test(name))) {
+      issues.push({ path: 'extensions', message: 'a list of extension names ([office, notes])' })
+    } else {
+      const ownMcp = isMapping(document['mcp']) ? document['mcp'] : {}
+      const servers: Record<string, unknown> = {}
+      for (const name of new Set(listed as string[])) {
+        const extension = options.extensions?.get(name)
+        if (extension === undefined) {
+          extensionsMissing.push(name)
+          continue
+        }
+        const { dir, manifest } = extension
+        const at = (text: string): string => text.replaceAll('${EXTENSION_DIR}', dir)
+        enabled.push({ name, dir, skills: manifest.skills.map((path) => join(dir, path)), instructions: manifest.instructions })
+        for (const [server, spec] of Object.entries(manifest.mcp)) {
+          const mine = ownMcp[server]
+          if (brought.has(server)) issues.push({ path: `mcp.${server}`, message: `both ${brought.get(server)!.name} and ${name} bring a server named ${server}` })
+          else if (isMapping(mine) && Object.keys(mine).some((key) => key !== 'access' && key !== 'timeout_s')) {
+            issues.push({ path: `mcp.${server}`, message: `comes from the extension ${name}: only its access and timeout_s can be set here` })
+          }
+          brought.set(server, extension)
+          servers[server] = {
+            command: at(spec.command),
+            args: spec.args.map(at),
+            // The secrets it declares, filled from /key like any `${NAME}`.
+            env: { ...Object.fromEntries(manifest.requires.secrets.map((secret) => [secret, `\${${secret}}`])), ...Object.fromEntries(Object.entries(spec.env).map(([key, value]) => [key, at(value)])) },
+            access: spec.access,
+            timeout_s: spec.timeout_s,
+          }
+        }
+      }
+      if (Object.keys(servers).length > 0) document = { ...document, mcp: layerTemplate(servers, ownMcp) }
+    }
+  }
+  // An access set for an extension's server that is no longer enabled (removed, or
+  // disabled by hand) has nothing to apply to: dropped, so the project still loads.
+  if (isMapping(document['mcp'])) {
+    const orphans = Object.entries(document['mcp']).filter(([name, server]) => !brought.has(name) && isMapping(server) && Object.keys(server).length > 0 && Object.keys(server).every((key) => key === 'access' || key === 'timeout_s'))
+    if (orphans.length > 0) document = { ...document, mcp: Object.fromEntries(Object.entries(document['mcp']).filter(([name]) => !orphans.some(([orphan]) => orphan === name))) }
+  }
+
   const id = document['id']
   if (typeof id !== 'string' || !PROJECT_ID_PATTERN.test(id)) {
     issues.push({
@@ -505,10 +567,17 @@ export function parseProjectConfig(
     mcp: Object.fromEntries(
       Object.entries(mcp).map(([name, server]) => [
         name,
-        { ...server, command: nonEmpty(server['command']), url: nonEmpty(server['url']) } as McpServer,
+        {
+          ...server,
+          command: nonEmpty(server['command']),
+          url: nonEmpty(server['url']),
+          ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir } } : {}),
+        } as McpServer,
       ]),
     ),
     progress: validated['progress'] as boolean,
+    extensions: enabled,
+    extensionsMissing,
     template,
     fromTemplate,
     sourcePath: options.sourcePath,
@@ -529,6 +598,8 @@ export interface ParseOptions {
   readonly budgetDefaults?: BudgetDefaults
   /** The templates a `template:` key may name. */
   readonly templates?: ReadonlyMap<string, ProjectTemplate>
+  /** The extensions an `extensions:` key may name: installed and intact. */
+  readonly extensions?: ReadonlyMap<string, UsableExtension>
 }
 
 /**

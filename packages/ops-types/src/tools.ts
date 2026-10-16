@@ -156,6 +156,8 @@ export interface McpServer {
   /** Whether its tools run unasked, ask, or are refused. */
   readonly access: Exclude<ToolAccess, 'off'>
   readonly timeout_s: number
+  /** Set when an enabled extension brings it: it then runs confined, reading that folder. */
+  readonly extension?: { readonly name: string; readonly dir: string }
 }
 
 /** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */

@@ -156,6 +156,7 @@ export function ProjectView({ id, version, run, outcome, can }: PageProps & { id
           <a class="link" href="#schedules">${t('schedule.manage')}</a></section>`}
     <${Instructions} project=${project} run=${run} can=${can} />
     <${Undo} id=${id} version=${version} run=${run} can=${can} />
+    <${Extensions} id=${id} version=${version} run=${run} can=${can} />
     <${Memory} id=${id} version=${version} run=${run} can=${can} />
     <${Files} id=${id} version=${version} run=${run} />`
 }
@@ -240,6 +241,24 @@ function Undo({ id, version, run, can }: { id: string; version: number; run: (li
       ? html`<form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); run(`/undo ${id}${which.trim().length === 0 ? '' : ` ${which.trim()}`}`) }}>
           <${Field} id="u-which" label=${t('projects.undoWhich')} value=${which} onInput=${setWhich} placeholder="1" grow="0 1 120px" />
           <button class="btn ghost" type="submit">${t('projects.undoRun')}</button>
+        </form>`
+      : null}
+  </section>`
+}
+
+function Extensions({ id, version, run, can }: { id: string; version: number; run: (line: string) => void; can: (name: string) => boolean }): VNode {
+  const [name, setName] = useState('')
+  const act = (action: string) => {
+    if (name.trim().length > 0) run(`/ext ${action} ${id} ${name.trim()}`)
+  }
+  return html`<section class="hud">
+    <h2>${t('projects.extensions')}</h2>
+    <${CommandText} line="/ext" version=${version} />
+    ${can('ext-confirm')
+      ? html`<form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); act('enable') }}>
+          <${Field} id="x-name" label=${t('projects.extensionName')} value=${name} onInput=${setName} placeholder="office" grow="1 1 200px" />
+          <button class="btn ghost" type="submit">${t('projects.extensionEnable')}</button>
+          <button class="btn ghost" type="button" onClick=${() => act('disable')}>${t('projects.extensionDisable')}</button>
         </form>`
       : null}
   </section>`

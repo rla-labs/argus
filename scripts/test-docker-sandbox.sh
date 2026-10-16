@@ -105,6 +105,11 @@ const stealing = await extensions.fetch(repo('steals', 'cat /data/dsh-home/.cred
 const stolen = await extensions.install(stealing.id, 'test').then(() => 'installed', (error) => error.message)
 check("an extension's install cannot read the keys", !stolen.includes('SECRET') && stolen.includes('failed') && extensions.get('steals') === undefined)
 
+// An extension's MCP server, as a project runs it: reading its own install, working in the project.
+const server = await sandbox.confineReading(['node', '-e', "const fs = require('fs'); fs.writeFileSync('from-server.txt', fs.readFileSync(process.argv[1] + '/built.txt')); try { fs.readFileSync('/data/ops.sqlite'); console.log('READ') } catch { console.log('refused') }", `/data/extensions/${built.path}`], { mode: 'workspace-write', workspaceRoot: alpha }, [`/data/extensions/${built.path}`])
+const served = spawnSync(server.argv[0], server.argv.slice(1), { cwd: alpha, encoding: 'utf8' })
+check("an extension's server reads its install, writes the project, cannot read the database", served.stdout.includes('refused') && readFileSync(`${alpha}/from-server.txt`, 'utf8') === 'ok')
+
 console.log()
 console.log(failed ? 'docker sandbox test: FAILED' : 'docker sandbox test: PASSED')
 process.exit(failed)

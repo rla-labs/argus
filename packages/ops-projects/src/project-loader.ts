@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import type { OpsStore } from '@argus-agent/store'
 import type { BudgetDefaults, ProjectConfig } from './project-config.js'
 import type { ProjectTemplate } from './templates.js'
+import type { UsableExtension } from './extensions.js'
 import { ProjectConfigError, parseProjectYaml } from './project-config.js'
 
 /** What one sync did. */
@@ -72,6 +73,8 @@ export interface LoadOptions {
   readonly budgetDefaults?: BudgetDefaults
   /** The templates a project's `template:` may name. */
   readonly templates?: ReadonlyMap<string, ProjectTemplate>
+  /** The extensions a project's `extensions:` may name. */
+  readonly extensions?: ReadonlyMap<string, UsableExtension>
   /**
    * Whether a malformed file is fatal.
    *
@@ -130,6 +133,7 @@ export function loadProjectConfigs(options: LoadOptions): LoadResult {
         expectedId,
         ...(options.budgetDefaults === undefined ? {} : { budgetDefaults: options.budgetDefaults }),
         ...(options.templates === undefined ? {} : { templates: options.templates }),
+        ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
       }))
     } catch (error) {
       errors.push({ path, error: error as Error })

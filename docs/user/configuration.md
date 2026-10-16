@@ -590,7 +590,21 @@ front desk have no MCP servers.
 A local server runs as Argus's own user, outside the shell sandbox, and is given only
 the variables in its `env` (dsh removes every inherited variable that looks like a key,
 token or password). Install only servers you would install on the machine yourself.
-In the Docker image `npx` is available; Python servers (`uvx`) are not.
+In the Docker image `npx` and `uvx` are available.
+
+### `extensions` — tools, skills and instructions installed once
+
+```yaml
+extensions: [office]
+```
+
+Each name is an [extension](extensions.md) the admin installed. The project's agent gets
+its MCP servers (run confined to the project's folder), its skills and its instructions.
+`/ext enable <project> <name>` and `/ext disable` write this list. Its servers appear under
+`mcp` with the extension's access; the project's file may set only their `access` and
+`timeout_s` (`/set <project> mcp.office.access ask`). A name that is not installed, or
+whose files changed, is left out, and `argus doctor` says so; the project still runs.
+A template may list extensions too.
 
 ### `INSTRUCTIONS.md` — what the project is told
 

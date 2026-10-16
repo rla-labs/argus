@@ -1660,7 +1660,7 @@ describe('/ext', () => {
   const manifest = 'name: notes\nversion: 1.0.0\nsummary: Note tools\nmcp:\n  notes: {command: node, args: [server.js], access: ask}\nrequires: {secrets: [NOTES_KEY]}\n'
 
   it('shows what an extension brings, installs it on confirmation, shows an update\'s changes, removes it; the admin\'s only', async () => {
-    const booted = await bootCommands()
+    const booted = await bootCommands({ projects: { alpha: {} } })
     const repo = extensionRepo(manifest)
     expect(await run(booted, '/ext')).toContain('No extension is installed')
     expect(await run(booted, `/ext install ${repo.path}`, contextFor({ isAdmin: false }))).toContain('Only the admin')
@@ -1670,6 +1670,19 @@ describe('/ext', () => {
     expect(asked.text).toMatch(/Install notes 1\.0\.0 \(\w{7}\) from[\s\S]*notes: node server\.js, access ask[\s\S]*Secrets it reads: NOTES_KEY/)
     expect((await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())).text).toContain('Installed notes 1.0.0')
     expect(await run(booted, '/ext')).toMatch(/notes 1\.0\.0[\s\S]*Note tools[\s\S]*tools: notes \(node server\.js, access ask\)/)
+
+    // Enabled in a project: its server is the project's, its access changeable there only.
+    expect(await run(booted, '/ext enable alpha notes', contextFor({ isAdmin: false }))).toContain('Only the admin')
+    expect(await run(booted, '/ext enable alpha notes')).toContain('alpha uses notes')
+    expect(booted.projects.configOf('alpha')?.extensions.map((extension) => extension.name)).toEqual(['notes'])
+    expect(await run(booted, '/tools alpha')).toContain('notes        ask    the notes extension, confined')
+    expect(await run(booted, '/ext')).toContain('used by alpha')
+    await run(booted, '/set alpha mcp.notes.access allow')
+    expect(booted.projects.configOf('alpha')?.mcp['notes']).toMatchObject({ access: 'allow', extension: { name: 'notes' } })
+    expect(await run(booted, '/ext enable alpha nope')).toContain('No usable extension "nope"')
+    expect(await run(booted, '/ext disable alpha notes')).toContain('alpha no longer uses notes')
+    expect(booted.projects.configOf('alpha')?.mcp['notes']).toBeUndefined()
+    expect(readFileSync(booted.projects.configOf('alpha')!.sourcePath, 'utf8')).not.toContain('notes:')
 
     repo.commit(manifest.replace('1.0.0', '1.1.0').replace('access: ask', 'access: allow'))
     const update = await booted.commands.runCommand('/ext update notes', contextFor())

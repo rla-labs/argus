@@ -170,6 +170,8 @@ data:
 | Its `install` commands run in the command sandbox, writing only in its folder | A hostile package script cannot read the keys, the database or a project. It **can** use the network, and send what is in its own folder. |
 | Nothing is installed without the sandbox | No Landlock, no install. |
 | Its folder is read-only and outside every project | No agent can change it. |
+| Its MCP server runs in the command sandbox: the system and its folder to read, the project's folder to work in | It cannot read the database, the keys, the conversations or another project. Without the sandbox it does not start. It has the network. |
+| A project gets it only when the admin enables it there | Every other project, `/task` and the front desk never see it. |
 
 ## Skills
 

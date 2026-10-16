@@ -86,6 +86,14 @@ export interface StagedExtension {
   readonly installedManifest: ExtensionManifest | undefined
 }
 
+/** An installed, intact extension, as a project uses it. */
+export interface UsableExtension {
+  readonly name: string
+  /** Its installed folder, absolute. */
+  readonly dir: string
+  readonly manifest: ExtensionManifest
+}
+
 /** Wrap a command so it runs confined to one folder (the command sandbox). */
 export type Confine = (argv: readonly string[], root: string) => Promise<readonly string[]>
 
@@ -214,6 +222,8 @@ export function treeHash(root: string): string {
  */
 export class Extensions {
   private readonly staged = new Map<string, StagedExtension & { readonly at: number }>()
+  /** The names whose tree failed the last `verify()`: not used until reinstalled. */
+  private broken = new Set<string>()
 
   /**
    * @param dir the extensions directory (`<data_dir>/extensions`).
@@ -253,11 +263,33 @@ export class Extensions {
    * @returns the name and the problem of each.
    */
   verify(): Array<{ name: string; problem: string }> {
-    return this.installed().flatMap((entry) => {
+    const problems = this.installed().flatMap((entry) => {
       const path = join(this.dir, entry.path)
       if (!existsSync(path)) return [{ name: entry.name, problem: `its folder ${path} is missing` }]
       return treeHash(path) === entry.sha256 ? [] : [{ name: entry.name, problem: `its files in ${path} changed since it was installed` }]
     })
+    this.broken = new Set(problems.map((problem) => problem.name))
+    return problems
+  }
+
+  /**
+   * The extensions a project may use: installed, and intact at the last `verify()`
+   * (the plugin runs one at start; an install or update clears its name).
+   *
+   * @returns them by name.
+   */
+  usable(): Map<string, UsableExtension> {
+    const usable = new Map<string, UsableExtension>()
+    for (const entry of this.installed()) {
+      if (this.broken.has(entry.name)) continue
+      try {
+        const manifest = this.manifestOf(entry.name)
+        if (manifest !== undefined) usable.set(entry.name, { name: entry.name, dir: join(this.dir, entry.path), manifest })
+      } catch {
+        // A manifest that no longer reads is a tree that changed; verify() names it.
+      }
+    }
+    return usable
   }
 
   /**
@@ -344,6 +376,7 @@ export class Extensions {
         installed_at: this.now(),
       }
       const previous = this.get(manifest.name)
+      this.broken.delete(manifest.name)
       this.writeLock([...this.installed().filter((other) => other.name !== manifest.name), entry])
       if (previous !== undefined && previous.path !== path) removeTree(join(this.dir, previous.path))
       return entry

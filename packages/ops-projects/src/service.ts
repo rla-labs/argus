@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { hiddenTools, taskToolPolicy, type DoctorFinding, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
@@ -80,6 +80,9 @@ export interface DeliverResult {
   readonly queued: boolean
   readonly sessionId: string
 }
+
+/** Where the extensions' section goes in the system prompt: after the project's instructions (10_100). */
+const EXTENSIONS_ORDER = 10_200
 
 /**
  * The projects service.
@@ -309,6 +312,10 @@ export class OpsProjects {
     for (const { name, problem } of this.extensions?.verify() ?? []) {
       risky.push({ ok: false, check: `extension ${name}`, detail: `${problem}; it is not used`, fix: `reinstall it: /ext update ${name}, or /ext remove ${name}` })
     }
+    for (const id of this.configuredIds()) {
+      const missing = this.configOf(id)?.extensionsMissing ?? []
+      if (missing.length > 0) risky.push({ ok: true, warn: true, check: `project ${id}`, detail: `extensions not installed, or changed, left out: ${missing.join(', ')}`, fix: '/ext lists what is installed; /ext install or /ext update it, or /ext disable it here' })
+    }
     for (const problem of this.templateProblems) {
       risky.push({ ok: true, warn: true, check: 'the templates', detail: problem, fix: 'fix the template file, then send /reload' })
     }
@@ -474,7 +481,8 @@ export class OpsProjects {
       }
       hideTools(agentCtx, hiddenTools(config.tools))
       await this.mountMcp(agentCtx, config)
-      await this.mountSkills(agentCtx, config.id)
+      await this.mountSkills(agentCtx, config)
+      this.addExtensionInstructions(agentCtx, config)
       // The agent's context goes with the event: a listener that must register a
       // scoped tool needs it, and the session id alone is not enough to reach the
       // scope. Emitted here because this callback is the last moment before the
@@ -507,16 +515,35 @@ export class OpsProjects {
    * @param agentCtx the agent's context, inside its `setup`.
    * @param projectId the project.
    */
-  private async mountSkills(agentCtx: Context, projectId: string): Promise<void> {
-    const dir = this.skillsDirOf(projectId)
+  private async mountSkills(agentCtx: Context, config: ProjectConfig): Promise<void> {
+    const own = this.skillsDirOf(config.id)
     // Without the skill registry (a bare composition) there is nothing to register with.
-    if (dir === undefined || this.ctx.get('skills' as never) === undefined) return
+    if (this.ctx.get('skills' as never) === undefined) return
+    // A root holds skill folders, and an extension names the folders: each is read through
+    // its parent (a skill beside it in the same parent is read too).
+    const dirs = [...(own === undefined ? [] : [own]), ...new Set(config.extensions.flatMap((extension) => extension.skills.map((path) => dirname(path))))]
+    if (dirs.length === 0) return
     try {
       // Watched, so a skill /skill adds or removes reaches the agent at its next step.
-      await agentCtx.plugin(skillFilesystem, { providerName: `argus-${projectId}`, includeDefaultRoots: false, customSkillDirs: [dir], watch: true })
+      await agentCtx.plugin(skillFilesystem, { providerName: `argus-${config.id}`, includeDefaultRoots: false, customSkillDirs: dirs, watch: true })
     } catch (error) {
-      this.ctx.logger('ops-projects').warn('project %s: its skills are left out: %s', projectId, (error as Error).message)
+      this.ctx.logger('ops-projects').warn('project %s: its skills are left out: %s', config.id, (error as Error).message)
     }
+  }
+
+  /**
+   * The enabled extensions' instructions, in the agent's system prompt after the
+   * project's own.
+   *
+   * @param agentCtx the agent's context, inside its `setup`.
+   * @param config the project.
+   */
+  private addExtensionInstructions(agentCtx: Context, config: ProjectConfig): void {
+    const parts = config.extensions.filter((extension) => extension.instructions.length > 0)
+    const prompt = (agentCtx as { systemPrompt?: { section(section: { name: string; order: number; interpolate: boolean; text: () => string }): () => void } }).systemPrompt
+    if (parts.length === 0 || prompt === undefined) return
+    const text = `# Extensions\n\nTools and skills the admin installed for this project, and how to use them.\n\n${parts.map((extension) => `## ${extension.name}\n\n${extension.instructions}`).join('\n\n')}`
+    agentCtx.effect(() => prompt.section({ name: 'argus:extensions', order: EXTENSIONS_ORDER, interpolate: false, text: () => text }))
   }
 
   /**
@@ -534,15 +561,34 @@ export class OpsProjects {
     for (const [name, server] of Object.entries(config.mcp)) {
       try {
         const common = { serverName: name, toolCallTimeoutMs: server.timeout_s * 1000 }
+        // An extension's server is someone else's code: it runs confined, reading its own
+        // install and working in the project's folder, or it does not run.
+        const argv = server.command === null ? [] : server.extension === undefined ? [server.command, ...server.args] : await this.confineServer(config, server.extension.dir, [server.command, ...server.args])
         const options =
           server.command !== null
-            ? { ...common, transport: 'stdio' as const, command: server.command, args: [...server.args], env: await this.expand(server.env), cwd: config.cwd }
+            ? { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env: await this.expand(server.env), cwd: config.cwd }
             : { ...common, transport: 'streamable-http' as const, url: server.url ?? '', headers: await this.expand(server.headers) }
         await agentCtx.plugin(mcpClient, options)
       } catch (error) {
         logger.warn('project %s: MCP server %s is left out: %s', config.id, name, (error as Error).message)
       }
     }
+  }
+
+  /**
+   * Wrap an extension's server in the command sandbox: read the system and its folder,
+   * read and write the project's folder.
+   *
+   * @param config the project.
+   * @param dir the extension's folder.
+   * @param argv the server's command.
+   * @returns the wrapped command.
+   * @throws {Error} without the sandbox: the server is then left out.
+   */
+  private async confineServer(config: ProjectConfig, dir: string, argv: readonly string[]): Promise<readonly string[]> {
+    const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
+    if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available, and an extension runs only confined')
+    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, [dir])).argv
   }
 
   /**

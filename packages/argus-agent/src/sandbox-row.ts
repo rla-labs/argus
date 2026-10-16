@@ -41,12 +41,12 @@ const SYSTEM_ROOTS = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/lib
  * @param node the Node install's prefix, so `node` and `npm` run.
  * @returns the launcher's grants.
  */
-export function grantsFor(policy: SandboxPolicy, own: string, node: string): { readOnly: string[]; readWrite: string[] } {
+export function grantsFor(policy: SandboxPolicy, own: string, node: string, reads: readonly string[] = []): { readOnly: string[]; readWrite: string[] } {
   // A root that does not exist makes the launcher refuse to start.
   const present = (paths: string[]): string[] => [...new Set(paths)].filter((path) => existsSync(path))
   const writable = policy.mode === 'workspace-write'
   return {
-    readOnly: present([...SYSTEM_ROOTS, node, ...(writable ? [] : [policy.workspaceRoot, own])]),
+    readOnly: present([...SYSTEM_ROOTS, node, ...reads, ...(writable ? [] : [policy.workspaceRoot, own])]),
     readWrite: present(['/dev/null', ...(writable ? [policy.workspaceRoot, own] : [])]),
   }
 }
@@ -81,6 +81,20 @@ export default class ArgusSandbox extends SandboxProvider {
 
   async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
     signal?.throwIfAborted()
+    return this.confineReading(argv, policy, [])
+  }
+
+  /**
+   * `confine`, with more folders to read: an extension's MCP server reads its own
+   * install, and works in the project's folder.
+   *
+   * @param argv the command.
+   * @param policy the mode and the workspace (read and write under `workspace-write`).
+   * @param reads more folders it may read.
+   * @returns the wrapped command.
+   * @throws {SandboxUnavailableError} without Landlock.
+   */
+  async confineReading(argv: readonly string[], policy: SandboxPolicy, reads: readonly string[]): Promise<ConfinedArgv> {
     const enforcement = this.enforcement()
     if (enforcement === 'unusable') throw new SandboxUnavailableError(policy.mode, 'Landlock is not available on this kernel')
     const resolved = { ...policy, workspaceRoot: canonicalPath(policy.workspaceRoot) }
@@ -89,7 +103,7 @@ export default class ArgusSandbox extends SandboxProvider {
     const own = join(tmpdir(), 'argus-sandbox', createHash('sha256').update(resolved.workspaceRoot).digest('hex').slice(0, 16))
     mkdirSync(own, { recursive: true, mode: 0o700 })
     return {
-      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node)), '--', 'env', `HOME=${own}`, `TMPDIR=${own}`, ...argv],
+      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, reads)), '--', 'env', `HOME=${own}`, `TMPDIR=${own}`, ...argv],
       enforcement,
       denialSignatures: DENIAL_SIGNATURES,
       runnerFailureRules: RUNNER_FAILURE_RULES,

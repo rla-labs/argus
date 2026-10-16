@@ -148,6 +148,34 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
   }
 
   /**
+   * Write one setting into a project's file and reload; put the file back if the project
+   * no longer validates.
+   *
+   * @param projectId the project.
+   * @param change what to change in the parsed file.
+   * @returns why it was not written, or undefined.
+   */
+  function writeSetting(projectId: string, change: (doc: ReturnType<typeof parseDocument>) => void): string | undefined {
+    const file = projects.configOf(projectId)?.sourcePath
+    if (file === undefined) return `No project "${projectId}".`
+    const original = readFileSync(file, 'utf8')
+    const doc = parseDocument(original)
+    change(doc)
+    writeFileSync(file, doc.toString())
+    let why: string | undefined
+    try {
+      options.reloadProjects()
+      why = projects.invalidOf(projectId)?.reason
+    } catch (err) {
+      why = (err as Error).message
+    }
+    if (why === undefined) return undefined
+    writeFileSync(file, original)
+    options.reloadProjects()
+    return why
+  }
+
+  /**
    * `/set <project> template none | <name>`: stop following a template (its settings are
    * written into the file, so nothing changes), or follow one.
    *
@@ -1722,7 +1750,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
         const servers = Object.entries(config.mcp).map(
-          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.command ?? server.url ?? ''}${from(`mcp.${name}.access`)}`,
+          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`,
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
@@ -1772,15 +1800,17 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'ext',
         description: 'Extensions: skills and tools installed once (admin to change)',
-        syntax: '/ext [list] | /ext install <git-url | path>[@ref] | /ext update <name>[@ref] | /ext remove <name>',
+        syntax: '/ext [list] | /ext install <git-url | path>[@ref] | /ext update <name>[@ref] | /ext remove <name> | /ext enable|disable <project-id> <name>',
         detail:
           'An extension is a git repository with an extension.yaml: MCP tools, skills and ' +
           'instructions, installed once for every project to use. install fetches it (an ' +
           'https:// URL, or the absolute path of a repository on the server), pinned to a commit, ' +
           'shows what it brings and asks; its install commands then run in the command sandbox, ' +
           'writing only in its own folder. update fetches its source again and shows what changes ' +
-          'in what it may do. Seeing them is anyone\'s; installing, updating and removing are the admin\'s.',
-        examples: ['/ext', '/ext install https://github.com/rla-labs/argus-extensions-office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
+          'in what it may do. enable gives a project its tools (run confined to the project\'s ' +
+          'folder), skills and instructions, from its next conversation (/reset); disable takes ' +
+          'them away. Seeing them is anyone\'s; the rest is the admin\'s.',
+        examples: ['/ext enable site-firma office', '/ext', '/ext install https://github.com/rla-labs/argus-extensions-office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
         mutating: true,
       },
       async run(input, context): Promise<CommandResult> {
@@ -1795,11 +1825,31 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             const problem = broken.get(entry.name)
             const manifest = problem === undefined ? extensions.manifestOf(entry.name) : undefined
             const what = manifest === undefined ? `NOT USED: ${problem}` : `${manifest.summary}${describeParts(manifest).length > 0 ? `\n    ${describeParts(manifest).join('; ')}` : ''}`
-            return `${entry.name} ${entry.version} (${entry.commit.slice(0, 7)})\n    ${what}\n    from ${entry.source}${entry.ref === null ? '' : `@${entry.ref}`}`
+            const users = projects.configuredIds().filter((id) => projects.configOf(id)?.extensions.some((extension) => extension.name === entry.name))
+            return `${entry.name} ${entry.version} (${entry.commit.slice(0, 7)})\n    ${what}\n    from ${entry.source}${entry.ref === null ? '' : `@${entry.ref}`}\n    used by ${users.length > 0 ? users.join(', ') : 'no project (/ext enable <project> ' + entry.name + ')'}`
           })
           return result(`Extensions:\n${lines.join('\n')}`)
         }
-        if (!context.isAdmin) return errorResult('Only the admin can install, update or remove an extension.')
+        if (!context.isAdmin) return errorResult('Only the admin can install, update, remove, enable or disable an extension.')
+        if (action === 'enable' || action === 'disable') {
+          const name = tokenize(input)[2]
+          const config = argument === undefined ? undefined : projects.configOf(argument)
+          if (config === undefined || name === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs a project and an extension: /ext ${action} <project-id> <name>.`)
+          const listed = [...config.extensions.map((extension) => extension.name), ...config.extensionsMissing]
+          if (action === 'enable') {
+            if (!extensions.usable().has(name)) return errorResult(`No usable extension "${name}": /ext lists the installed ones.`)
+            if (listed.includes(name)) return result(`${argument} already uses ${name}.`)
+          } else if (!listed.includes(name)) return result(`${argument} does not use ${name}.`)
+          const next = action === 'enable' ? [...listed, name] : listed.filter((other) => other !== name)
+          // Disabled, its servers' settings in the file have nothing left to apply to.
+          const servers = action === 'disable' ? Object.keys(extensions.usable().get(name)?.manifest.mcp ?? {}) : []
+          const written = writeSetting(config.id, (doc) => {
+            doc.setIn(['extensions'], next)
+            for (const server of servers) doc.deleteIn(['mcp', server])
+          })
+          if (written !== undefined) return errorResult(`Not changed. ${written}`)
+          return result(`${argument} ${action === 'enable' ? 'uses' : 'no longer uses'} ${name}. Its agent ${action === 'enable' ? 'gets' : 'loses'} the tools, skills and instructions from its next conversation (/reset ${argument} to start one now). /tools ${argument} shows its tools.`)
+        }
         if (argument === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs ${action === 'install' ? 'a git URL or a path' : 'an extension\'s name'}.`)
         try {
           if (action === 'install' || action === 'update') {
@@ -1851,6 +1901,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (extensions === undefined) return errorResult('Extensions are not available on this deployment.')
         try {
           const entry = await extensions.install(tokenize(input)[0] ?? '', context.userId)
+          options.reloadProjects()
           return result(`Installed ${entry.name} ${entry.version} (${entry.commit.slice(0, 7)}) in ${join(extensions.dir, entry.path)}.`)
         } catch (err) {
           if (err instanceof OpsError) return errorResult(err.message)
@@ -1872,7 +1923,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
       run(input): CommandResult {
         const name = tokenize(input)[0] ?? ''
-        return projects.extensions?.remove(name) === true ? result(`Removed the extension ${name}.`) : errorResult(`No extension "${name}" is installed.`)
+        if (projects.extensions?.remove(name) !== true) return errorResult(`No extension "${name}" is installed.`)
+        options.reloadProjects()
+        const users = projects.configuredIds().filter((id) => projects.configOf(id)?.extensionsMissing.includes(name))
+        return result(`Removed the extension ${name}.${users.length > 0 ? ` ${users.join(', ')} still list it and run without it: /ext disable <project> ${name}.` : ''}`)
       },
     },
 
@@ -2511,7 +2565,7 @@ function skillFile(name: string, text: string): { ok: true; text: string } | { o
 function settingKeys(config: unknown, prefix = ''): string[] {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) return [prefix]
   return Object.entries(config as Record<string, unknown>)
-    .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath', 'template', 'fromTemplate'].includes(key))
+    .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath', 'template', 'fromTemplate', 'extensionsMissing'].includes(key))
     .flatMap(([key, value]) => settingKeys(value, prefix.length === 0 ? key : `${prefix}.${key}`))
 }
 
