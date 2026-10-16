@@ -273,6 +273,7 @@ worse than one that admits its gaps.
 |---|---|
 | `docker build`, install, health checks, backup, restore, upgrade, forced rollback | The Docker install, end to end, on a real daemon |
 | The native install, crash recovery, upgrade and rollback from git, uninstall | A fresh Ubuntu 24.04 with systemd: `pnpm test:native-vps` |
+| A project's shell cannot read the data, the other projects or `/app`, nor write outside its folder | The real image, hardened as compose runs it: `pnpm test:docker-sandbox` |
 | A real Telegram bot answering `/help`, `/new`, a free message and `/status`, each run accounted at the provider's price | `pnpm test:live` (`test/live/phase-a.test.ts`) |
 
 ### Not verified yet

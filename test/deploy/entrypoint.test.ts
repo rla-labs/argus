@@ -317,6 +317,12 @@ describe('the Dockerfile', () => {
     expect(dockerfile).toContain('http://127.0.0.1:3090/health')
   })
 
+  it('ships git and a pinned uv', () => {
+    // git: extensions and /undo snapshots; uv: Python MCP servers.
+    expect(dockerfile).toMatch(/apt-get install[^\n]* git\b/)
+    expect(dockerfile).toMatch(/COPY --from=ghcr\.io\/astral-sh\/uv:\d+\.\d+\.\d+ \/uv \/uvx /)
+  })
+
   it('carries version labels', () => {
     expect(dockerfile).toContain('org.opencontainers.image.version')
     expect(dockerfile).toMatch(/com\.argus-agent\.dsh-version="0\.2\.0-rc\.2"/)

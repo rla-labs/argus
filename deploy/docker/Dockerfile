@@ -82,8 +82,13 @@ ENV ARGUS_AGENT_VERSION="$ARGUS_AGENT_VERSION"
 # `kill` that leaves the agent's subprocesses running is a leak, and a PID 1 that
 # does not reap is a slow failure.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tini ca-certificates curl zip \
+ && apt-get install -y --no-install-recommends tini ca-certificates curl zip git \
  && rm -rf /var/lib/apt/lists/*
+
+# `uv` (and `uvx`), one static binary, for the Python MCP servers an extension may
+# declare. Pinned, like the launcher below. `git` (above) fetches extensions and keeps
+# a project's snapshots for /undo.
+COPY --from=ghcr.io/astral-sh/uv:0.13.1 /uv /uvx /usr/local/bin/
 
 # The dsh launcher itself: the entrypoint execs `dsh --profile ops`. Pinned exactly,
 # like every @deepseek-ai package in the workspace — the bundle's patches are

@@ -271,6 +271,7 @@ pnpm build && pnpm typecheck && pnpm lint && pnpm test
 pnpm test:spikes        # the verified facts about dsh, as runnable tests
 pnpm test:native-vps    # the native install on a throwaway Ubuntu + systemd container
                         # (needs Docker; runs a privileged container)
+pnpm test:docker-sandbox  # what a project's shell may read and write, in the real image
 ```
 
 ```
