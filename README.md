@@ -124,6 +124,8 @@ safe by construction.
 - **Layered templates** (done): a project made from a template follows it, so improving
   the template improves its projects; what a project changes with `/set` stays its own
   ([how](docs/user/configuration.md#templates--your-own-kinds-of-project)).
+- **Skills per project** (done): `/skill add` gives a project a how-to its agent loads
+  when needed, kept outside the folder; the agent can no longer write itself one.
 - **Next:** **extensions**: skills and MCP tools installed once by the admin, confined,
   and enabled per project.
 

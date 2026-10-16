@@ -73,8 +73,9 @@ describe('spike 7: skills per agent', () => {
       writeSkill(join(project, '.agents', 'skills'), 'self-made')
 
       // FACT: the project root is the nearest `.git` ancestor, and `<root>/.agents/skills`
-      // is a default root, so the skill enters the agent's catalog. Step 6 of 0.5.0
-      // turns these roots off; this expectation then flips.
+      // is a default root, so the skill enters the agent's catalog. This is why the
+      // bundle disables the base's row (composition.test.ts) and ops-projects mounts a
+      // provider per agent on `<state>/<id>/skills` (skills.test.ts).
       expect(await names(skills, { cwd: project })).toContain('self-made')
     } finally {
       await boot.dispose()

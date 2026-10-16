@@ -9,7 +9,7 @@
  * @module @argus-agent/commands/handlers
  */
 import { randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
 import { OpsError, TOOL_GROUPS, type ModelRef, type Scope } from '@argus-agent/types'
@@ -809,6 +809,54 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const written = memory.writeInstructions(projectId, text.toLowerCase() === 'clear' ? '' : text, context.userId)
         if (!written.ok) return errorResult(written.message)
         return result(written.bytes === 0 ? `${projectId}: instructions removed.` : `${projectId}: instructions saved (${written.bytes} bytes). They apply from its next request.`)
+      },
+    },
+
+    // ── /skill ─────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'skill',
+        description: 'See a project\'s skills, or add and remove one (admin)',
+        syntax: '/skill [project-id] | /skill add <project-id> <name> <text…> | /skill remove <project-id> <name>',
+        detail:
+          'A skill is a how-to its agent loads when a task calls for it: the agent sees each ' +
+          'skill\'s name and first line, and reads the rest on demand. A project\'s skills are ' +
+          'kept outside its folder, so its agent cannot write itself one. add takes the ' +
+          'SKILL.md text on the lines after the name: either a file with its own front matter ' +
+          '(name, description), or plain text whose first line is the description. It applies ' +
+          'from the agent\'s next step. Adding and removing are the admin\'s.',
+        examples: ['/skill site-firma', '/skill add site-firma deploy Deploy the site to production.\nRun npm run build, then rsync dist/ to the server.', '/skill remove site-firma deploy'],
+        mutating: true,
+      },
+      run(input, context): CommandResult {
+        const match = /^\s*(add|remove)\s+(\S+)\s+(\S+)(?:[ \t]+|\s*\n)?([\s\S]*)$/.exec(input)
+        const action = match?.[1]
+        const projectId = action === undefined ? projectOf(tokenize(input)[0], context) : match?.[2]
+        if (projectId === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
+        const state = projectState(projectId)
+        if (!state.found) return errorResult(state.text)
+        const dir = projects.skillsDirOf(projectId)
+        if (dir === undefined) return errorResult('Skills need the state directory, which this deployment does not have.')
+        if (action === undefined) {
+          const skills = existsSync(dir) ? readdirSync(dir).filter((name) => existsSync(join(dir, name, 'SKILL.md'))).sort() : []
+          if (skills.length === 0) return result(`${projectId} has no skills. Add one: /skill add ${projectId} <name> <text>`)
+          const lines = skills.map((name) => `  ${name.padEnd(20)} ${/^description:\s*(.*)$/m.exec(readFileSync(join(dir, name, 'SKILL.md'), 'utf8'))?.[1]?.trim() ?? ''}`)
+          return result(`Skills of ${projectId}:\n${lines.join('\n')}\n\nKept in ${dir}.`)
+        }
+        if (!context.isAdmin) return errorResult('Only the admin can change a project’s skills.')
+        const name = match?.[3] ?? ''
+        if (!SKILL_NAME.test(name)) return errorResult(`"${name}" is not a skill name: lowercase letters, digits and dashes, up to 64.`)
+        const folder = join(dir, name)
+        if (action === 'remove') {
+          if (!existsSync(folder)) return errorResult(`${projectId} has no skill "${name}".`)
+          rmSync(folder, { recursive: true, force: true })
+          return result(`${projectId}: skill ${name} removed.`)
+        }
+        const skill = skillFile(name, match?.[4] ?? '')
+        if (!skill.ok) return errorResult(skill.message)
+        mkdirSync(folder, { recursive: true })
+        writeFileSync(join(folder, 'SKILL.md'), skill.text)
+        return result(`${projectId}: skill ${name} saved (${Buffer.byteLength(skill.text)} bytes). Its agent sees it from its next step.`)
       },
     },
 
@@ -2278,6 +2326,35 @@ function settingValue(text: string): { ok: true; value: unknown } | { ok: false;
   } catch (err) {
     return { ok: false, message: (err as Error).message.split('\n')[0] ?? 'unparseable' }
   }
+}
+
+/** A skill's name, as dsh requires it: kebab-case. */
+const SKILL_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
+/** The largest SKILL.md `/skill add` writes. */
+const SKILL_MAX_BYTES = 32_768
+
+/**
+ * The SKILL.md `/skill add` writes: the text as sent when it has its own front matter
+ * (which must name the skill and describe it), or the text with front matter made from
+ * its first line.
+ *
+ * @param name the skill's name.
+ * @param text what was sent after the name.
+ * @returns the file, or why not.
+ */
+function skillFile(name: string, text: string): { ok: true; text: string } | { ok: false; message: string } {
+  const body = text.trim()
+  if (body.length === 0) return { ok: false, message: 'A skill needs its text after the name: the first line says what it is for.' }
+  if (Buffer.byteLength(body) > SKILL_MAX_BYTES) return { ok: false, message: `A skill is at most ${SKILL_MAX_BYTES / 1024} KB.` }
+  if (body.startsWith('---')) {
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)?.[1]
+    if (front === undefined) return { ok: false, message: 'The front matter does not end with ---.' }
+    if (/^name:\s*["']?([^"'\s]+)/m.exec(front)?.[1] !== name) return { ok: false, message: `The front matter must say name: ${name}.` }
+    if (!/^description:\s*\S/m.test(front)) return { ok: false, message: 'The front matter must have a description.' }
+    return { ok: true, text: `${body}\n` }
+  }
+  const [first = '', ...rest] = body.split('\n')
+  return { ok: true, text: `---\nname: ${name}\ndescription: ${JSON.stringify(first.trim())}\n---\n${rest.join('\n').trim() || first.trim()}\n` }
 }
 
 /** Every settable key of a loaded project, dotted. */

@@ -22,6 +22,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { finalAssistantOutput } from '@deepseek-ai/dsh-subagent'
 import { credentialRef, isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
+import * as skillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import { RUN_TRAIL_ACTION, runAnswer, runTrail } from './run-trail.js'
 import {
   OpsError,
@@ -101,6 +102,7 @@ export class OpsProjects {
   private readonly store: OpsStore
   private readonly ctx: Context
   private readonly scratchDir: string
+  private readonly stateDir: string | undefined
   private readonly projectsRoot: string
   private readonly snapshots: Snapshots | undefined
   private readonly snapshotSettings: () => SnapshotSettings
@@ -110,11 +112,12 @@ export class OpsProjects {
   constructor(
     ctx: Context,
     store: OpsStore,
-    options: { scratchDir: string; projectsRoot: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings },
+    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings },
   ) {
     this.ctx = ctx
     this.store = store
     this.scratchDir = options.scratchDir
+    this.stateDir = options.stateDir
     this.projectsRoot = options.projectsRoot
     this.snapshots = options.snapshots
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
@@ -464,6 +467,7 @@ export class OpsProjects {
       }
       hideTools(agentCtx, hiddenTools(config.tools))
       await this.mountMcp(agentCtx, config)
+      await this.mountSkills(agentCtx, config.id)
       // The agent's context goes with the event: a listener that must register a
       // scoped tool needs it, and the session id alone is not enough to reach the
       // scope. Emitted here because this callback is the last moment before the
@@ -474,6 +478,37 @@ export class OpsProjects {
         agentCtx,
         agent,
       })
+    }
+  }
+
+  /**
+   * A project's skills folder: `<state>/<id>/skills`, outside the project's folder, so
+   * its agent cannot write itself a skill. `undefined` without a state directory.
+   *
+   * @param projectId the project.
+   * @returns the folder.
+   */
+  skillsDirOf(projectId: string): string | undefined {
+    return this.stateDir === undefined ? undefined : join(this.stateDir, projectId, 'skills')
+  }
+
+  /**
+   * Give a project's agent its own skills, from its skills folder: a provider in the
+   * agent's scope, which no other agent sees. The base's provider, which read the
+   * project folder, is off (the bundle's patch).
+   *
+   * @param agentCtx the agent's context, inside its `setup`.
+   * @param projectId the project.
+   */
+  private async mountSkills(agentCtx: Context, projectId: string): Promise<void> {
+    const dir = this.skillsDirOf(projectId)
+    // Without the skill registry (a bare composition) there is nothing to register with.
+    if (dir === undefined || this.ctx.get('skills' as never) === undefined) return
+    try {
+      // Watched, so a skill /skill adds or removes reaches the agent at its next step.
+      await agentCtx.plugin(skillFilesystem, { providerName: `argus-${projectId}`, includeDefaultRoots: false, customSkillDirs: [dir], watch: true })
+    } catch (error) {
+      this.ctx.logger('ops-projects').warn('project %s: its skills are left out: %s', projectId, (error as Error).message)
     }
   }
 

@@ -12,7 +12,8 @@ What is backed up, what is not, and how to restore.
    │                          backed up ONLINE, via SQLite's own backup API
    ├── sessions/           ← every session transcript
    ├── projects/           ← every project workspace
-   ├── state/              ← per-project memory (MEMORY.md) and instructions (INSTRUCTIONS.md)
+   ├── state/              ← per-project memory (MEMORY.md), instructions (INSTRUCTIONS.md)
+   │                          and skills (skills/)
    │   └── <id>/snapshots.git ← the /undo snapshots           ← EXCLUDED from the archive
    ├── memory/             ← the global USER.md
    ├── config/             ← ops.yaml, projects/*.yaml and templates/*.yaml

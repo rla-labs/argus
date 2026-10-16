@@ -17,7 +17,7 @@ For which command fits which moment, read
 |---|---|
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) · [`/web`](#web) · [`/link`](#link-code) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
-| A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) |
+| A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
@@ -32,9 +32,9 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/key`, `/defaults` (changing), `/instructions` (changing), `/archive`, `/allow`
+`/set`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
-instructions or the memory stays open to everyone.
+instructions, the skills or the memory stays open to everyone.
 
 ---
 
@@ -447,6 +447,32 @@ Snapshots of site-firma, newest first (/undo site-firma # goes back to before th
   folders are not recorded.
 - Snapshots are kept for `snapshots.keep_days` (14) and are not part of the backups
   ([settings](configuration.md#snapshots--undo)).
+
+---
+
+## `/skill [project-id] | add <project-id> <name> <text> | remove <project-id> <name>`
+
+A project's skills: how-tos its agent loads when a task calls for one. The agent sees
+each skill's name and description, and reads the rest when it needs it, so a skill
+costs little until it is used.
+
+```
+/skill site-firma
+/skill add site-firma deploy Deploy the site to production.
+Run npm run build, then rsync dist/ to the server.
+Say which commit went out.
+/skill remove site-firma deploy
+```
+
+`add` takes the text on the lines after the name. Its first line is the description,
+which is how the agent decides to load it; the rest is the body. A text that starts with
+its own front matter (`---`, `name:` the same name, `description:`, `---`) is saved as
+sent. Up to 32 KB. The agent sees a change from its next step.
+
+Skills are kept in `<data_dir>/state/<id>/skills/<name>/SKILL.md`, outside the project's
+folder, so its agent cannot write itself one; a skill in the folder (`.agents/skills`)
+is not read ([why](security.md#skills)). Seeing them is anyone's; adding and removing
+are the admin's.
 
 ---
 

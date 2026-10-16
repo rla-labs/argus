@@ -158,6 +158,19 @@ tools from other systems, and as trusted as the programs behind them:
 | What it returns goes to the model | A server that reads e-mail or web pages can carry instructions in its answers; keep `access: ask` for such a server unless the project's other tools are harmless. |
 | It belongs to one project | Another project, a `/task` and the front desk never see it. |
 
+## Skills
+
+A skill is a how-to an agent reads when a task calls for it; the agent sees each skill's
+name and first line in every session. That makes it a lasting part of the prompt, so who
+may write one matters.
+
+| What | Why it matters |
+|---|---|
+| A project's skills are in `<data_dir>/state/<id>/skills/`, outside its folder | Its agent cannot write itself a skill: the command sandbox gives it no access there. |
+| Skills in the project folder are **not read** (`.agents/skills`, `.dsh/skills`) | dsh reads them by default; Argus turns that off, since an agent that writes in its folder could otherwise leave itself instructions nobody reviewed. |
+| Only the admin adds or removes one, with [`/skill`](commands.md#skill-project-id--add-project-id-name-text--remove-project-id-name) | Everyone can see them. |
+| A skill belongs to one project | Another project, a `/task` and the front desk never see it. |
+
 ## The web interface
 
 Argus's own interface (the dashboard, approvals, settings and chat) is for a

@@ -88,7 +88,6 @@ export async function bootProjects(options: BootProjectsOptions = {}): Promise<P
   try {
     boot = await bootOps({
       files: { 'config/ops.yaml': `${opsYaml}\n` },
-      entries: [...(options.entries ?? [])],
       bareModuleBaseUrl: import.meta.url,
       ...(options.fake !== undefined ? { fake: options.fake } : {}),
       replaceEntries: [
@@ -101,6 +100,8 @@ export async function bootProjects(options: BootProjectsOptions = {}): Promise<P
         STORE_ENTRY,
         PROJECTS_ENTRY,
         LOADER_ENTRY,
+        // `replaceEntries` wins over `entries`, so the extra rows go here.
+        ...(options.entries ?? []),
       ],
     })
   } catch (error) {

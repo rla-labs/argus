@@ -1642,6 +1642,30 @@ describe('what /new leaves behind', () => {
 
 // ── /instructions ──────────────────────────────────────────────────────────
 
+describe('/skill', () => {
+  it('adds, lists and removes a project\'s skills outside its folder; changing them is the admin\'s', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const dir = booted.projects.skillsDirOf('alpha')!
+    expect(dir.startsWith(booted.projects.configOf('alpha')!.cwd)).toBe(false)
+    expect(await run(booted, '/skill alpha')).toContain('alpha has no skills')
+
+    expect(await run(booted, '/skill add alpha deploy Deploy the site.\nRun the build, then copy dist/.')).toContain('skill deploy saved')
+    expect(readFileSync(join(dir, 'deploy', 'SKILL.md'), 'utf8')).toBe('---\nname: deploy\ndescription: "Deploy the site."\n---\nRun the build, then copy dist/.\n')
+    const own = '---\nname: check\ndescription: Check the server.\n---\nRun uptime.'
+    expect(await run(booted, `/skill add alpha check\n${own}`)).toContain('skill check saved')
+    expect(readFileSync(join(dir, 'check', 'SKILL.md'), 'utf8')).toBe(`${own}\n`)
+    expect(await run(booted, '/skill alpha')).toMatch(/check\s+Check the server\.\n\s+deploy\s+"Deploy the site\."/)
+
+    expect(await run(booted, '/skill add alpha other\n---\nname: wrong\ndescription: x\n---\nbody')).toContain('must say name: other')
+    expect(await run(booted, '/skill add alpha Bad_Name text')).toContain('not a skill name')
+    expect(await run(booted, '/skill add alpha empty')).toContain('needs its text')
+    expect(await run(booted, '/skill remove alpha deploy', contextFor({ isAdmin: false }))).toContain('Only the admin')
+    expect(await run(booted, '/skill remove alpha deploy')).toContain('skill deploy removed')
+    expect(existsSync(join(dir, 'deploy'))).toBe(false)
+    expect(await run(booted, '/skill nope')).toContain('No project')
+  }, 30_000)
+})
+
 describe('/instructions', () => {
   it('shows, replaces with every line after the id, and clears; only the admin changes them', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })

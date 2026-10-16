@@ -142,6 +142,13 @@ describe('Argus Agent bundle composition', () => {
     expect(byId.get('ops-sandbox')?.disabled).toBeFalsy()
   })
 
+  it('reads no skill from a project folder: the base\'s skill provider is off, the registry and the tool stay', () => {
+    const byId = new Map(composedEntries().entries.map((entry) => [entry.id, entry]))
+    expect(byId.get('skill-filesystem')?.disabled).toBe(true)
+    expect(byId.get('skill')?.disabled).toBeFalsy()
+    expect(byId.get('tool-skill')?.disabled).toBeFalsy()
+  })
+
   it('boots a tree composed from the same layers and publishes ctx.opsConfig', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'argus-agent-boot-'))
     try {

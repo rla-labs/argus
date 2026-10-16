@@ -71,6 +71,7 @@ export function apply(ctx: Context): void {
   const service = new OpsProjects(ctx, ctx.opsStore, {
     scratchDir: paths.scratchDir,
     projectsRoot,
+    stateDir: paths.stateDir,
     snapshots: new Snapshots(paths.stateDir, settings),
     snapshotSettings: settings,
   })

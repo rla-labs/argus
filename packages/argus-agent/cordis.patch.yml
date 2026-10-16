@@ -132,6 +132,14 @@
 - id: sandbox
   disabled: true
 
+# ── skills ───────────────────────────────────────────────────────────────────
+# The base's provider reads `<project>/.agents/skills` and `<project>/.dsh/skills`:
+# an agent that may write in its folder could write itself a skill, a prompt that
+# enters every later session unreviewed. ops-projects gives each project agent its
+# own provider instead, on `<state>/<id>/skills`, outside the folder (`/skill`).
+- id: skill-filesystem
+  disabled: true
+
 # ── the app ──────────────────────────────────────────────────────────────────
 # The headless bundle's app answers ONE task and exits — without a task it exits
 # at once with "a task is required". Argus Agent is a long-running service, so
