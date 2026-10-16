@@ -654,16 +654,18 @@ a few commands that run unasked, and its first [instructions](#instructions-proj
 
 | Template | For | Tools | Runs unasked |
 |---|---|---|---|
-| `site` | a website or web app | read, write; shell and web ask | the commands that only read |
+| `site` | a website or web app | read, write, shell (confined to its folder; `/undo` takes a run back); web asks | every command |
 | `research` | research on the web, written up as sourced notes | read, write, web; no shell | — |
 | `reports` | recurring reports kept as dated files | read, write, web; shell asks | the commands that only read |
-| `devops` | checking and running servers and services | read; write, shell and web ask; 80 steps a run | the commands that only read, and `systemctl status *`, `journalctl *`, `docker ps`, `docker logs *`, `ping -c *`, ... |
+| `devops` | checking and running servers and services | read, write; shell and web ask; 80 steps a run | the commands that only read, and `systemctl status *`, `journalctl *`, `docker ps`, `docker logs *`, `ping -c *`, `apt list *`, ... |
 
 The commands that only read (`ls`, `cat`, `grep`, `find`, `df`, `ps`, …) run unasked in
 every project that allows reading ([which ones](configuration.md#auto_allow--matched-on-parsed-argv)).
-Commands the agent could steer into running its own code (`npm run …`, and any `git`
-command: the agent writes the repository's configuration and hooks) still ask: add them with `/set <id> approvals.auto_allow [...]` if
-you want them. Without a template the project asks before writing, running or browsing.
+Outside `site`, commands the agent could steer into running its own code (`npm run …`, and
+any `git` command: the agent writes the repository's configuration and hooks) still ask:
+add them with [`/rule`](#rule-project-id-command--host-host--admin) if you want them.
+`devops` checks the machine Argus runs on; in Docker that is the container, which sees
+neither the host's services nor its containers, so it is most useful on a native install. Without a template the project asks before writing, running or browsing.
 Your own templates go in `config/templates/<name>.yaml`; see
 [configuration](configuration.md#templates--your-own-kinds-of-project).
 

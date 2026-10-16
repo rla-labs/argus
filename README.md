@@ -134,7 +134,9 @@ safe by construction.
 - **Schedules that never wait** (done): a scheduled run is refused what it would ask for,
   at once, and the chat gets the rule that would allow it as a button; `/rule` adds one by
   hand, and a question approved again and again suggests one.
-- **Next:** the built-in templates re-tuned, and a first-party `office` extension.
+- **Templates re-tuned** (done): a `site` project runs its commands unasked, confined to its
+  folder and undoable; a test counts what each built-in template asks in a typical day.
+- **Next:** a first-party `office` extension (Word, Excel, PowerPoint), then the release.
 
 ## New in 0.4.0
 

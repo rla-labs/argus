@@ -22,8 +22,9 @@ still builds.
 /set site description The company website: an Astro site, its blog and its contact form
 ```
 
-The second `site` is the template: it lets the agent edit files in its folder, asks
-before it runs a command or opens a web page, and gives it a few rules (build after a
+The second `site` is the template: it lets the agent edit files and run commands in its
+folder without asking (the sandbox keeps them there, and [`/undo`](commands.md#undo-project-id-list----run-id)
+takes a run back), asks before it opens a web page, and gives it a few rules (build after a
 change, commit each one when there is git). See them with `/instructions site`, and add
 your own, for example:
 
@@ -40,8 +41,8 @@ sudo cp -r ~/company-site/. /srv/argus-agent/data/projects/site/
 sudo chown -R 10001:10001 /srv/argus-agent/data/projects/site   # Docker; `ops:ops` for native
 ```
 
-The Docker image has Node, npm and curl, but not git. On the native install the
-project uses the server's own tools, git included.
+The Docker image has Node, npm, git and uv. On the native install the project uses the
+server's own tools.
 
 **3. Let it learn the project.** One message, once:
 
@@ -53,16 +54,17 @@ Read this project. Write in your memory how to install, build and test it, and t
 It answers, and `/memory site` shows what it wrote. Every later session starts from
 these notes, so you do not explain the project twice.
 
-**4. Stop the harmless commands from asking.** When `npm run build` asks for the first
-time, press **Always allow** and it never asks again; or set the list at once:
+**4. Decide how much it may do unasked.** With the template, `npm ci`, `npm run build`,
+`npm test` and `git commit` run without asking: they can touch only the project's folder,
+and a run you do not like is undone with `/undo site`. If you would rather be asked
+before each command:
 
 ```
-/set site approvals.auto_allow [npm ci, npm run build, npm test]
+/set site tools.shell ask
 ```
 
-`npm run …` runs the project's own scripts, which the agent can edit; allow them for a
-project whose changes you read (`/log`). Anything else, such as deleting files or a
-command you did not expect, still asks.
+Then press **Always allow** on the ones you trust (`npm run build`), and they stop
+asking.
 
 **5. Give it work.** Say what is wrong, what you expect, and what you want back:
 

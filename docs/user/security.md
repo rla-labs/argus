@@ -255,6 +255,13 @@ environment (`/proc/<pid>/environ`).
 **What it does not confine: the network.** A command can reach whatever the server can.
 The approvals for `shell` and `web` are what stand between an agent and the internet.
 
+**The `site` template runs its commands unasked** (`tools.shell: allow`), on the strength
+of this boundary: a command can harm only the project's own folder, which `/undo` puts
+back, and can send out only what is in it. Its `web` still asks, so a page the agent
+reads cannot steer the commands it runs next without you seeing the page first. For a
+project whose folder holds something that must not leave the server, set
+`tools.shell: ask`.
+
 Because of this boundary, the commands that only read (`ls`, `cat`, `grep`, `find`,
 `df`, `ps`, …, a fixed list in Argus's code) count as reads and run unasked where
 reading is allowed: they can read only what the agent's own file tools can. Their forms

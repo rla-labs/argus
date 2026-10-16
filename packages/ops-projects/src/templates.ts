@@ -37,7 +37,7 @@ const RESERVED = ['id', 'cwd', 'provider', 'model']
 export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
   {
     name: 'site',
-    summary: 'a website or web app: edits files, builds, uses git',
+    summary: 'a website or web app: edits files, builds, uses git, without asking',
     description: 'Builds and maintains a website: pages, styles, scripts, its build and its git history.',
     instructions: [
       '- Keep the site building: after a change, run the build (and the tests, if there are any) and fix what breaks before you report.',
@@ -46,9 +46,10 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       '- When you finish, say which files changed and how to see the result.',
     ].join('\n'),
     settings: {
-      tools: { read: 'allow', write: 'allow', shell: 'ask', web: 'ask' },
-      // No `npm run …` and no git: the agent writes package.json and .git (its hooks,
-      // and the config even `git status` obeys), so each would run code it wrote, unasked.
+      // Its commands run unasked: the sandbox keeps them to the project's folder (no keys,
+      // no database, no other project) and /undo takes a run back. The web still asks, so
+      // a page it reads cannot steer the commands it then runs.
+      tools: { read: 'allow', write: 'allow', shell: 'allow', web: 'ask' },
     },
   },
   {
@@ -93,9 +94,10 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       '- Answer with what you checked, what you changed, and what still needs a person.',
     ].join('\n'),
     settings: {
-      tools: { read: 'allow', write: 'ask', shell: 'ask', web: 'ask' },
+      // It writes only its notes in its own folder; what changes a server is a command, and asks.
+      tools: { read: 'allow', write: 'allow', shell: 'ask', web: 'ask' },
       approvals: {
-        auto_allow: ['top -b -n 1', 'systemctl status *', 'journalctl *', 'docker ps', 'docker logs *', 'docker stats --no-stream', 'ping -c *', 'ss', 'ip addr'],
+        auto_allow: ['top -b -n 1', 'systemctl status *', 'journalctl *', 'docker ps', 'docker logs *', 'docker stats --no-stream', 'ping -c *', 'ss', 'ip addr', 'apt list *'],
       },
       limits: { max_steps_per_run: 80 },
     },
