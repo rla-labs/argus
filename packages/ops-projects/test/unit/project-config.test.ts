@@ -151,6 +151,9 @@ describe('parseProjectConfig', () => {
       max_subagent_depth: 1,
       loop_repeat_threshold: 5,
       stall_steps: 25,
+      judge: false,
+      judge_extend_steps: 0,
+      judge_max_extensions: 2,
     })
     expect(config.budget).toEqual({
       day_usd: 3,

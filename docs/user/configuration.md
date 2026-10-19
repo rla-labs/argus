@@ -163,6 +163,9 @@ desk use these.
 | `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
 | `loop_repeat_threshold` | int | `5` | How many times in a row the same call **with the same result** (or a cycle of 2–3 such calls, like read-edit-read-edit) may repeat before the run is stopped as a loop. The same call with a different result (tests run again after a fix) is progress. Times, durations, ids and temp paths are ignored in the comparison. |
 | `stall_steps` | int | `25` | How many steps in a row may bring **nothing new** before the run is stopped as `stalled`: no tool result it has not had before in this run, and no file changed in the project's folder. This catches an agent going round in circles with varied calls, which the loop check cannot see. Long work that keeps producing new results or changing files is never stopped by it. `0` turns it off. |
+| `judge` | bool | `false` | Whether a **judge model** decides at a checkpoint before you are asked (its model: [`judge`](#judge)). It is told what code measured (the request, steps, cost, files changed, new and repeated results, errors) and the agent's last message as untrusted data, and answers continue or stop. Its stop is always followed; its continue is held to the bounds below and to the ceiling and the budget. A wrong or missing answer grants nothing: you are asked, a scheduled run stops. Its requests are charged to the project. |
+| `judge_extend_steps` | int | `0` | The most steps one judge extension grants; `0` is the checkpoint's own interval. |
+| `judge_max_extensions` | int | `2` | How many times the judge may extend one run; after that you decide (a scheduled run stops). |
 
 Before 0.6, a project's own `limits:` were read but not applied (except
 `max_tokens_per_request`): `ops.yaml`'s applied to every project. They apply now.
@@ -235,6 +238,13 @@ gets noticed.
 | Key | Type | Meaning |
 |---|---|---|
 | `model` | `provider/model` | The model `/task` and an ad-hoc schedule use by default. `/defaults tasks` changes it from the chat. |
+
+## `judge`
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `model` | `provider/model` | — | The model that decides at a checkpoint for the projects with `limits.judge: true`. Without one, no project is judged. A strong model, different from the projects' own, is best: it reads a short page of facts and answers one line, so it costs little. `/defaults judge` changes it from the chat. |
+| `timeout_s` | int | `60` | How long it may take; no answer in time grants nothing. |
 
 ## `orchestrator`
 

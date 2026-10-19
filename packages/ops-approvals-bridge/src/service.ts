@@ -493,7 +493,7 @@ export class OpsApprovalsBridge {
       more: question.more,
       elapsedMs: this.options.now() - question.startedAt,
       changes: projectId === null ? undefined : await this.options.projects.folderChanges(projectId, question.runId),
-      costMicros: this.options.store.usage.totalsByRun(question.runId).cost_micros,
+      costMicros: question.costMicros,
       timeoutMinutes,
     })
     const questionId = `checkpoint:${question.runId}:${question.steps}`

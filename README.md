@@ -131,9 +131,11 @@ Long work that cannot run away. Already on `main`, not yet released:
   on. A ceiling per project (`limits.max_steps_total`, 1000 by default, set by the
   templates) is never passed: a coding project may run for hundreds of steps, a short
   fixed job can be held to a dozen.
+- **An optional judge at the checkpoint.** A model of your choice reads what Argus
+  measured about the run, not what the agent says, and gives it more steps or stops it,
+  within bounds set in code; then you decide. A scheduled run can go on this way too.
 
-Still to come in 0.6.0: an optional judge model at the checkpoint, and the `office`
-extension.
+Still to come in 0.6.0: the `office` extension.
 
 ## New in 0.5.0
 

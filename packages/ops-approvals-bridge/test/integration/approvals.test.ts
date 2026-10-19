@@ -1271,6 +1271,38 @@ describe('checkpoint', () => {
     expect(stops).toEqual(['the run reached its checkpoint after 2 steps: no answer in 30 minute(s)'])
   }, 60_000)
 
+  it('lets the judge extend a scheduled run, then stops it without asking', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-judge-'))
+    dirs.push(dataDir)
+    let calls = 0
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 2\n  judge: true\n  judge_max_extensions: 1\n  loop_repeat_threshold: 99\n  stall_steps: 0\ntools:\n  other: allow` },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  admin: console:dev\n` +
+        `channel:\n  default_address: console:dev\n` +
+        `judge:\n  model: fake/judge-model\n`,
+      script: ((request: { model: string }) =>
+        request.model === 'judge-model'
+          ? { text: '{"verdict":"continue","steps":2,"reason":"new files each step"}' }
+          : { text: 'x', toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: ++calls }), id: `c${calls}` }] }) as never,
+    })
+    const adapter = await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
+    )
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ detail }) => stops.push(detail))
+    booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
+    await waitFor(() => stops.length > 0 && booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
+    expect(stops).toEqual(['the run reached its checkpoint after 4 steps: a scheduled run does not wait for an answer; to go on, /p alpha, then "continue"'])
+    expect(adapter.pendingCount).toBe(0)
+    expect(adapter.texts().some((text) => text.includes('[alpha] the judge gave it 2 more step(s): new files each step'))).toBe(true)
+  }, 60_000)
+
   it('stops a scheduled run at its checkpoint without asking, and says how to go on', async () => {
     const { booted, adapter, stops } = await endless()
     booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })

@@ -1183,6 +1183,94 @@ describe('checkpoint', () => {
   }, 45_000)
 })
 
+describe('judge', () => {
+  /**
+   * A project that ticks forever, with the judge on: requests to `fake/judge-model`
+   * are the judge's, answered by `answer`; the rest are the agent's.
+   */
+  async function judged(limits: string, answer: (call: number) => string): Promise<{ booted: Booted; facts: string[]; verdicts: Array<{ verdict: string; steps?: number }>; stops: string[] }> {
+    const booted = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\njudge:\n  model: fake/judge-model\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 0\n  judge: true\n${limits}${PRICING}`,
+    })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
+    )
+    const facts: string[] = []
+    let agentCalls = 0
+    booted.boot.fake!.setScript((request) => {
+      if (request.model === 'judge-model') {
+        facts.push(request.lastUserText)
+        return { text: answer(facts.length), usage: { inputTokens: 500, outputTokens: 20 } }
+      }
+      agentCalls += 1
+      return { text: 'all done, it works now', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: agentCalls }), id: `c${agentCalls}` }] }
+    })
+    const verdicts: Array<{ verdict: string; steps?: number }> = []
+    booted.ctx.on('ops/judge-verdict', ({ verdict, steps }) => verdicts.push(steps === undefined ? { verdict } : { verdict, steps }))
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push(`${reason}: ${detail}`))
+    return { booted, facts, verdicts, stops }
+  }
+
+  it('extends within its bounds, then a person decides', async () => {
+    const { booted, facts, verdicts, stops } = await judged('  max_steps_per_run: 3\n  judge_max_extensions: 2\n', () => '{"verdict":"continue","steps":50,"reason":"files keep changing"}')
+    const asked: number[] = []
+    booted.governor.setCheckpointAsker(async ({ steps }) => {
+      asked.push(steps)
+      return { kind: 'stop', detail: 'stopped by test' }
+    })
+    submit(booted, 'alpha', 'make the tests pass')
+    await waitIdle(booted, 'stopped by the person')
+    // 50 asked, 3 granted (the checkpoint interval), twice; then the person.
+    expect(verdicts).toEqual([{ verdict: 'continue', steps: 3 }, { verdict: 'continue', steps: 3 }])
+    expect(asked).toEqual([9])
+    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 9 steps: stopped by test'])
+    // The facts are code's: the request verbatim, the counts, the agent's words fenced as data.
+    expect(facts[0]).toContain('> make the tests pass')
+    expect(facts[0]).toContain('Steps so far: 3.')
+    expect(facts[0]).toMatch(/Last 3 step\(s\): 3 new result\(s\), 0 repeated, 0 tool error\(s\)/)
+    expect(facts[0]).toContain('<<<AGENT_MESSAGE\nall done, it works now\nAGENT_MESSAGE>>>')
+    expect(facts[1]).toContain('0 extension(s) are left after this one')
+    // Its requests are the run's: audited, and counted in the run's cost.
+    expect(booted.store.audit.recent(50).filter((row) => row.action === 'judge.verdict')).toHaveLength(2)
+    await booted.meter.flush()
+    expect(booted.store.usage.totalsByRun(booted.store.runs.recent(1)[0]!.id).input_tokens).toBeGreaterThanOrEqual(2 * 500)
+  }, 45_000)
+
+  it('stops the run when it says stop, without asking anyone', async () => {
+    const { booted, stops } = await judged('  max_steps_per_run: 3\n', () => '{"verdict":"stop","reason":"it repeats itself"}')
+    let asked = false
+    booted.governor.setCheckpointAsker(async () => {
+      asked = true
+      return { kind: 'continue' }
+    })
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped by the judge')
+    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 3 steps: the judge stopped it: it repeats itself'])
+    expect(asked).toBe(false)
+  }, 45_000)
+
+  it('grants nothing for an answer that is not a verdict: the person decides', async () => {
+    const { booted, verdicts, stops } = await judged('  max_steps_per_run: 3\n', () => 'Sure! Keep going, it looks great.')
+    booted.governor.setCheckpointAsker(async () => ({ kind: 'stop', detail: 'stopped by test' }))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped by the person')
+    expect(verdicts).toEqual([{ verdict: 'invalid' }])
+    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 3 steps: stopped by test'])
+  }, 45_000)
+
+  it('never takes a run past its ceiling, however often it says continue', async () => {
+    const { booted, verdicts, stops } = await judged('  max_steps_per_run: 3\n  max_steps_total: 8\n  judge_max_extensions: 9\n', () => '{"verdict":"continue","steps":3,"reason":"progress"}')
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped at the ceiling')
+    expect(verdicts).toEqual([{ verdict: 'continue', steps: 3 }, { verdict: 'continue', steps: 2 }])
+    expect(stops).toEqual(['max_steps_total: the run reached its ceiling of 8 steps'])
+    expect(booted.store.runs.recent(1)[0]?.steps).toBe(8)
+  }, 45_000)
+})
+
 describe('ADR 0002: no execution path bypasses submit', () => {
   it('calls opsProjects.deliver only from ops-governor', async () => {
     const { readdirSync, readFileSync, statSync } = await import('node:fs')

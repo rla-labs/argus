@@ -166,6 +166,12 @@ export function apply(ctx: Context): void {
     fire(service.deliverStopped(runId, subjectOf(owner), reason, detail))
   })
 
+  // A judge's stop reaches the chat as the stop notice; its extension needs its own line.
+  ctx.on('ops/judge-verdict', ({ owner, runId, verdict, steps, reason }) => {
+    if (verdict !== 'continue' || steps === undefined || askedByProject(ctx, runId)) return
+    fire(service.deliverJudged(runId, subjectOf(owner), steps, reason))
+  })
+
   ctx.on('ops/run-interrupted', ({ owner, runId }) => {
     fire(service.deliverInterrupted(runId, subjectOf(owner)))
   })

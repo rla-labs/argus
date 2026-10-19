@@ -154,7 +154,7 @@ login name and a password, signs you in, and then walks through the rest, each s
 command you could also type in the chat:
 
 1. a model provider's API key ([`/key`](commands.md#key-provider-key--name-value--remove-providername--admin), checked with the provider);
-2. the models for tasks and the front desk ([`/defaults`](commands.md#defaults-tasksfrontdesk-providermodel));
+2. the models for tasks and the front desk ([`/defaults`](commands.md#defaults-tasksfrontdeskjudge-providermodel));
 3. optionally Telegram: the bot token (`/key telegram`, the bot starts at once), then
    **Connect Telegram** for your account;
 4. a first project from a template ([`/new`](commands.md#new-id-template-providermodel)).

@@ -40,6 +40,19 @@ declare module '@deepseek-ai/cordis' {
     }): void
 
     /**
+     * The judge decided at a run's checkpoint. `invalid` and `error` granted nothing.
+     * @param payload.steps the steps granted, for `continue`.
+     * @mode emit
+     */
+    'ops/judge-verdict'(payload: {
+      readonly runId: string
+      readonly owner: Owner
+      readonly verdict: 'continue' | 'stop' | 'invalid' | 'error'
+      readonly steps?: number
+      readonly reason: string
+    }): void
+
+    /**
      * A run left `running` by a crash was marked interrupted at startup.
      * @mode emit
      */

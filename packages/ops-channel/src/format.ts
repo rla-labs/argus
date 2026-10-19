@@ -220,6 +220,11 @@ export function stoppedText(subject: OutputSubject, reason: string, detail: stri
   return `${prefixFor(subject)}stopped: ${detail}\n(reason: ${reason})`
 }
 
+/** The judge extended a run at its checkpoint. */
+export function judgedText(subject: OutputSubject, steps: number, reason: string): string {
+  return `${prefixFor(subject)}the judge gave it ${steps} more step(s): ${reason}`
+}
+
 /** An interruption notice. */
 export function interruptedText(subject: OutputSubject, runId: string): string {
   return `${prefixFor(subject)}run ${runId} was interrupted by a restart. Nothing was lost that had finished.`

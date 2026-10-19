@@ -10,7 +10,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { OpsGovernor, type GovernorOptions } from './service.js'
-import { governorConfigOf, budgetsSchema, concurrencySchema, limitsSchema, queuesSchema, pausedPolicySchema } from './config.js'
+import { governorConfigOf, budgetsSchema, concurrencySchema, judgeSchema, limitsSchema, queuesSchema, pausedPolicySchema } from './config.js'
 import './events.js'
 import { registerAskProject } from './ask-project.js'
 
@@ -18,6 +18,7 @@ export * from './config.js'
 export * from './state.js'
 export * from './decide.js'
 export * from './service.js'
+export * from './judge.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-governor'
@@ -29,7 +30,7 @@ export const name = 'ops-governor'
  * governor cannot tell a priced model from an unpriced one, and admitting an
  * unpriced model is exactly the leak `block` exists to prevent.
  */
-export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'opsProjects', 'opsMeter', 'agents', 'tools']
+export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'opsProjects', 'opsMeter', 'agents', 'tools', 'llm']
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -54,7 +55,8 @@ export function apply(ctx: Context): void {
   const limits = ctx.opsConfigRegistry.extend('limits', limitsSchema)
   const queues = ctx.opsConfigRegistry.extend('queues', queuesSchema)
   const paused = ctx.opsConfigRegistry.extend('paused_policy', pausedPolicySchema)
-  for (const section of [concurrency, budgets, limits, queues, paused]) {
+  const judge = ctx.opsConfigRegistry.extend('judge', judgeSchema)
+  for (const section of [concurrency, budgets, limits, queues, paused, judge]) {
     ctx.effect(() => section)
   }
 
@@ -144,6 +146,12 @@ export function apply(ctx: Context): void {
   // rather than from an assembled message keeps loop detection close to the
   // event that caused it.
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'assistant/message') {
+      // The agent's own words, which the judge sees as untrusted data.
+      const content = (event.data as { message?: { content?: ReadonlyArray<{ type?: string; text?: unknown }> } }).message?.content ?? []
+      governor.noteAssistantText(session.id as string, content.map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : '')).join('\n'))
+      return
+    }
     if (event.type === 'tool/result') {
       const message = (event.data as { message?: { toolCallId?: string; content?: unknown; isError?: boolean } }).message
       if (typeof message?.toolCallId === 'string') governor.noteToolResult(session.id as string, message.toolCallId, resultText(message.content), message.isError === true)

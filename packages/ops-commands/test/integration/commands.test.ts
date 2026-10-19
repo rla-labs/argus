@@ -865,6 +865,13 @@ describe('admin-only commands', () => {
     expect(readFileSync(file, 'utf8')).toContain('model: fake/other-model')
     expect((await booted.commands.runCommand('/defaults tasks nowhere/x', admin())).error).toBe(true)
     expect((await booted.commands.runCommand('/defaults frontdesk fake/other-model', admin())).text).toContain('no front desk')
+
+    // The judge: none until set; then in ops.yaml and in force at once.
+    expect(await run(booted, '/defaults')).toContain('Judge:      none (no project is judged)')
+    expect(await run(booted, '/defaults judge fake/judge-model', admin())).toContain('It decides at the next checkpoint')
+    expect(booted.governor.judgeModel()).toEqual({ provider: 'fake', model: 'judge-model' })
+    expect(readFileSync(file, 'utf8')).toMatch(/judge:\n\s+model: fake\/judge-model/)
+    expect(await run(booted, '/defaults')).toContain('Judge:      fake/judge-model')
   }, 30_000)
 
   it('/tools shows a project\'s tool groups, and /set changes one', async () => {

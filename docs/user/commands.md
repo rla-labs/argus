@@ -19,7 +19,7 @@ For which command fits which moment, read
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
-| Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdesk-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
+| Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
@@ -202,7 +202,7 @@ back to this chat.
 Task queued (a1b2c3d4). I will report when it finishes.
 ```
 
-The model is `tasks.model` from `ops.yaml`; [`/defaults`](#defaults-tasksfrontdesk-providermodel)
+The model is `tasks.model` from `ops.yaml`; [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel)
 shows and changes it. An empty text shows the syntax.
 
 ---
@@ -848,15 +848,17 @@ not moved.
 
 ---
 
-## `/defaults [tasks|frontdesk <provider/model>]`
+## `/defaults [tasks|frontdesk|judge <provider/model>]`
 
-Shows, and changes, the two models no project names: the one a `/task` runs on
-(`tasks.model`) and the front desk's (`orchestrator.model`).
+Shows, and changes, the models no project names: the one a `/task` runs on
+(`tasks.model`), the front desk's (`orchestrator.model`) and the judge's (`judge.model`),
+which decides at a checkpoint for the projects with `limits.judge` on.
 
 ```
 /defaults
 /defaults tasks deepseek/deepseek-flash
 /defaults frontdesk openrouter/z-ai/glm-5.3-flash
+/defaults judge anthropic/claude-sonnet-5-5
 ```
 
 Changing one is the admin's. The model is checked like `/model` (a provider with a key,

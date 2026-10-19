@@ -24,7 +24,7 @@ import {
   type ServiceHealth,
 } from '@argus-agent/types'
 import type { InboundRow, OpsStore, RunRow } from '@argus-agent/store'
-import { invalidMessage, type AgentTarget, type OpsProjects } from '@argus-agent/projects'
+import { invalidMessage, type AgentTarget, type OpsProjects, type ProjectLimits } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
 import {
   checkBudgets,
@@ -55,7 +55,9 @@ import {
   type RunningAgent,
   type ScopeBudget,
 } from './state.js'
-import type { GovernorConfig } from './config.js'
+import type { GovernorConfig, LimitsConfig } from './config.js'
+import { JUDGE_SYSTEM, judgeFacts, parseVerdict, type JudgeFacts } from './judge.js'
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 
 /** What `submit` accepts. */
 export interface SubmitRequest {
@@ -131,6 +133,8 @@ export interface CheckpointQuestion {
   /** Steps a Continue grants: the checkpoint interval, cut at the ceiling. */
   readonly more: number
   readonly startedAt: number
+  /** The run's cost so far, from the meter's live counters. */
+  readonly costMicros: number
 }
 
 /** The answer at a checkpoint. `stop` carries what the run's stop notice says. */
@@ -142,6 +146,26 @@ export type CheckpointAnswer = { readonly kind: 'continue' } | { readonly kind: 
  * while it waits.
  */
 export type CheckpointAsker = (question: CheckpointQuestion, signal: AbortSignal) => Promise<CheckpointAnswer>
+
+/** What the judge decided, for the chat and the audit. */
+export interface JudgeOutcome {
+  readonly runId: string
+  readonly owner: Owner
+  /** `invalid` and `error` grant nothing: a person is asked, a scheduled run stops. */
+  readonly verdict: 'continue' | 'stop' | 'invalid' | 'error'
+  /** Steps granted, for `continue`. */
+  readonly steps?: number
+  readonly reason: string
+}
+
+/** The steps since a run's last checkpoint, as the judge is told them. */
+interface StepWindow {
+  readonly fromStep: number
+  newResults: number
+  repeatedResults: number
+  errors: number
+  readonly repeated: Map<string, number>
+}
 
 /** Per-run bookkeeping the governor keeps in memory. */
 interface RunTrack {
@@ -180,6 +204,14 @@ interface RunTrack {
   checkpointAt?: number
   /** When the current time window started, once a Continue restarted it. */
   windowStartedAt?: number
+  /** The steps since the last checkpoint. */
+  window?: StepWindow
+  /** The judge's extensions of this run. */
+  judged?: number
+  /** The folder's tree at the last checkpoint. */
+  checkpointTree?: string
+  /** The agent's last text, for the judge. */
+  lastText?: string
   /** Set when a step was rejected, so the terminal status is known at idle. */
   pendingStop: { reason: StopReason; detail: string } | undefined
   /** Whether the downgrade was already audited for this run. */
@@ -217,6 +249,8 @@ export class OpsGovernor {
 
   /** Who decides at a checkpoint; without one a checkpoint stops the run. */
   private checkpointAsker: CheckpointAsker | undefined
+  /** `/defaults judge`, until a restart reads it from `ops.yaml`. */
+  private judgeOverride: { provider: string; model: string } | undefined
 
   /** `/defaults tasks`, until a restart reads it from `ops.yaml`. */
   private adhocOverride: { provider: string; model: string } | undefined
@@ -929,7 +963,7 @@ export class OpsGovernor {
    * @returns the limits a step is checked against.
    */
   stepLimitsOf(owner: Owner): StepLimits {
-    const limits = (owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.limits : undefined) ?? this.options.config.limits
+    const limits = this.limitsOf(owner)
     return {
       maxSteps: limits.max_steps_per_run,
       maxWallclockMs: limits.max_wallclock_min * 60_000,
@@ -937,6 +971,11 @@ export class OpsGovernor {
       loopRepeatThreshold: limits.loop_repeat_threshold,
       stallSteps: limits.stall_steps,
     }
+  }
+
+  /** A run's limits as configured: its project's, or ops.yaml's. */
+  private limitsOf(owner: Owner): LimitsConfig | ProjectLimits {
+    return (owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.limits : undefined) ?? this.options.config.limits
   }
 
   /**
@@ -972,7 +1011,7 @@ export class OpsGovernor {
     if (verdict.kind === 'checkpoint') {
       const answer = await this.atCheckpoint(track, verdict.reason, limits, signal)
       if (answer.kind === 'continue') {
-        track.checkpointAt = track.steps + limits.maxSteps
+        track.checkpointAt = track.steps + answer.steps
         track.windowStartedAt = this.options.now()
         // The budget or the ceiling may have moved while it waited.
         verdict = this.verdictOf(track, limits)
@@ -1021,37 +1060,187 @@ export class OpsGovernor {
   }
 
   /**
-   * Ask whoever decides at a checkpoint. No asker, a failure or a stop of the run
-   * while it waits is a stop: the safe answer is the default.
+   * Decide at a checkpoint: the judge first, when it is on and has extensions left,
+   * then whoever the asker asks. No asker, a failure or a stop of the run while it
+   * waits is a stop: the safe answer is the default.
    */
-  private async atCheckpoint(track: RunTrack, reason: CheckpointReason, limits: StepLimits, signal: AbortSignal | undefined): Promise<CheckpointAnswer> {
-    const asker = this.checkpointAsker
-    if (asker === undefined) return { kind: 'stop', detail: 'nobody can be asked to continue it' }
+  private async atCheckpoint(track: RunTrack, reason: CheckpointReason, limits: StepLimits, signal: AbortSignal | undefined): Promise<{ kind: 'continue'; steps: number } | { kind: 'stop'; detail: string }> {
     const controller = new AbortController()
     const onAbort = (): void => controller.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
-    const stopped = new Promise<CheckpointAnswer>((resolve) => {
-      const done = (): void => resolve({ kind: 'stop', detail: 'it was stopped while it waited' })
-      if (controller.signal.aborted) done()
-      else controller.signal.addEventListener('abort', done, { once: true })
-    })
-    const question: CheckpointQuestion = {
-      runId: track.runId,
-      owner: track.owner,
-      reason,
-      steps: track.steps,
-      more: Math.max(0, Math.min(limits.maxSteps > 0 ? limits.maxSteps : limits.maxStepsTotal, limits.maxStepsTotal - track.steps)),
-      startedAt: track.startedAt,
-    }
+    const stopped = { kind: 'stop', detail: 'it was stopped while it waited' } as const
+    const more = Math.max(0, Math.min(limits.maxSteps > 0 ? limits.maxSteps : limits.maxStepsTotal, limits.maxStepsTotal - track.steps))
     try {
-      return await Promise.race([asker(question, controller.signal), stopped])
+      const judged = await this.judgeAt(track, more, controller.signal)
+      if (controller.signal.aborted) return stopped
+      if (judged !== undefined) return judged
+      const asker = this.checkpointAsker
+      if (asker === undefined) return { kind: 'stop', detail: 'nobody can be asked to continue it' }
+      const aborted = new Promise<typeof stopped>((resolve) => {
+        if (controller.signal.aborted) resolve(stopped)
+        else controller.signal.addEventListener('abort', () => resolve(stopped), { once: true })
+      })
+      const question: CheckpointQuestion = {
+        runId: track.runId,
+        owner: track.owner,
+        reason,
+        steps: track.steps,
+        more,
+        startedAt: track.startedAt,
+        costMicros: this.options.meter.runTotals(track.runId).costMicros,
+      }
+      const answer = await Promise.race([asker(question, controller.signal), aborted])
+      return answer.kind === 'continue' ? { kind: 'continue', steps: limits.maxSteps } : answer
     } catch (error) {
       this.ctx.logger('ops-governor').warn('checkpoint for run %s failed: %s', track.runId, (error as Error).message)
       return { kind: 'stop', detail: 'the question could not be asked' }
     } finally {
       signal?.removeEventListener('abort', onAbort)
       controller.abort()
+      // The next window starts here, whatever was decided.
+      track.window = { fromStep: track.steps, newResults: 0, repeatedResults: 0, errors: 0, repeated: new Map() }
     }
+  }
+
+  /** The judge's model: `/defaults judge`, else `judge.model`; none means no judge. */
+  judgeModel(): { readonly provider: string; readonly model: string } | undefined {
+    return this.judgeOverride ?? this.options.config.judge.model
+  }
+
+  /**
+   * Change the judge's model, from the next checkpoint. `/defaults judge` writes the
+   * same value to `ops.yaml`.
+   *
+   * @param model the model.
+   */
+  setJudgeModel(model: { readonly provider: string; readonly model: string }): void {
+    this.judgeOverride = { provider: model.provider, model: model.model }
+  }
+
+  /**
+   * The judge at a checkpoint. `undefined` when it is off, has no extension left, or
+   * gave no usable answer: the person decides then. Its `stop` is always honoured; its
+   * `continue` is cut to what code allows.
+   */
+  private async judgeAt(track: RunTrack, more: number, signal: AbortSignal): Promise<{ kind: 'continue'; steps: number } | { kind: 'stop'; detail: string } | undefined> {
+    const limits = this.limitsOf(track.owner)
+    const model = this.judgeModel()
+    const used = track.judged ?? 0
+    if (!limits.judge || model === undefined || used >= limits.judge_max_extensions || more < 1) return undefined
+    const maxGrant = Math.min(more, limits.judge_extend_steps || limits.max_steps_per_run || more)
+    const projectId = track.owner.kind === 'project' ? track.owner.projectId : undefined
+    const tree = projectId === undefined ? undefined : await this.options.projects.folderTree(projectId)
+    const window = track.window
+    const facts: JudgeFacts = {
+      request: this.requestTextOf(track),
+      steps: track.steps,
+      costMicros: this.options.meter.runTotals(track.runId).costMicros,
+      elapsedMs: this.options.now() - track.startedAt,
+      sinceStart: projectId === undefined ? undefined : await this.options.projects.folderChanges(projectId, track.runId),
+      changedSinceCheckpoint: tree === undefined || track.checkpointTree === undefined ? undefined : tree !== track.checkpointTree,
+      window: {
+        steps: track.steps - (window?.fromStep ?? 0),
+        newResults: window?.newResults ?? 0,
+        repeatedResults: window?.repeatedResults ?? 0,
+        errors: window?.errors ?? 0,
+        repeated: [...(window?.repeated ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]).slice(0, 5),
+      },
+      maxGrant,
+      extensionsLeft: limits.judge_max_extensions - used - 1,
+      lastMessage: track.lastText,
+    }
+    if (tree !== undefined) track.checkpointTree = tree
+
+    const outcome = (verdict: JudgeOutcome['verdict'], reason: string, steps?: number): void => {
+      const granted = steps === undefined ? {} : { steps }
+      this.options.store.audit.record(
+        { actor: 'ops-governor', action: 'judge.verdict', target: track.runId, details: { verdict, reason, model: `${model.provider}/${model.model}`, ...granted } },
+        this.options.now(),
+      )
+      this.ctx.emit('ops/judge-verdict', { runId: track.runId, owner: track.owner, verdict, reason, ...granted })
+    }
+
+    let answer: string
+    try {
+      answer = await this.askJudge(track, model, facts, signal)
+    } catch (error) {
+      if (signal.aborted) return undefined
+      this.ctx.logger('ops-governor').warn('the judge failed for run %s: %s', track.runId, (error as Error).message)
+      outcome('error', (error as Error).message.slice(0, 200))
+      return undefined
+    }
+    const verdict = parseVerdict(answer)
+    if (verdict === undefined) {
+      outcome('invalid', `an answer that is not a verdict: ${answer.replace(/\s+/g, ' ').slice(0, 120)}`)
+      return undefined
+    }
+    if (verdict.kind === 'stop') {
+      outcome('stop', verdict.reason)
+      return { kind: 'stop', detail: `the judge stopped it: ${verdict.reason}` }
+    }
+    const steps = Math.min(verdict.steps, maxGrant)
+    track.judged = used + 1
+    outcome('continue', verdict.reason, steps)
+    return { kind: 'continue', steps }
+  }
+
+  /** One call to the judge's model; its usage is the run's, so it counts toward the budget. */
+  private async askJudge(track: RunTrack, model: { readonly provider: string; readonly model: string }, facts: JudgeFacts, signal: AbortSignal): Promise<string> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), this.options.config.judge.timeout_s * 1000)
+    const onAbort = (): void => controller.abort()
+    signal.addEventListener('abort', onAbort, { once: true })
+    let text = ''
+    let usage: TokenUsage | undefined
+    try {
+      for await (const chunk of this.ctx.llm.stream({
+        provider: model.provider,
+        model: model.model,
+        system: JUDGE_SYSTEM,
+        messages: [{ role: 'user', content: [{ type: 'text', text: judgeFacts(facts) }] }],
+        maxTokens: 400,
+        signal: controller.signal,
+      })) {
+        if (chunk.type === 'text-delta') text += chunk.text
+        else if (chunk.type === 'usage') usage = chunk.usage
+        else if (chunk.type === 'finish' && (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted')) {
+          throw new Error(controller.signal.aborted && !signal.aborted ? `no answer in ${this.options.config.judge.timeout_s} s` : chunk.reason.failure.message)
+        }
+      }
+    } finally {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', onAbort)
+      if (usage !== undefined) {
+        try {
+          this.options.meter.record({ sessionId: track.sessionId, rootSessionId: track.sessionId, owner: track.owner, model: model as ModelRef, usage, runId: track.runId, ts: this.options.now() })
+        } catch (error) {
+          this.ctx.logger('ops-governor').warn('the judge\'s usage was not recorded: %s', (error as Error).message)
+        }
+      }
+    }
+    return text
+  }
+
+  /** The text of the request a run serves, verbatim. */
+  private requestTextOf(track: RunTrack): string {
+    const row = track.requestId === undefined ? undefined : this.options.store.inbound.get(track.requestId)
+    const envelope = row === undefined ? undefined : parseEnvelope(row)
+    const text = (envelope?.content ?? [])
+      .map((block) => (block.type === 'text' && typeof (block as { text?: unknown }).text === 'string' ? (block as { text: string }).text : ''))
+      .join('\n')
+      .trim()
+    return text === '' ? '(not available)' : text
+  }
+
+  /**
+   * Note the agent's latest text, which the judge sees as untrusted data.
+   *
+   * @param sessionId the session.
+   * @param text the assistant message's text.
+   */
+  noteAssistantText(sessionId: string, text: string): void {
+    const track = this.running.get(this.options.projects.rootSessionOf(sessionId))
+    if (track !== undefined && text.trim() !== '') track.lastText = text.trim()
   }
 
   /** The worst budget level across a run's applicable scopes. */
@@ -1208,10 +1397,17 @@ export class OpsGovernor {
     const step = stepKey(call, result, isError)
     track.recentToolCalls.push(step)
     // ponytail: one 40-byte key per distinct step, for the run's life; cap it if a run ever has tens of thousands.
-    if (track.seenSteps.has(step)) track.sinceNew += 1
-    else {
+    const window = (track.window ??= { fromStep: 0, newResults: 0, repeatedResults: 0, errors: 0, repeated: new Map() })
+    if (isError) window.errors += 1
+    if (track.seenSteps.has(step)) {
+      track.sinceNew += 1
+      window.repeatedResults += 1
+      const tool = call.slice(0, call.indexOf('\u0000'))
+      window.repeated.set(tool, (window.repeated.get(tool) ?? 0) + 1)
+    } else {
       track.seenSteps.add(step)
       track.sinceNew = 0
+      window.newResults += 1
     }
     const stall = this.stepLimitsOf(track.owner).stallSteps
     if (stall > 0 && track.sinceNew >= stall && track.stallCheck === undefined && track.stalled === undefined) {

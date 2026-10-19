@@ -96,6 +96,17 @@ low for short, fixed jobs):
 /set clipuri limits.max_steps_per_run 0      no checkpoint: the ceiling is enough
 ```
 
+**A judge can answer the checkpoint for you.** With a judge model set (`/defaults judge
+<provider/model>`) and `limits.judge` on for a project, a model reads what the run did,
+measured by Argus, not told by the agent, and either gives it more steps (a line in the
+chat says how many and why) or stops it. It may extend a run twice by default; then you
+are asked, as before. A scheduled run can go on this way too, within the same bounds.
+
+```
+/defaults judge anthropic/claude-sonnet-5-5
+/set site-firma limits.judge true
+```
+
 ---
 
 ## Starting a project well

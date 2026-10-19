@@ -37,6 +37,12 @@ export interface ProjectLimits {
   readonly loop_repeat_threshold: number
   /** Steps in a row with no new result and no file changed before the run stops as stalled; 0 is off. */
   readonly stall_steps: number
+  /** Whether a judge model decides at a checkpoint before a person is asked. */
+  readonly judge: boolean
+  /** Steps one judge extension may grant; 0 is the checkpoint's own interval. */
+  readonly judge_extend_steps: number
+  /** How many times the judge may extend one run. */
+  readonly judge_max_extensions: number
 }
 
 /** A project's budget. */
@@ -210,6 +216,9 @@ export const projectConfigSchema = z.object({
       max_subagent_depth: z.number().default(1),
       loop_repeat_threshold: z.number().default(5),
       stall_steps: z.number().min(0).default(25),
+      judge: z.boolean().default(false),
+      judge_extend_steps: z.number().min(0).default(0),
+      judge_max_extensions: z.number().min(0).default(2),
     })
     .default({}),
   budget: z

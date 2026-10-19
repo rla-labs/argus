@@ -54,6 +54,7 @@ import {
   scheduleSkippedText,
   stalledText,
   stoppedText,
+  judgedText,
   type OutputSubject,
 } from './format.js'
 import type { ChannelSection } from './config.js'
@@ -998,6 +999,11 @@ export class OpsChannel {
   /** Deliver a stop notice. */
   async deliverStopped(runId: string, subject: OutputSubject, reason: string, detail: string): Promise<void> {
     await this.reply(this.requestAddressFor(runId), stoppedText(subject, reason, detail))
+  }
+
+  /** Tell the run's chat that the judge extended it. */
+  async deliverJudged(runId: string, subject: OutputSubject, steps: number, reason: string): Promise<void> {
+    await this.reply(this.requestAddressFor(runId), judgedText(subject, steps, reason))
   }
 
   /** Deliver an interruption notice. */

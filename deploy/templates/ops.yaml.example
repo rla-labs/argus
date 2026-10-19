@@ -129,6 +129,21 @@ limits:
   # Steps in a row with no new result and no file changed before a run is stopped as
   # stalled (it is going round in circles with varied calls). 0 turns the check off.
   stall_steps: 25
+  # A judge model may extend a run at its checkpoint, before you are asked: at most
+  # judge_max_extensions times, judge_extend_steps each (0: the checkpoint's interval).
+  # Its stop is always followed. Its model is judge.model below.
+  judge: false
+  judge_extend_steps: 0
+  judge_max_extensions: 2
+
+# ── judge ───────────────────────────────────────────────────────────────────────
+#
+# The model behind limits.judge. Without one, no project is judged. /defaults judge
+# sets it from the chat.
+
+# judge:
+#   model: anthropic/claude-sonnet-5-5
+#   timeout_s: 60
 
 # ── queues ──────────────────────────────────────────────────────────────────────
 

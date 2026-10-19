@@ -1612,32 +1612,36 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'defaults',
-        description: 'See or change the models for tasks and the front desk',
-        syntax: '/defaults [tasks|frontdesk <provider/model>]',
+        description: 'See or change the models for tasks, the front desk and the judge',
+        syntax: '/defaults [tasks|frontdesk|judge <provider/model>]',
         detail:
           'With nothing, shows the model a /task runs on and the front desk’s model. ' +
           'With a target and a model (admin), checks the model like /model (a key and a ' +
           'price), writes it to ops.yaml (tasks.model or orchestrator.model, comments ' +
           'kept), and applies it at once: the next task runs on it, and the front desk ' +
-          'starts a fresh conversation on it with the next message.',
-        examples: ['/defaults', '/defaults tasks deepseek/deepseek-flash', '/defaults frontdesk openrouter/z-ai/glm-5.3-flash'],
+          'starts a fresh conversation on it with the next message. `judge` is the model ' +
+          'that decides at a checkpoint for the projects with limits.judge on (judge.model); ' +
+          'a strong model, different from the projects\' own, is best.',
+        examples: ['/defaults', '/defaults tasks deepseek/deepseek-flash', '/defaults frontdesk openrouter/z-ai/glm-5.3-flash', '/defaults judge anthropic/claude-sonnet-5-5'],
         mutating: true,
       },
       async run(input, context): Promise<CommandResult> {
         const [target, modelText, ...extra] = tokenize(input)
         const adhoc = governor.adhocModel()
         const desk = options.frontDesk?.()
+        const judge = governor.judgeModel()
         if (target === undefined) {
           return result(
             `Tasks:      ${adhoc.provider}/${adhoc.model}\n` +
-              `Front desk: ${desk === undefined ? 'not running' : desk.currentModel()}\n\n` +
-              'Change one: /defaults tasks <provider/model> or /defaults frontdesk <provider/model>',
+              `Front desk: ${desk === undefined ? 'not running' : desk.currentModel()}\n` +
+              `Judge:      ${judge === undefined ? 'none (no project is judged)' : `${judge.provider}/${judge.model}`}\n\n` +
+              'Change one: /defaults tasks|frontdesk|judge <provider/model>',
           )
         }
         if (context.isAdmin !== true) return errorResult('Only the admin can change the defaults.')
-        const keyPath = target === 'tasks' ? ['tasks', 'model'] : target === 'frontdesk' ? ['orchestrator', 'model'] : undefined
+        const keyPath = target === 'tasks' ? ['tasks', 'model'] : target === 'frontdesk' ? ['orchestrator', 'model'] : target === 'judge' ? ['judge', 'model'] : undefined
         if (keyPath === undefined || modelText === undefined || extra.length > 0) {
-          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'defaults needs tasks or frontdesk, and one provider/model.')
+          return failWith({ syntax: this.spec.syntax } as CommandSpec, 'defaults needs tasks, frontdesk or judge, and one provider/model.')
         }
         if (target === 'frontdesk' && desk === undefined) return errorResult('There is no front desk in this deployment.')
         const parsed = parseModelRef(modelText)
@@ -1656,9 +1660,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           return errorResult(`Could not write ${file}: ${(err as Error).message}. Nothing was changed.`)
         }
         if (target === 'tasks') governor.setAdhocModel(parsed.value)
+        else if (target === 'judge') governor.setJudgeModel(parsed.value)
         else desk?.setModel(parsed.value.text)
-        const when = target === 'tasks' ? 'The next task runs on it.' : 'The front desk starts a fresh conversation on it with your next message.'
-        return result(`${target === 'tasks' ? 'Tasks' : 'Front desk'}: ${parsed.value.text}, written to ${file}. ${when}\n${priceLine(parsed.value)}`)
+        const label = { tasks: 'Tasks', frontdesk: 'Front desk', judge: 'Judge' }[target]
+        const when =
+          target === 'tasks'
+            ? 'The next task runs on it.'
+            : target === 'judge'
+              ? 'It decides at the next checkpoint of a project with limits.judge on.'
+              : 'The front desk starts a fresh conversation on it with your next message.'
+        return result(`${label}: ${parsed.value.text}, written to ${file}. ${when}\n${priceLine(parsed.value)}`)
       },
     },
 
@@ -1760,7 +1771,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           ...(limits.max_wallclock_min === 0 ? [] : [`${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}`]),
         ]
         const checkpoint = checkpoints.length === 0 ? 'no checkpoint' : `a checkpoint every ${checkpoints.join(' and every ')}`
-        const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${checkpoint}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
+        const judged = limits.judge
+          ? `; at a checkpoint the judge${governor.judgeModel() === undefined ? ' (no model: /defaults judge)' : ''} may extend it ${limits.judge_max_extensions} time(s) first${from('limits.judge')}`
+          : ''
+        const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${checkpoint}${judged}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
           `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +
