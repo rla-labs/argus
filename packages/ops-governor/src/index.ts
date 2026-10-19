@@ -105,7 +105,7 @@ export function apply(ctx: Context): void {
   // ── step enforcement ─────────────────────────────────────────────────────
   // A waterfall: returning `{ kind: 'reject' }` closes the turn cleanly, which
   // is the only way to stop a run at a step boundary (SPIKES.md spike 3).
-  ctx.on('agent/pre-step', async ({ agent }, next) => {
+  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     const decision = await next()
     const sessionId = agent.id as string
     // Only a governed run is stopped. An agent the governor never admitted —
@@ -114,7 +114,8 @@ export function apply(ctx: Context): void {
     if (!governor.isGoverned(sessionId)) return decision
     // A no-progress check may be looking at the folder: the step waits for its answer.
     await governor.settle(sessionId)
-    return governor.preStep(sessionId).kind === 'reject' ? { kind: 'reject' } : decision
+    // At a checkpoint this waits for the answer; the turn's signal ends the wait on a stop.
+    return (await governor.preStep(sessionId, signal)).kind === 'reject' ? { kind: 'reject' } : decision
   })
 
   // ── model downgrade ──────────────────────────────────────────────────────

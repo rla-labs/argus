@@ -260,7 +260,7 @@ What one did: /log site-firma <#>
 ```
 
 The status is `running`, `completed`, `aborted` (`/stop` or `/panic`), `error`,
-`budget_stopped`, `limit_stopped` (a step or time limit) or `interrupted` (cut off by a
+`budget_stopped`, `limit_stopped` (stopped at a checkpoint, at the step ceiling, or by the loop and no-progress checks) or `interrupted` (cut off by a
 restart; the startup report offers to retry it).
 
 ---
@@ -794,7 +794,7 @@ the file stays as it was and the reply says why.
 | `model` | `provider/model`; checked for a key and a price, like `/new` |
 | `fallback_model` | The cheaper model a `downgrade` budget switches to |
 | `budget.day_usd`, `budget.month_usd`, `budget.soft_action`, ... | The project's budget |
-| `limits.max_steps_per_run`, `limits.max_wallclock_min`, ... | The per-run limits |
+| `limits.max_steps_per_run`, `limits.max_wallclock_min`, `limits.max_steps_total`, ... | The per-run limits: the checkpoint (0 is none) and the ceiling |
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
 | `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
 | `tools.exceptions.<tool>` | One tool's access over its group's, e.g. `tools.exceptions.web_search allow` |

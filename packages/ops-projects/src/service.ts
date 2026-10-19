@@ -515,6 +515,19 @@ export class OpsProjects {
   }
 
   /**
+   * What changed in a project's folder since a run started, from its snapshot.
+   *
+   * @param projectId the project.
+   * @param runId the run.
+   * @returns files changed and lines added and removed, or undefined without snapshots.
+   */
+  async folderChanges(projectId: string, runId: string): Promise<{ readonly files: number; readonly added: number; readonly removed: number } | undefined> {
+    const config = this.configOf(projectId)
+    if (this.snapshots === undefined || config === undefined || !this.undoAvailable()) return undefined
+    return this.snapshots.changesSince(projectId, config.cwd, `refs/runs/${runId}`)
+  }
+
+  /**
    * A project's skills folder: `<state>/<id>/skills`, outside the project's folder, so
    * its agent cannot write itself a skill. `undefined` without a state directory.
    *

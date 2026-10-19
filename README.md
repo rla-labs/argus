@@ -115,6 +115,26 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
 
+## Coming in 0.6.0
+
+Long work that cannot run away. Already on `main`, not yet released:
+
+- **A project's own limits apply.** Its `limits:` (or its template's) were read and
+  ignored before; `/tools` shows the ones in force.
+- **Loops are judged by what changes.** The same call with the same result, or a cycle
+  of 2–3 calls going nowhere, stops the run; the same call with a new result (tests run
+  again after a fix) is progress.
+- **A run that brings nothing new stops**: 25 steps with no new result and no file
+  changed (`limits.stall_steps`).
+- **A checkpoint instead of a kill.** Every 60 steps (or 45 minutes) the run asks, with
+  what it did and **Continue / Stop** buttons; a scheduled run stops and says how to go
+  on. A ceiling per project (`limits.max_steps_total`, 1000 by default, set by the
+  templates) is never passed: a coding project may run for hundreds of steps, a short
+  fixed job can be held to a dozen.
+
+Still to come in 0.6.0: an optional judge model at the checkpoint, and the `office`
+extension.
+
 ## New in 0.5.0
 
 Autonomy with guard rails: fewer approvals, because more actions are safe by

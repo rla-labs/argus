@@ -1267,7 +1267,7 @@ describe('/new', () => {
     const tools = await run(booted, '/tools box')
     expect(tools).toContain('shell   ask (ops)')
     expect(tools).toContain('Commands unasked: docker ps, uptime, df -h (ops)')
-    expect(tools).toContain('Limits per run: 60 steps, 45 min, stopped after 5 identical calls in a row, or 25 steps with nothing new')
+    expect(tools).toContain('Limits per run: at most 1000 steps, a checkpoint every 60 steps and every 45 min; stopped after 5 identical calls in a row, or 25 steps with nothing new')
     expect(await run(booted, '/template ops')).toMatch(/auto_allow:[\s\S]*Followed by: box/)
 
     // The project's own list replaces the template's: a rule can be removed.

@@ -5,7 +5,7 @@
  *
  * @module @argus-agent/approvals-bridge/question
  */
-import type { Button } from '@argus-agent/types'
+import { formatUsd, type Button, type MicroUsd } from '@argus-agent/types'
 import { isCompound, renderAction, type ParsedAction } from './argv.js'
 
 /**
@@ -185,4 +185,58 @@ export function sanitize(text: string, maxLength: number): string {
   /* eslint-enable no-control-regex */
   const cleaned = withoutControls.replace(/ {2,}/g, ' ').trim()
   return cleaned.length <= maxLength ? cleaned : `${cleaned.slice(0, maxLength - 3)}...`
+}
+
+/** The checkpoint buttons' values. */
+export const CONTINUE = 'continue'
+export const STOP = 'stop'
+
+/** What a checkpoint question says. */
+export interface CheckpointInput {
+  readonly projectId: string | null
+  readonly runId: string
+  readonly reason: 'max_steps' | 'max_wallclock'
+  readonly steps: number
+  /** Steps a Continue grants. */
+  readonly more: number
+  readonly elapsedMs: number
+  /** Files changed since the run started; undefined without snapshots. */
+  readonly changes: { readonly files: number; readonly added: number; readonly removed: number } | undefined
+  readonly costMicros: number
+  readonly timeoutMinutes: number
+}
+
+/** The checkpoint's buttons. */
+export function checkpointButtons(more: number): Button[] {
+  return [
+    { value: CONTINUE, label: `Continue ${more} more step(s)` },
+    { value: STOP, label: 'Stop' },
+  ]
+}
+
+/**
+ * The checkpoint question: what the run did, so a person can tell work from wheel-spinning.
+ *
+ * @param input what the run did.
+ * @returns the text.
+ */
+export function checkpointQuestion(input: CheckpointInput): string {
+  const where = input.projectId === null ? 'an ad-hoc task' : `project ${input.projectId}`
+  const lines = [
+    `Checkpoint: ${where}`,
+    '',
+    `  run     ${input.runId}`,
+    `  steps   ${input.steps}`,
+    `  time    ${Math.round(input.elapsedMs / 60_000)} min`,
+  ]
+  if (input.changes !== undefined) {
+    lines.push(`  files   ${input.changes.files} changed (+${input.changes.added} −${input.changes.removed}) since it started`)
+  }
+  lines.push(
+    `  cost    ${formatUsd(input.costMicros as MicroUsd, { decimals: 4 })}`,
+    '',
+    input.reason === 'max_steps' ? `It reached its checkpoint after ${input.steps} steps.` : 'It reached its time checkpoint.',
+    `Continue gives it ${input.more} more step(s) and restarts the clock. No answer in ${input.timeoutMinutes} minute(s) stops it; its work is kept, and "continue" picks it up.`,
+  )
+  return lines.join('\n')
 }

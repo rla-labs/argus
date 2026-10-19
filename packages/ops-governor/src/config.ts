@@ -58,10 +58,12 @@ export interface BudgetsConfig {
 
 /** Per-run limits. */
 export interface LimitsConfig {
-  /** Steps allowed in one run. */
+  /** Steps between checkpoints, where a person (or a schedule's rule) decides whether the run goes on; 0 is none. */
   readonly max_steps_per_run: number
-  /** Wall-clock minutes allowed in one run. */
+  /** Minutes between checkpoints; 0 is none. */
   readonly max_wallclock_min: number
+  /** Steps one run never passes, whatever is answered at a checkpoint. */
+  readonly max_steps_total: number
   /** How many identical consecutive tool calls count as a loop. */
   readonly loop_repeat_threshold: number
   /** Steps in a row with no new result and no file changed before a run is stopped as stalled; 0 is off. */
@@ -116,8 +118,9 @@ export const budgetsSchema: Schema = z
 /** The `limits` section. */
 export const limitsSchema: Schema = z
   .object({
-    max_steps_per_run: z.number().min(1).default(60),
-    max_wallclock_min: z.number().min(1).default(45),
+    max_steps_per_run: z.number().min(0).default(60),
+    max_wallclock_min: z.number().min(0).default(45),
+    max_steps_total: z.number().min(1).default(1000),
     loop_repeat_threshold: z.number().min(2).default(5),
     stall_steps: z.number().min(0).default(25),
     max_subagent_depth: z.number().min(0).default(1),

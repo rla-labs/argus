@@ -26,7 +26,7 @@ import type { OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import type { ConsoleChannelAdapter } from '@argus-agent/testkit'
 import type { OpsApprovalsBridge } from '../../src/service.js'
-import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '../../src/question.js'
+import { ALWAYS, APPROVE, APPROVE_ALL, CONTINUE, DENY, STOP } from '../../src/question.js'
 
 interface Booted {
   readonly boot: OpsBoot
@@ -1221,4 +1221,61 @@ describe('health', () => {
     expect(booted.bridge.dshPolicyFor('ask')).toBe('ask')
     expect(booted.bridge.dshPolicyFor('auto')).toBe('ask')
   }, 40_000)
+})
+
+describe('checkpoint', () => {
+  /** A project that works without end: a new tool argument at every step, so only its checkpoint stops it. */
+  async function endless(): Promise<{ booted: Booted; adapter: ConsoleChannelAdapter; stops: string[] }> {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-cp-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 2\n  loop_repeat_threshold: 99\n  stall_steps: 0\ntools:\n  other: allow` },
+      script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n }), id: `c${n}` }] })),
+    })
+    const adapter = await withConsole(booted)
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
+    )
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ detail }) => stops.push(detail))
+    return { booted, adapter, stops }
+  }
+
+  it('asks the person with what the run did, continues on Continue and stops on Stop', async () => {
+    const { booted, adapter, stops } = await endless()
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the first checkpoint' })
+    const first = adapter.pendingQuestion
+    expect(first?.text).toContain('Checkpoint: project alpha')
+    expect(first?.text).toContain('steps   2')
+    expect(first?.text).toContain('Continue gives it 2 more step(s)')
+    expect(first?.buttons.map((button) => button.value)).toEqual([CONTINUE, STOP])
+    // It waits: the run holds its slot.
+    expect(booted.governor.status().running).toHaveLength(1)
+    adapter.answer(CONTINUE, 'dev')
+    await waitFor(() => adapter.pendingQuestion?.text.includes('steps   4') === true, { timeoutMs: 20_000, label: 'the second checkpoint' })
+    adapter.answer(STOP, 'dev')
+    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
+    expect(stops).toEqual(['the run reached its checkpoint after 4 steps: stopped by a person'])
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 4 })
+  }, 60_000)
+
+  it('stops a run nobody answers', async () => {
+    const { booted, adapter, stops } = await endless()
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the checkpoint' })
+    adapter.timeout()
+    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
+    expect(stops).toEqual(['the run reached its checkpoint after 2 steps: no answer in 30 minute(s)'])
+  }, 60_000)
+
+  it('stops a scheduled run at its checkpoint without asking, and says how to go on', async () => {
+    const { booted, adapter, stops } = await endless()
+    booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
+    await waitFor(() => stops.length > 0 && booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
+    expect(adapter.pendingCount).toBe(0)
+    expect(stops).toEqual(['the run reached its checkpoint after 2 steps: a scheduled run does not wait for an answer; to go on, /p alpha, then "continue"'])
+  }, 60_000)
 })

@@ -156,8 +156,9 @@ desk use these.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `max_steps_per_run` | int | `60` | Tool-call steps before a run stops. |
-| `max_wallclock_min` | int | `45` | Wall-clock minutes before a run stops. |
+| `max_steps_per_run` | int | `60` | The **checkpoint**: every this many steps the run pauses and asks the person it works for, with what it did (steps, files changed, cost) and two buttons, **Continue N more** and **Stop**. No answer within `approvals.timeout_minutes` stops it. A scheduled run does not wait: it stops, and the report says how to go on. Either way its work, files and memory are kept, and "continue" picks it up. `0`: no checkpoint by steps. |
+| `max_wallclock_min` | int | `45` | The same checkpoint by time: minutes since the run started or was last continued. `0`: none by time. |
+| `max_steps_total` | int | `1000` | The **ceiling**: steps one run never passes, whatever is answered at a checkpoint. Set it per project for the work it does: a coding project may need hundreds of steps, a project that renders and cuts a clip a dozen (leave room for a retry: 15–20). |
 | `max_tokens_per_request` | int | `8000` | Tokens in one model request. |
 | `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
 | `loop_repeat_threshold` | int | `5` | How many times in a row the same call **with the same result** (or a cycle of 2–3 such calls, like read-edit-read-edit) may repeat before the run is stopped as a loop. The same call with a different result (tests run again after a fix) is progress. Times, durations, ids and temp paths are ignored in the comparison. |

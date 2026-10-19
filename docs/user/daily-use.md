@@ -83,6 +83,19 @@ waiting), and `/status` (nothing unexpected running). Approvals left unanswered 
 refused when they time out, so leaving one open is safe; the work just stops at that
 step.
 
+**Long work pauses at a checkpoint.** Every 60 steps (the project's
+`limits.max_steps_per_run`; 100 for a `site` project) the agent stops to ask, with what
+it did so far (steps, files changed, cost) and two buttons: **Continue N more** and
+**Stop**. It waits in place, so nothing is lost; no answer within the approvals timeout
+stops it, and "continue" picks it up later. A scheduled run never waits: it stops and
+says so. No run passes its ceiling, `limits.max_steps_total` (1000 by default; set it
+low for short, fixed jobs):
+
+```
+/set clipuri limits.max_steps_total 15
+/set clipuri limits.max_steps_per_run 0      no checkpoint: the ceiling is enough
+```
+
 ---
 
 ## Starting a project well

@@ -37,6 +37,7 @@ import {
   stepKey,
   MAX_LOOP_CYCLE,
   type RejectCode,
+  type CheckpointReason,
   type StopReason,
   type StepLimits,
 } from './decide.js'
@@ -120,6 +121,28 @@ export interface GovernorOptions {
   readonly now: () => number
 }
 
+/** What a run did by its checkpoint, for whoever decides whether it goes on. */
+export interface CheckpointQuestion {
+  readonly runId: string
+  readonly owner: Owner
+  readonly reason: CheckpointReason
+  /** Steps so far. */
+  readonly steps: number
+  /** Steps a Continue grants: the checkpoint interval, cut at the ceiling. */
+  readonly more: number
+  readonly startedAt: number
+}
+
+/** The answer at a checkpoint. `stop` carries what the run's stop notice says. */
+export type CheckpointAnswer = { readonly kind: 'continue' } | { readonly kind: 'stop'; readonly detail: string }
+
+/**
+ * Decides at a checkpoint. `ops-approvals-bridge` registers one: it knows who to
+ * ask and whether anyone is watching. The signal aborts when the run is stopped
+ * while it waits.
+ */
+export type CheckpointAsker = (question: CheckpointQuestion, signal: AbortSignal) => Promise<CheckpointAnswer>
+
 /** Per-run bookkeeping the governor keeps in memory. */
 interface RunTrack {
   readonly runId: string
@@ -153,6 +176,10 @@ interface RunTrack {
    * matched against what this observed.
    */
   lastToolCall: { name: string; args: unknown } | undefined
+  /** The step count of the next checkpoint, once a Continue moved it. */
+  checkpointAt?: number
+  /** When the current time window started, once a Continue restarted it. */
+  windowStartedAt?: number
   /** Set when a step was rejected, so the terminal status is known at idle. */
   pendingStop: { reason: StopReason; detail: string } | undefined
   /** Whether the downgrade was already audited for this run. */
@@ -187,6 +214,9 @@ export class OpsGovernor {
   private dispatchQueued = false
   private ticker: ReturnType<typeof setInterval> | undefined
   private disposed = false
+
+  /** Who decides at a checkpoint; without one a checkpoint stops the run. */
+  private checkpointAsker: CheckpointAsker | undefined
 
   /** `/defaults tasks`, until a restart reads it from `ops.yaml`. */
   private adhocOverride: { provider: string; model: string } | undefined
@@ -903,46 +933,61 @@ export class OpsGovernor {
     return {
       maxSteps: limits.max_steps_per_run,
       maxWallclockMs: limits.max_wallclock_min * 60_000,
+      maxStepsTotal: limits.max_steps_total,
       loopRepeatThreshold: limits.loop_repeat_threshold,
       stallSteps: limits.stall_steps,
     }
   }
 
   /**
+   * Set who decides at a checkpoint.
+   *
+   * @param asker the decider.
+   * @returns a function that removes it (a Cordis effect's cleanup).
+   */
+  setCheckpointAsker(asker: CheckpointAsker): () => void {
+    this.checkpointAsker = asker
+    return () => {
+      if (this.checkpointAsker === asker) this.checkpointAsker = undefined
+    }
+  }
+
+  /**
    * Decide whether a step may proceed. Called from the `agent/pre-step` listener.
    *
+   * At a checkpoint the step **waits** for the asker's answer: the run keeps its
+   * context, folder and slot. Continue moves the next checkpoint by the interval and
+   * restarts the time window; anything else stops the run cleanly.
+   *
    * @param sessionId the session whose step is starting.
+   * @param signal the turn's cancellation signal: a stop while waiting ends the wait.
    * @returns whether to allow it.
    */
-  preStep(sessionId: string): { kind: 'allow' } | { kind: 'reject' } {
+  async preStep(sessionId: string, signal?: AbortSignal): Promise<{ kind: 'allow' } | { kind: 'reject' }> {
     const track = this.running.get(sessionId)
     if (track === undefined) return { kind: 'allow' }
 
-    // The budget is re-read here rather than cached, because a turn can outlive
-    // the check that admitted it.
-    const budgetLevel = this.worstBudgetLevel(track.owner)
-    const verdict = decideStep(
-      {
-        runId: track.runId,
-        steps: track.steps,
-        startedAt: track.startedAt,
-        recentToolCalls: track.recentToolCalls,
-        ...(track.stalled === undefined ? {} : { stalled: track.stalled }),
-        budgetLevel,
-        ...(this.worstBudgetScope(track.owner) === undefined
-          ? {}
-          : { budgetScope: this.worstBudgetScope(track.owner) }),
-      },
-      this.stepLimitsOf(track.owner),
-      this.options.now(),
-    )
+    const limits = this.stepLimitsOf(track.owner)
+    let verdict = this.verdictOf(track, limits)
+    if (verdict.kind === 'checkpoint') {
+      const answer = await this.atCheckpoint(track, verdict.reason, limits, signal)
+      if (answer.kind === 'continue') {
+        track.checkpointAt = track.steps + limits.maxSteps
+        track.windowStartedAt = this.options.now()
+        // The budget or the ceiling may have moved while it waited.
+        verdict = this.verdictOf(track, limits)
+      } else {
+        verdict = { kind: 'reject', reason: verdict.reason, detail: `${verdict.detail}: ${answer.detail}` }
+      }
+    }
 
     if (verdict.kind === 'allow') {
       track.steps += 1
       this.options.store.runs.setSteps(track.runId, track.steps)
       return { kind: 'allow' }
     }
-
+    // A second checkpoint right after a Continue cannot happen (both windows restart);
+    // it is read as a stop all the same.
     track.pendingStop = { reason: verdict.reason, detail: verdict.detail }
     this.ctx.emit('ops/run-stopped', {
       runId: track.runId,
@@ -951,6 +996,62 @@ export class OpsGovernor {
       detail: verdict.detail,
     })
     return { kind: 'reject' }
+  }
+
+  /** The step verdict for a run now. */
+  private verdictOf(track: RunTrack, limits: StepLimits): ReturnType<typeof decideStep> {
+    // The budget is re-read here rather than cached, because a turn can outlive
+    // the check that admitted it.
+    const budgetScope = this.worstBudgetScope(track.owner)
+    return decideStep(
+      {
+        runId: track.runId,
+        steps: track.steps,
+        startedAt: track.startedAt,
+        ...(track.checkpointAt === undefined ? {} : { checkpointAt: track.checkpointAt }),
+        ...(track.windowStartedAt === undefined ? {} : { windowStartedAt: track.windowStartedAt }),
+        recentToolCalls: track.recentToolCalls,
+        ...(track.stalled === undefined ? {} : { stalled: track.stalled }),
+        budgetLevel: this.worstBudgetLevel(track.owner),
+        ...(budgetScope === undefined ? {} : { budgetScope }),
+      },
+      limits,
+      this.options.now(),
+    )
+  }
+
+  /**
+   * Ask whoever decides at a checkpoint. No asker, a failure or a stop of the run
+   * while it waits is a stop: the safe answer is the default.
+   */
+  private async atCheckpoint(track: RunTrack, reason: CheckpointReason, limits: StepLimits, signal: AbortSignal | undefined): Promise<CheckpointAnswer> {
+    const asker = this.checkpointAsker
+    if (asker === undefined) return { kind: 'stop', detail: 'nobody can be asked to continue it' }
+    const controller = new AbortController()
+    const onAbort = (): void => controller.abort()
+    signal?.addEventListener('abort', onAbort, { once: true })
+    const stopped = new Promise<CheckpointAnswer>((resolve) => {
+      const done = (): void => resolve({ kind: 'stop', detail: 'it was stopped while it waited' })
+      if (controller.signal.aborted) done()
+      else controller.signal.addEventListener('abort', done, { once: true })
+    })
+    const question: CheckpointQuestion = {
+      runId: track.runId,
+      owner: track.owner,
+      reason,
+      steps: track.steps,
+      more: Math.max(0, Math.min(limits.maxSteps > 0 ? limits.maxSteps : limits.maxStepsTotal, limits.maxStepsTotal - track.steps)),
+      startedAt: track.startedAt,
+    }
+    try {
+      return await Promise.race([asker(question, controller.signal), stopped])
+    } catch (error) {
+      this.ctx.logger('ops-governor').warn('checkpoint for run %s failed: %s', track.runId, (error as Error).message)
+      return { kind: 'stop', detail: 'the question could not be asked' }
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+      controller.abort()
+    }
   }
 
   /** The worst budget level across a run's applicable scopes. */

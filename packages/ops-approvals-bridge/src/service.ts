@@ -27,12 +27,12 @@ import {
 } from '@argus-agent/types'
 import type { ApprovalStatus, OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
-import type { OpsGovernor } from '@argus-agent/governor'
+import type { CheckpointAnswer, CheckpointQuestion, OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
 import { argumentsOf } from '@argus-agent/governor'
 import { isReadOnlyCommand, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
-import { ALWAYS, APPROVE, APPROVE_ALL, DENY, alwaysButton, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, ruleCommand, sanitize, type AlwaysRule } from './question.js'
+import { ALWAYS, APPROVE, APPROVE_ALL, CONTINUE, DENY, alwaysButton, checkpointButtons, checkpointQuestion, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, ruleCommand, sanitize, type AlwaysRule } from './question.js'
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
 
@@ -466,6 +466,44 @@ export class OpsApprovalsBridge {
     // Fall back to the channel's default, so a project whose address is unknown
     // still reaches the operator rather than being refused for want of a chat.
     return this.options.channel.defaultAddress()
+  }
+
+  /**
+   * Decide at a run's checkpoint: a scheduled run stops, an interactive one asks the
+   * person it works for. Registered with the governor as its checkpoint asker.
+   *
+   * @param question what the run did by its checkpoint.
+   * @param signal aborts when the run is stopped while it waits.
+   * @returns continue, or stop with what the stop notice says.
+   */
+  async checkpoint(question: CheckpointQuestion, signal: AbortSignal): Promise<CheckpointAnswer> {
+    const projectId = question.owner.kind === 'project' ? question.owner.projectId : null
+    if (this.isUnattended(question.runId)) {
+      return { kind: 'stop', detail: projectId === null ? 'a scheduled run does not wait for an answer' : `a scheduled run does not wait for an answer; to go on, /p ${projectId}, then "continue"` }
+    }
+    if (question.more === 0) return { kind: 'stop', detail: 'no step is left under its ceiling' }
+    const address = this.addressFor(projectId, question.runId)
+    if (address === undefined || !this.options.channel.canReach(address)) return { kind: 'stop', detail: 'nobody can be reached to ask' }
+    const timeoutMinutes = this.timeoutMinutesFor(projectId)
+    const text = checkpointQuestion({
+      projectId,
+      runId: question.runId,
+      reason: question.reason,
+      steps: question.steps,
+      more: question.more,
+      elapsedMs: this.options.now() - question.startedAt,
+      changes: projectId === null ? undefined : await this.options.projects.folderChanges(projectId, question.runId),
+      costMicros: this.options.store.usage.totalsByRun(question.runId).cost_micros,
+      timeoutMinutes,
+    })
+    const questionId = `checkpoint:${question.runId}:${question.steps}`
+    const answer = await this.options.channel.ask(address, text, checkpointButtons(question.more), timeoutMinutes * 60_000, questionId)
+    // ponytail: a run stopped while it waited leaves the buttons up until they time out; pressing them then changes nothing.
+    if (signal.aborted) return { kind: 'stop', detail: 'it was stopped while it waited' }
+    if (answer === 'timeout') return { kind: 'stop', detail: `no answer in ${timeoutMinutes} minute(s)` }
+    const continued = answer.value === CONTINUE
+    this.ctx.logger('ops-approvals').info('run %s %s at its checkpoint by %s', question.runId, continued ? 'continued' : 'stopped', this.options.channel.answeredBy(questionId) ?? 'unknown')
+    return continued ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by a person' }
   }
 
   /** Whether a run was started by a schedule: nobody is watching it. */

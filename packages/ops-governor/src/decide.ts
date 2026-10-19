@@ -361,19 +361,29 @@ export type StopReason =
   | 'budget_stopped'
   | 'max_steps'
   | 'max_wallclock'
+  | 'max_steps_total'
   | 'loop_detected'
   | 'stalled'
+
+/** The two limits that ask instead of stopping: a run reached its checkpoint. */
+export type CheckpointReason = Extract<StopReason, 'max_steps' | 'max_wallclock'>
 
 /** What to do with a step. */
 export type StepVerdict =
   | { readonly kind: 'allow' }
   | { readonly kind: 'reject'; readonly reason: StopReason; readonly detail: string }
+  /** The run reached its checkpoint: someone decides whether it goes on. */
+  | { readonly kind: 'checkpoint'; readonly reason: CheckpointReason; readonly detail: string }
 
 /** The per-run facts a step decision reads. */
 export interface RunView {
   readonly runId: string
   readonly steps: number
   readonly startedAt: number
+  /** The step count of the next checkpoint, once a Continue moved it; else `maxSteps`. */
+  readonly checkpointAt?: number
+  /** When the current time window started, once a Continue restarted it; else `startedAt`. */
+  readonly windowStartedAt?: number
   /** The most recent steps (a call and its result, {@link stepKey}), oldest first. */
   readonly recentToolCalls: readonly string[]
   /** Set when the no-progress check found the run stalled: what it saw. */
@@ -385,8 +395,12 @@ export interface RunView {
 
 /** The limits a step decision enforces. */
 export interface StepLimits {
+  /** Steps between checkpoints; 0 is none. */
   readonly maxSteps: number
+  /** Time between checkpoints; 0 is none. */
   readonly maxWallclockMs: number
+  /** Steps no checkpoint answer can pass. */
+  readonly maxStepsTotal: number
   readonly loopRepeatThreshold: number
   /** Steps in a row with nothing new before a run is stalled; 0 is off. */
   readonly stallSteps: number
@@ -397,7 +411,9 @@ export interface StepLimits {
  *
  * Read in this order so the *most specific* cause is reported: a run that both
  * ran out of budget and hit its step limit should say `budget_stopped`, because
- * that is what the operator can act on.
+ * that is what the operator can act on. The hard stops (budget, the ceiling, the
+ * detectors) come before the checkpoint, so a run going nowhere is never offered a
+ * Continue.
  *
  * @param run the run's facts.
  * @param limits the configured limits.
@@ -413,21 +429,11 @@ export function decideStep(run: RunView, limits: StepLimits, now: number): StepV
     }
   }
 
-  if (run.steps >= limits.maxSteps) {
+  if (run.steps >= limits.maxStepsTotal) {
     return {
       kind: 'reject',
-      reason: 'max_steps',
-      detail: `the run reached its ${limits.maxSteps}-step limit`,
-    }
-  }
-
-  const elapsed = now - run.startedAt
-  if (elapsed >= limits.maxWallclockMs) {
-    const minutes = Math.round(limits.maxWallclockMs / 60_000)
-    return {
-      kind: 'reject',
-      reason: 'max_wallclock',
-      detail: `the run exceeded its ${minutes}-minute wall-clock limit`,
+      reason: 'max_steps_total',
+      detail: `the run reached its ceiling of ${limits.maxStepsTotal} steps`,
     }
   }
 
@@ -444,6 +450,23 @@ export function decideStep(run: RunView, limits: StepLimits, now: number): StepV
   }
 
   if (run.stalled !== undefined) return { kind: 'reject', reason: 'stalled', detail: run.stalled }
+
+  if (limits.maxSteps > 0 && run.steps >= (run.checkpointAt ?? limits.maxSteps)) {
+    return {
+      kind: 'checkpoint',
+      reason: 'max_steps',
+      detail: `the run reached its checkpoint after ${run.steps} steps`,
+    }
+  }
+
+  if (limits.maxWallclockMs > 0 && now - (run.windowStartedAt ?? run.startedAt) >= limits.maxWallclockMs) {
+    const minutes = Math.round(limits.maxWallclockMs / 60_000)
+    return {
+      kind: 'checkpoint',
+      reason: 'max_wallclock',
+      detail: `the run has worked ${minutes} minutes since it started or was last continued`,
+    }
+  }
 
   return { kind: 'allow' }
 }

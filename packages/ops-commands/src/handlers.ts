@@ -1501,7 +1501,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         detail:
           'Writes the setting into the project’s file and reloads it, so the change is ' +
           'durable and checked by the same rules as at startup. A value that does not ' +
-          'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_per_run, ' +
+          'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_per_run (the checkpoint; 0 is none), limits.max_steps_total, ' +
           'approvals.mode, approvals.auto_allow, description, fallback_model, preset, progress. ' +
           '`model` takes provider/model. id and cwd cannot be changed. A list is written ' +
           '[like, this], whole: it replaces the template\'s. `template none` writes the ' +
@@ -1509,6 +1509,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'one. Only the admin can run it.',
         examples: [
           '/set site-firma budget.day_usd 5',
+          '/set clipuri limits.max_steps_total 15',
           '/set site-firma approvals.auto_allow [git status, npm test]',
           '/set site-firma model openrouter/deepseek/deepseek-v4-flash',
           '/set site-firma description The company website and its blog',
@@ -1754,7 +1755,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         const { limits } = config
-        const limitsLine = `\nLimits per run: ${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}, ${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}, stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
+        const checkpoints = [
+          ...(limits.max_steps_per_run === 0 ? [] : [`${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}`]),
+          ...(limits.max_wallclock_min === 0 ? [] : [`${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}`]),
+        ]
+        const checkpoint = checkpoints.length === 0 ? 'no checkpoint' : `a checkpoint every ${checkpoints.join(' and every ')}`
+        const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${checkpoint}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
           `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +

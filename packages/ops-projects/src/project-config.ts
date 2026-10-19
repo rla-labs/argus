@@ -26,8 +26,12 @@ export const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,40}$/
 
 /** Per-run limits. */
 export interface ProjectLimits {
+  /** Steps between checkpoints; 0 is none. */
   readonly max_steps_per_run: number
+  /** Minutes between checkpoints; 0 is none. */
   readonly max_wallclock_min: number
+  /** Steps one run never passes, whatever is answered at a checkpoint. */
+  readonly max_steps_total: number
   readonly max_tokens_per_request: number
   readonly max_subagent_depth: number
   readonly loop_repeat_threshold: number
@@ -199,8 +203,9 @@ export const projectConfigSchema = z.object({
   preset: z.string().description('The dsh agent preset mounted into this project scope'),
   limits: z
     .object({
-      max_steps_per_run: z.number().default(60),
-      max_wallclock_min: z.number().default(45),
+      max_steps_per_run: z.number().min(0).default(60),
+      max_wallclock_min: z.number().min(0).default(45),
+      max_steps_total: z.number().min(1).default(1000),
       max_tokens_per_request: z.number().default(8000),
       max_subagent_depth: z.number().default(1),
       loop_repeat_threshold: z.number().default(5),

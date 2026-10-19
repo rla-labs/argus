@@ -117,6 +117,24 @@ export class Snapshots {
   }
 
   /**
+   * What changed in the folder since a snapshot.
+   *
+   * @param projectId the project.
+   * @param cwd its folder.
+   * @param ref the snapshot's ref (`refs/runs/<runId>`).
+   * @returns the changes, or undefined when the ref does not exist.
+   */
+  async changesSince(projectId: string, cwd: string, ref: string): Promise<SnapshotEntry['changes'] | undefined> {
+    return this.locked(projectId, async () => {
+      try {
+        return await this.changes(projectId, ref, await this.stage(projectId, cwd))
+      } catch {
+        return undefined
+      }
+    })
+  }
+
+  /**
    * The newest snapshots, newest first.
    *
    * @param projectId the project.

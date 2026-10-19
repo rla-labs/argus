@@ -50,6 +50,8 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       // no database, no other project) and /undo takes a run back. The web still asks, so
       // a page it reads cannot steer the commands it then runs.
       tools: { read: 'allow', write: 'allow', shell: 'allow', web: 'ask' },
+      // Code takes long runs: a person is asked every 100 steps, up to 1000.
+      limits: { max_steps_per_run: 100, max_steps_total: 1000 },
     },
   },
   {
@@ -65,6 +67,7 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
     ].join('\n'),
     settings: {
       tools: { read: 'allow', write: 'allow', shell: 'deny', web: 'allow' },
+      limits: { max_steps_total: 300 },
     },
   },
   {
@@ -80,6 +83,7 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
     ].join('\n'),
     settings: {
       tools: { read: 'allow', write: 'allow', shell: 'ask', web: 'allow' },
+      limits: { max_steps_total: 150 },
     },
   },
   {
@@ -99,7 +103,7 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       approvals: {
         auto_allow: ['top -b -n 1', 'systemctl status *', 'journalctl *', 'docker ps', 'docker logs *', 'docker stats --no-stream', 'ping -c *', 'ss', 'ip addr', 'apt list *'],
       },
-      limits: { max_steps_per_run: 80 },
+      limits: { max_steps_per_run: 80, max_steps_total: 300 },
     },
   },
 ]

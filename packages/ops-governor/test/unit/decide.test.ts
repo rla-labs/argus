@@ -702,7 +702,7 @@ describe('checkBudgets', () => {
 // ── decideStep ─────────────────────────────────────────────────────────────
 
 describe('decideStep', () => {
-  const limits = { maxSteps: 10, maxWallclockMs: 60_000, loopRepeatThreshold: 3, stallSteps: 0 }
+  const limits = { maxSteps: 10, maxWallclockMs: 60_000, maxStepsTotal: 100, loopRepeatThreshold: 3, stallSteps: 0 }
   const run = {
     runId: 'run-1',
     steps: 0,
@@ -715,9 +715,27 @@ describe('decideStep', () => {
     expect(decideStep(run, limits, 1_000)).toEqual({ kind: 'allow' })
   })
 
-  it('rejects at the step limit', () => {
+  it('reaches a checkpoint at the step limit', () => {
     const verdict = decideStep({ ...run, steps: 10 }, limits, 1_000)
-    expect(verdict).toMatchObject({ kind: 'reject', reason: 'max_steps' })
+    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
+  })
+
+  it('moves the checkpoint once a Continue set it', () => {
+    expect(decideStep({ ...run, steps: 15, checkpointAt: 20 }, limits, 1_000)).toEqual({ kind: 'allow' })
+    expect(decideStep({ ...run, steps: 20, checkpointAt: 20 }, limits, 1_000)).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
+  })
+
+  it('has no checkpoint at 0', () => {
+    expect(decideStep({ ...run, steps: 50 }, { ...limits, maxSteps: 0, maxWallclockMs: 0 }, 999_999)).toEqual({ kind: 'allow' })
+  })
+
+  it('rejects at the ceiling, which no checkpoint passes', () => {
+    expect(decideStep({ ...run, steps: 100, checkpointAt: 200 }, limits, 1_000)).toEqual({ kind: 'reject', reason: 'max_steps_total', detail: 'the run reached its ceiling of 100 steps' })
+    expect(decideStep({ ...run, steps: 100 }, { ...limits, maxSteps: 0 }, 1_000)).toMatchObject({ reason: 'max_steps_total' })
+  })
+
+  it('stops a loop rather than offer it a checkpoint', () => {
+    expect(decideStep({ ...run, steps: 10, recentToolCalls: ['read\u0000{}', 'read\u0000{}', 'read\u0000{}'] }, limits, 1_000)).toMatchObject({ kind: 'reject', reason: 'loop_detected' })
   })
 
   it('rejects a run the no-progress check found stalled, with what it saw', () => {
@@ -728,9 +746,9 @@ describe('decideStep', () => {
     expect(decideStep({ ...run, steps: 9 }, limits, 1_000)).toEqual({ kind: 'allow' })
   })
 
-  it('rejects past the wall-clock limit', () => {
-    const verdict = decideStep(run, limits, 60_000)
-    expect(verdict).toMatchObject({ kind: 'reject', reason: 'max_wallclock' })
+  it('reaches a checkpoint past the wall-clock limit, counted from the last Continue', () => {
+    expect(decideStep(run, limits, 60_000)).toMatchObject({ kind: 'checkpoint', reason: 'max_wallclock' })
+    expect(decideStep({ ...run, windowStartedAt: 50_000 }, limits, 60_000)).toEqual({ kind: 'allow' })
   })
 
   it('allows the step just inside the wall-clock limit', () => {
@@ -751,7 +769,7 @@ describe('decideStep', () => {
 
   it('reports max_steps over max_wallclock when both apply', () => {
     const verdict = decideStep({ ...run, steps: 99 }, limits, 999_999)
-    expect(verdict).toMatchObject({ reason: 'max_steps' })
+    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
   })
 
   it('rejects a detected loop', () => {

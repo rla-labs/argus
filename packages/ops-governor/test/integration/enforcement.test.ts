@@ -801,7 +801,7 @@ describe('per-run limits', () => {
     submit(booted, 'alpha', 'go')
     await waitIdle(booted, 'step limit')
     // FACT: before 0.6 the project's 3 was ignored and ops.yaml's 50 applied.
-    expect(details).toContain('the run reached its 3-step limit')
+    expect(details).toContain('the run reached its checkpoint after 3 steps: nobody can be asked to continue it')
   }, 45_000)
 
   it('stops a run that exceeds its wall-clock limit', async () => {
@@ -828,10 +828,10 @@ describe('per-run limits', () => {
         recentToolCalls: [],
         budgetLevel: 'ok',
       },
-      { maxSteps: 50, maxWallclockMs: 60_000, loopRepeatThreshold: 5, stallSteps: 0 },
+      { maxSteps: 50, maxWallclockMs: 60_000, maxStepsTotal: 1000, loopRepeatThreshold: 5, stallSteps: 0 },
       60_000,
     )
-    expect(verdict).toMatchObject({ kind: 'reject', reason: 'max_wallclock' })
+    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_wallclock' })
     void booted
     void reasons
   }, 30_000)
@@ -1100,6 +1100,88 @@ describe('edge cases', () => {
 })
 
 // ── the no-bypass rule ─────────────────────────────────────────────────────
+
+describe('checkpoint', () => {
+  /** A project whose model calls a tool with a new argument at every step, so only the limits stop it. */
+  async function ticking(limits: string): Promise<Booted> {
+    const booted = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 0\n${limits}${PRICING}`,
+      script: Array.from({ length: 60 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n }), id: `c${n}` }] })),
+      repeatLast: true,
+    })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
+    )
+    return booted
+  }
+
+  it('waits for the answer and goes on after Continue, then stops on Stop', async () => {
+    const booted = await ticking('  max_steps_per_run: 3\n')
+    const asked: Array<{ steps: number; more: number }> = []
+    booted.governor.setCheckpointAsker(async ({ steps, more }) => {
+      asked.push({ steps, more })
+      return asked.length === 1 ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by test' }
+    })
+    const stops: Array<{ reason: string; detail: string }> = []
+    booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push({ reason, detail }))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped at the second checkpoint')
+    expect(asked).toEqual([{ steps: 3, more: 3 }, { steps: 6, more: 3 }])
+    expect(stops).toEqual([{ reason: 'max_steps', detail: 'the run reached its checkpoint after 6 steps: stopped by test' }])
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 6 })
+  }, 45_000)
+
+  it('never passes the ceiling, whatever is answered', async () => {
+    const booted = await ticking('  max_steps_per_run: 3\n  max_steps_total: 7\n')
+    const more: number[] = []
+    booted.governor.setCheckpointAsker(async (question) => {
+      more.push(question.more)
+      return { kind: 'continue' }
+    })
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ reason }) => stops.push(reason))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped at the ceiling')
+    // The second Continue offers only the one step left under the ceiling.
+    expect(more).toEqual([3, 1])
+    expect(stops).toEqual(['max_steps_total'])
+    expect(booted.store.runs.recent(1)[0]?.steps).toBe(7)
+  }, 45_000)
+
+  it('stops a run stopped while it waits', async () => {
+    const booted = await ticking('  max_steps_per_run: 2\n')
+    let asked = false
+    let aborted = false
+    booted.governor.setCheckpointAsker((_question, signal) => {
+      asked = true
+      signal.addEventListener('abort', () => (aborted = true))
+      return new Promise(() => undefined)
+    })
+    const details: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
+    submit(booted, 'alpha', 'go')
+    await waitFor(() => asked, { timeoutMs: 20_000, label: 'the checkpoint asked' })
+    expect(booted.governor.status().running).toHaveLength(1)
+    expect(booted.governor.stop({ projectId: 'alpha' })).toBe(true)
+    await waitIdle(booted, 'stopped while waiting')
+    expect(details).toEqual(['the run reached its checkpoint after 2 steps: it was stopped while it waited'])
+    expect(aborted).toBe(true)
+  }, 45_000)
+
+  it('stops when the question fails', async () => {
+    const booted = await ticking('  max_steps_per_run: 2\n')
+    booted.governor.setCheckpointAsker(async () => {
+      throw new Error('no chat')
+    })
+    const details: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped')
+    expect(details).toEqual(['the run reached its checkpoint after 2 steps: the question could not be asked'])
+  }, 45_000)
+})
 
 describe('ADR 0002: no execution path bypasses submit', () => {
   it('calls opsProjects.deliver only from ops-governor', async () => {

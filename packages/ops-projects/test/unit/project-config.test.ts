@@ -146,6 +146,7 @@ describe('parseProjectConfig', () => {
     expect(config.limits).toEqual({
       max_steps_per_run: 60,
       max_wallclock_min: 45,
+      max_steps_total: 1000,
       max_tokens_per_request: 8000,
       max_subagent_depth: 1,
       loop_repeat_threshold: 5,

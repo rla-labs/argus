@@ -250,7 +250,7 @@ export function apply(ctx: Context): void {
         subject: subjectOf(owner),
         steps: run.steps,
         elapsedMs: now - run.startedAt,
-        maxSteps: ctx.opsGovernor.stepLimitsOf(owner).maxSteps,
+        maxSteps: ctx.opsGovernor.stepLimitsOf(owner).maxStepsTotal,
         costMicros: (spend.costMicros + deltaMicros) as never,
       }),
     ))

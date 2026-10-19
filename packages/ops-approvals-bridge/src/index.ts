@@ -103,6 +103,10 @@ export function apply(ctx: Context): void {
     config.allow_run_grant ? 'on' : 'off',
   )
 
+  // At a run's checkpoint the governor asks here: the bridge knows who to ask and
+  // whether anyone is watching. Unmounted, the governor stops runs at their checkpoint.
+  ctx.effect(() => ctx.opsGovernor.setCheckpointAsker((question, signal) => bridge.checkpoint(question, signal)))
+
   // A finished run's grants are dropped, so a long-lived process does not
   // accumulate authority for runs that are over.
   ctx.on('ops/agent-idle', (payload) => {
