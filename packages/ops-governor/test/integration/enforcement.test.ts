@@ -645,6 +645,49 @@ describe('per-run limits', () => {
     expect(booted.store.runs.recent(1)[0]?.status).toBe('completed')
   }, 45_000)
 
+  it('lets the same call run again while its result changes', async () => {
+    const tool = (name: string, run: () => string) => ({ name, description: name, parameters: {}, output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text' as const, text: v }] }, execute: async () => run() })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+
+    // A test run again after each fix: same call, a different result each time.
+    const progress = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      script: [
+        ...Array.from({ length: 6 }, (_, n) => ({ text: 'again', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'test', arguments: '{}', id: `t${n}` }] })),
+        { text: 'done', usage: { inputTokens: 10, outputTokens: 0 } },
+      ],
+      repeatLast: false,
+    })
+    let failing = 6
+    ;(await progress.projects.ensureAgent('alpha')).ctx.tools.register(defineTool(tool('test', () => `${failing--} failing`) as never))
+    const reasons: string[] = []
+    progress.ctx.on('ops/run-stopped', ({ reason }) => reasons.push(reason))
+    submit(progress, 'alpha', 'go')
+    await waitFor(() => failing === 0 && progress.governor.status().running.length === 0, { timeoutMs: 25_000, label: 'the run' })
+    expect(reasons).toEqual([])
+  }, 60_000)
+
+  it('stops a cycle of two calls that changes nothing', async () => {
+    const tool = (name: string, run: () => string) => ({ name, description: name, parameters: {}, output: { schema: { type: 'string' }, render: (_a: unknown, v: string) => [{ type: 'text' as const, text: v }] }, execute: async () => run() })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    // Read, edit, read, edit… with the same results: a cycle.
+    const cycle = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: n % 2 === 0 ? 'look' : 'change', arguments: '{"path":"a.ts"}', id: `c${n}` }] })),
+      repeatLast: true,
+    })
+    const agent = await cycle.projects.ensureAgent('alpha')
+    agent.ctx.tools.register(defineTool(tool('look', () => 'const a = 1') as never))
+    agent.ctx.tools.register(defineTool(tool('change', () => 'edited') as never))
+    const details: string[] = []
+    cycle.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
+    submit(cycle, 'alpha', 'go')
+    await waitFor(() => details.length > 0, { timeoutMs: 25_000, label: 'the cycle stopped' })
+    expect(details[0]).toBe('a cycle of 2 calls (look, change) repeated 3 times with the same results')
+  }, 60_000)
+
   it('stops a run that exceeds its step limit', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },

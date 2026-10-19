@@ -34,6 +34,8 @@ import {
   planStalled,
   planThresholds,
   toolCallKey,
+  stepKey,
+  MAX_LOOP_CYCLE,
   type RejectCode,
   type StopReason,
   type StepLimits,
@@ -127,8 +129,10 @@ interface RunTrack {
   readonly model: ModelRef
   readonly startedAt: number
   steps: number
-  /** Recent tool calls, oldest first, keyed `name\u0000arguments`. */
+  /** Recent steps, oldest first: each a call with its result (`stepKey`). */
   recentToolCalls: string[]
+  /** Calls waiting for their result, by call id: their `toolCallKey`. */
+  pendingCalls: Map<string, string>
   /**
    * The most recent tool call's name and raw arguments.
    *
@@ -427,6 +431,7 @@ export class OpsGovernor {
             startedAt: now,
             steps: 0,
             recentToolCalls: [],
+        pendingCalls: new Map(),
             lastToolCall: undefined,
             pendingStop: undefined,
             downgradeAudited: false,
@@ -995,7 +1000,7 @@ export class OpsGovernor {
     return undefined
   }
 
-  noteToolCall(sessionId: string, name: string, args: unknown): void {
+  noteToolCall(sessionId: string, name: string, args: unknown, callId?: string): void {
     const root = this.options.projects.rootSessionOf(sessionId)
     // An observed track is created on demand. A tool call can arrive before any
     // admission — the agent exists, the turn has not been admitted through the
@@ -1016,6 +1021,7 @@ export class OpsGovernor {
         startedAt: this.options.now(),
         steps: 0,
         recentToolCalls: [],
+        pendingCalls: new Map(),
         lastToolCall: undefined,
         pendingStop: undefined,
         downgradeAudited: false,
@@ -1023,14 +1029,30 @@ export class OpsGovernor {
       }
       this.running.set(root, track)
     }
-    const key = toolCallKey(name, args)
-    track.recentToolCalls.push(key)
+    // The step is recorded when its result arrives: the same call with another result is progress.
+    if (callId !== undefined) track.pendingCalls.set(callId, toolCallKey(name, args))
     // Retained for `ops-approvals-bridge`, which has no other way to see what a
     // tool was asked to do: dsh's approval event carries only the tool name.
     track.lastToolCall = { name, args }
-    // Keep only what the threshold needs: the history is a loop detector, not a
+  }
+
+  /**
+   * Note a tool call's result: the call and its result are one step of the loop history.
+   *
+   * @param sessionId the session that ran the tool.
+   * @param callId the call it answers.
+   * @param result the result's text.
+   * @param isError whether the call failed.
+   */
+  noteToolResult(sessionId: string, callId: string, result: string, isError: boolean): void {
+    const track = this.running.get(this.options.projects.rootSessionOf(sessionId))
+    const call = track?.pendingCalls.get(callId)
+    if (track === undefined || call === undefined) return
+    track.pendingCalls.delete(callId)
+    track.recentToolCalls.push(stepKey(call, result, isError))
+    // Keep only what the longest cycle needs: the history is a loop detector, not a
     // log, and an unbounded array would grow with the run.
-    const keep = this.stepLimitsOf(track.owner).loopRepeatThreshold
+    const keep = this.stepLimitsOf(track.owner).loopRepeatThreshold * MAX_LOOP_CYCLE
     if (track.recentToolCalls.length > keep) {
       track.recentToolCalls.splice(0, track.recentToolCalls.length - keep)
     }
@@ -1128,6 +1150,7 @@ export class OpsGovernor {
       startedAt: this.options.now(),
       steps: 0,
       recentToolCalls: [],
+        pendingCalls: new Map(),
       pendingStop: undefined,
       downgradeAudited: false,
       requestId: undefined,

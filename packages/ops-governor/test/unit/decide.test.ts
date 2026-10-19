@@ -15,6 +15,8 @@ import {
   decideDowngrade,
   decideStep,
   detectLoop,
+  normalizeVolatile,
+  stepKey,
   evaluateBudget,
   levelOf,
   planStalled,
@@ -808,13 +810,46 @@ describe('detectLoop', () => {
   ]
 
   it.each(cases)('%s', (_name, calls, threshold, expected) => {
-    expect(detectLoop(calls, threshold)).toBe(expected)
+    expect(detectLoop(calls, threshold) !== undefined).toBe(expected)
   })
 
   it('is disabled below a threshold of two', () => {
     // A threshold of 1 would stop every run at its first tool call.
-    expect(detectLoop(['a\u0000{}', 'a\u0000{}', 'a\u0000{}'], 1)).toBe(false)
-    expect(detectLoop(['a\u0000{}'], 0)).toBe(false)
+    expect(detectLoop(['a\u0000{}', 'a\u0000{}', 'a\u0000{}'], 1)).toBeUndefined()
+    expect(detectLoop(['a\u0000{}'], 0)).toBeUndefined()
+  })
+
+  const step = (tool: string, result: string): string => stepKey(toolCallKey(tool, '{"path":"a.ts"}'), result, false)
+
+  it('counts the same call with the same result, not the same call with another result', () => {
+    expect(detectLoop([step('bash', 'FAIL 3'), step('bash', 'FAIL 3'), step('bash', 'FAIL 3')], 3)).toEqual({ period: 1, tools: ['bash'] })
+    // A test run again after each fix: the call repeats, the result moves.
+    expect(detectLoop([step('bash', 'FAIL 3'), step('bash', 'FAIL 2'), step('bash', 'FAIL 1')], 3)).toBeUndefined()
+  })
+
+  it('finds a cycle of two or three steps repeated', () => {
+    const [a, b, c, d] = [step('read', 'x'), step('edit', 'ok'), step('bash', 'FAIL'), step('grep', 'y')]
+    expect(detectLoop([a, b, a, b, a, b], 3)).toEqual({ period: 2, tools: ['read', 'edit'] })
+    expect(detectLoop([a, b, c, a, b, c, a, b, c], 3)).toEqual({ period: 3, tools: ['read', 'edit', 'bash'] })
+    expect(detectLoop([a, a, b, a, a, b, a, a, b], 3)).toEqual({ period: 3, tools: ['read', 'read', 'edit'] })
+    expect(detectLoop([a, b, a, b, a], 3)).toBeUndefined()
+    expect(detectLoop([a, b, a, c, a, b, a, d], 2)).toBeUndefined()
+  })
+})
+
+describe('normalizeVolatile', () => {
+  it('treats what differs only by the clock, ids, pids and temp paths as the same', () => {
+    const same = (x: string, y: string) => expect(normalizeVolatile(x)).toBe(normalizeVolatile(y))
+    same('built at 2026-10-19T10:01:02.123Z in 1.52s', 'built at 2026-10-19T10:07:44.900Z in 2.08s')
+    same('12:01:02 up 3 days', '12:05:59 up 3 days')
+    same('container 3f9c2a1b7d4e running, pid 4123', 'container 9a8b7c6d5e4f running, pid 77')
+    same('wrote /tmp/argus-sandbox/ab12/out.json', 'wrote /tmp/argus-sandbox/cd34/out.json')
+    same('took 120ms', 'took 87ms')
+    expect(normalizeVolatile('FAIL 3 tests')).not.toBe(normalizeVolatile('FAIL 2 tests'))
+  })
+
+  it('makes the raw arguments of two calls equal whatever their key order', () => {
+    expect(toolCallKey('read', '{"a":1,"b":2}')).toBe(toolCallKey('read', '{ "b": 2, "a": 1 }'))
   })
 })
 

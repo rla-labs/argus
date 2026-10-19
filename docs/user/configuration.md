@@ -160,7 +160,7 @@ desk use these.
 | `max_wallclock_min` | int | `45` | Wall-clock minutes before a run stops. |
 | `max_tokens_per_request` | int | `8000` | Tokens in one model request. |
 | `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
-| `loop_repeat_threshold` | int | `5` | Identical tool calls in a row before a loop is declared. |
+| `loop_repeat_threshold` | int | `5` | How many times in a row the same call **with the same result** (or a cycle of 2–3 such calls, like read-edit-read-edit) may repeat before the run is stopped as a loop. The same call with a different result (tests run again after a fix) is progress. Times, durations, ids and temp paths are ignored in the comparison. |
 
 Before 0.6, a project's own `limits:` were read but not applied (except
 `max_tokens_per_request`): `ops.yaml`'s applied to every project. They apply now.

@@ -13,6 +13,7 @@
  *
  * @module @argus-agent/governor/decide
  */
+import { createHash } from 'node:crypto'
 import type { MicroUsd, ModelProblem, ModelRef, Scope } from '@argus-agent/types'
 import {
   applicableScopes,
@@ -372,7 +373,7 @@ export interface RunView {
   readonly runId: string
   readonly steps: number
   readonly startedAt: number
-  /** The most recent tool calls, oldest first, as `name\u0000arguments`. */
+  /** The most recent steps (a call and its result, {@link stepKey}), oldest first. */
   readonly recentToolCalls: readonly string[]
   readonly budgetLevel: BudgetLevel
   /** The scope whose budget applies, for the detail message. */
@@ -425,46 +426,110 @@ export function decideStep(run: RunView, limits: StepLimits, now: number): StepV
     }
   }
 
-  if (detectLoop(run.recentToolCalls, limits.loopRepeatThreshold)) {
-    const last = run.recentToolCalls.at(-1)?.split('\u0000')[0] ?? 'a tool'
+  const loop = detectLoop(run.recentToolCalls, limits.loopRepeatThreshold)
+  if (loop !== undefined) {
     return {
       kind: 'reject',
       reason: 'loop_detected',
-      detail: `"${last}" repeated ${limits.loopRepeatThreshold} times with identical arguments`,
+      detail:
+        loop.period === 1
+          ? `"${loop.tools[0]}" gave the same result ${limits.loopRepeatThreshold} times in a row, with the same arguments`
+          : `a cycle of ${loop.period} calls (${loop.tools.join(', ')}) repeated ${limits.loopRepeatThreshold} times with the same results`,
     }
   }
 
   return { kind: 'allow' }
 }
 
-/**
- * Whether the tail of a tool-call history is a loop.
- *
- * A loop is the **same tool name with byte-identical arguments** repeated
- * `threshold` times *consecutively*. Consecutive is the operative word: an agent
- * that reads a file, edits it, and reads it again is working, not looping — so a
- * non-consecutive repeat must not trip the detector.
- *
- * The key includes the arguments, so a tool called repeatedly with *different*
- * input (paging through results) never trips it.
- *
- * @param calls the recent calls, oldest first, keyed `name\u0000arguments`.
- * @param threshold how many consecutive identical calls count as a loop.
- * @returns whether a loop was detected.
- */
-export function detectLoop(calls: readonly string[], threshold: number): boolean {
-  if (threshold < 2 || calls.length < threshold) return false
-  const tail = calls.at(-1)
-  if (tail === undefined) return false
-  for (let index = calls.length - 1; index >= calls.length - threshold; index -= 1) {
-    if (calls[index] !== tail) return false
-  }
-  return true
+/** The longest cycle the loop detector looks for: A, A-B, A-B-C. */
+export const MAX_LOOP_CYCLE = 3
+
+/** A loop at the end of a run's history. */
+export interface LoopMatch {
+  /** 1 for one step repeated, 2 for A-B-A-B, 3 for A-B-C-A-B-C. */
+  readonly period: number
+  /** The tools of the repeated cycle, in order. */
+  readonly tools: readonly string[]
 }
 
-/** Build the loop-detection key for a tool call. */
+/**
+ * Whether the tail of a run's step history is a loop.
+ *
+ * A step is a tool call **with its result** ({@link stepKey}). A loop is one step, or a
+ * cycle of 2 or 3 steps, repeated `threshold` times in a row. The same call with a
+ * different result (a test run again after a fix) is a different step, so it is
+ * progress, not a loop; reading, editing and reading again with different results is
+ * work.
+ *
+ * @param steps the recent step keys, oldest first.
+ * @param threshold how many repetitions in a row count as a loop.
+ * @returns the loop, or `undefined`.
+ */
+export function detectLoop(steps: readonly string[], threshold: number): LoopMatch | undefined {
+  if (threshold < 2) return undefined
+  for (let period = 1; period <= MAX_LOOP_CYCLE; period += 1) {
+    const span = period * threshold
+    if (steps.length < span) break
+    const cycle = steps.slice(-period)
+    // One step repeated is period 1, already checked with a shorter span.
+    if (period > 1 && cycle.every((key) => key === cycle[0])) continue
+    const start = steps.length - span
+    let repeated = true
+    for (let index = start; index < steps.length && repeated; index += 1) {
+      repeated = steps[index] === cycle[(index - start) % period]
+    }
+    if (repeated) return { period, tools: cycle.map((key) => key.split('\u0000')[0] ?? '?') }
+  }
+  return undefined
+}
+
+/** Build the loop-detection key for a tool call, before its result: its tool and normalized arguments. */
 export function toolCallKey(name: string, args: unknown): string {
-  return `${name}\u0000${stableStringify(args)}`
+  let value = args
+  // dsh hands over the arguments as the model wrote them: a JSON string.
+  if (typeof args === 'string') {
+    try {
+      value = JSON.parse(args) as unknown
+    } catch {
+      value = args
+    }
+  }
+  return `${name}\u0000${normalizeVolatile(stableStringify(value))}`
+}
+
+/**
+ * A step's key: its call's key and a digest of its normalized result.
+ *
+ * @param callKey {@link toolCallKey} of the call.
+ * @param result the result's text.
+ * @param isError whether the call failed.
+ * @returns the key.
+ */
+export function stepKey(callKey: string, result: string, isError: boolean): string {
+  const digest = createHash('sha256').update(`${isError ? 'error' : 'ok'}\u0000${normalizeVolatile(result)}`).digest('hex').slice(0, 16)
+  return `${callKey}\u0000${digest}`
+}
+
+/**
+ * Replace what changes on every call although nothing happened: dates and times,
+ * durations, ids, process ids, temp paths. "The same, but for the clock" is the same.
+ *
+ * ponytail: a fixed list of patterns; a tool whose output varies another way defeats
+ * the repetition check, and the no-progress check (0.6.0 step 3) is the net for it.
+ *
+ * @param text the text.
+ * @returns the text with placeholders.
+ */
+export function normalizeVolatile(text: string): string {
+  return text
+    .replace(/\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/g, '<time>')
+    .replace(/\b\d{1,2}:\d{2}:\d{2}(?:\.\d+)?\b/g, '<time>')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<id>')
+    .replace(/\b[0-9a-f]{12,}\b/gi, '<id>')
+    .replace(/\b1[6-9]\d{8}\b/g, '<epoch>')
+    .replace(/\b\d+(?:\.\d+)?\s?(?:ns|us|µs|ms|s|sec|secs|seconds|min|minutes)\b/g, '<duration>')
+    .replace(/\b(pid|PID)([ =:]+)\d+/g, '$1$2<n>')
+    .replace(/\/tmp\/[^\s'"`)\]]+/g, '/tmp/<path>')
 }
 
 /**

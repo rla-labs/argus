@@ -141,9 +141,27 @@ export function apply(ctx: Context): void {
   // rather than from an assembled message keeps loop detection close to the
   // event that caused it.
   ctx.on('session/event', (session, event) => {
+    if (event.type === 'tool/result') {
+      const message = (event.data as { message?: { toolCallId?: string; content?: unknown; isError?: boolean } }).message
+      if (typeof message?.toolCallId === 'string') governor.noteToolResult(session.id as string, message.toolCallId, resultText(message.content), message.isError === true)
+      return
+    }
     if (event.type !== 'tool/call') return
-    const data = event.data as { name?: string; arguments?: string }
+    const data = event.data as { name?: string; arguments?: string; callId?: string }
     if (typeof data.name !== 'string') return
-    governor.noteToolCall(session.id as string, data.name, data.arguments ?? '')
+    governor.noteToolCall(session.id as string, data.name, data.arguments ?? '', typeof data.callId === 'string' ? data.callId : undefined)
   })
+}
+
+/**
+ * A tool result's content as text: its text blocks, and any other block serialized.
+ *
+ * @param content the result message's content blocks.
+ * @returns the text.
+ */
+function resultText(content: unknown): string {
+  if (!Array.isArray(content)) return JSON.stringify(content ?? '')
+  return content
+    .map((block: { type?: string; text?: unknown }) => (block?.type === 'text' && typeof block.text === 'string' ? block.text : JSON.stringify(block)))
+    .join('\n')
 }
