@@ -419,6 +419,25 @@ docker exec argus-agent node -e '
 '
 ```
 
+### Upgrading to 0.6.0
+
+Nothing to do by hand, and no database migration. What changes for you:
+
+- **A project's own limits apply.** `limits:` in a project file, or in its template
+  (`devops` sets 80 steps), was read and ignored before: `ops.yaml`'s applied to every
+  project. The first start of 0.6 lists, in the startup report, the projects this
+  changes; `/tools <project>` shows the limits in force.
+- **The step limit asks instead of stopping.** At `max_steps_per_run` steps (60 by
+  default) or `max_wallclock_min` minutes, a run waits for **Continue** or **Stop** in the
+  chat or on the web; no answer within the approvals timeout stops it, and a scheduled run
+  stops and says how to go on. No run passes `limits.max_steps_total` (1000 by default;
+  the built-in templates set their own). See [Configuration](configuration.md#limits).
+- **Loops are judged by results**, and a run that brings nothing new for 25 steps
+  (`limits.stall_steps`) stops. Long work that keeps changing files or getting new
+  results is never stopped by either.
+- **New, off by default:** a judge model at the checkpoint (`/defaults judge`,
+  `limits.judge`).
+
 ### Upgrading to 0.5.0
 
 Nothing to do by hand, and no database migration. Your project files are read as they

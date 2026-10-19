@@ -14,6 +14,7 @@ import type { OpsChannel } from '@argus-agent/channel'
 import type { OpsCommands } from '@argus-agent/commands'
 import type { OpsStore } from '@argus-agent/store'
 import { codeAt, stepAt, type OpsWeb } from '@argus-agent/web'
+import { checkpointQuestionId, type OpsGovernor } from '@argus-agent/governor'
 
 const boots: OpsBoot[] = []
 const dirs: string[] = []
@@ -241,6 +242,40 @@ describe('the web interface', () => {
       body: JSON.stringify({ value: 'approve' }),
     })
     expect(again.status).toBe(409)
+  }, 60_000)
+
+  it('shows a run waiting at its checkpoint, and stops it from the web', async () => {
+    const booted = await bootWeb()
+    const console = new ConsoleChannelAdapter()
+    booted.channel.register(console)
+    const cookie = await signIn(booted)
+    const headers = { cookie, 'content-type': 'application/json', 'x-argus': '1' }
+    await fetch(`${booted.base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ line: '/set alpha limits.max_steps_per_run 2' }) })
+    const governor = (booted.boot.ctx as unknown as { opsGovernor: OpsGovernor }).opsGovernor
+    // The bridge's part, reduced: ask on a channel under the id the web answers.
+    governor.setCheckpointAsker(async (question) => {
+      const answer = await booted.channel.ask({ channel: 'console', chatId: 'chat-1' }, 'Go on?', [{ value: 'continue', label: 'Continue' }, { value: 'stop', label: 'Stop' }], 60_000, checkpointQuestionId(question.runId, question.steps))
+      return answer !== 'timeout' && answer.value === 'continue' ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped from the web' }
+    })
+    // Calls to a tool that does not exist: each step ends with an error, and the run goes on.
+    let n = 0
+    booted.boot.fake!.setScript(() => ({ text: 'x', toolCalls: [{ name: 'missing', arguments: JSON.stringify({ n: ++n }), id: `c${n}` }] }))
+    const stops: string[] = []
+    booted.boot.ctx.on('ops/run-stopped', ({ detail }) => stops.push(detail))
+    governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+
+    type Waiting = { checkpoints: Array<{ runId: string; who: string; steps: number; more: number }> }
+    let overview: Waiting = { checkpoints: [] }
+    for (let tries = 0; tries < 200 && overview.checkpoints.length === 0; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      overview = (await (await fetch(`${booted.base}/api/overview`, { headers: { cookie } })).json()) as Waiting
+    }
+    expect(overview.checkpoints[0]).toMatchObject({ who: 'alpha', steps: 2, more: 2 })
+    const runId = overview.checkpoints[0]!.runId
+    expect((await fetch(`${booted.base}/api/checkpoints/${runId}`, { method: 'POST', headers, body: JSON.stringify({ value: 'stop' }) })).status).toBe(200)
+    await waitFor(() => stops.length > 0, { timeoutMs: 20_000, label: 'the stop' })
+    expect(stops).toEqual(['the run reached its checkpoint after 2 steps: stopped from the web'])
+    expect((await fetch(`${booted.base}/api/checkpoints/${runId}`, { method: 'POST', headers, body: JSON.stringify({ value: 'stop' }) })).status).toBe(409)
   }, 60_000)
 
   it('sets a password from a /web session, then signs in with it; a wrong one is refused', async () => {

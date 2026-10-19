@@ -24,6 +24,7 @@ interface Overview {
   spend: { dayMicros: number; dayLimitMicros: number | null; monthMicros: number; monthLimitMicros: number | null; trend: Array<{ day: string; micros: number }> }
   runs: Array<{ runId: string; who: string; model: string; steps: number; startedAt: number; micros: number }>
   approvals: Array<{ id: string; projectId: string | null; action: string; kind: string; at: number; always: string | null }>
+  checkpoints: Array<{ runId: string; who: string; steps: number; more: number; at: number }>
   schedules: Array<{ id: string; cron: string; who: string; what: string; enabled: boolean; next: number }>
   log: Array<{ at: number; actor: string; action: string; target: string | null }>
 }
@@ -121,6 +122,25 @@ function ApprovalCard({ approval, admin, onDone }: { approval: Overview['approva
       ${admin && approval.always !== null && approval.projectId !== null
         ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('always')}>${t('approvals.always', { rule: approval.always.length > 40 ? `${approval.always.slice(0, 39)}…` : approval.always, project: approval.projectId })}</button>`
         : null}
+    </div>
+  </div>`
+}
+
+/** Continue / Stop for a run waiting at its checkpoint. */
+function CheckpointCard({ checkpoint, onDone }: { checkpoint: Overview['checkpoints'][number]; onDone: (message?: string) => void }): VNode {
+  const [busy, setBusy] = useState(false)
+  const answer = async (value: string): Promise<void> => {
+    setBusy(true)
+    const result = await post(`/api/checkpoints/${encodeURIComponent(checkpoint.runId)}`, { value })
+    setBusy(false)
+    onDone(result.ok ? undefined : t('approvals.gone'))
+  }
+  return html`<div class="approval">
+    <div class="head"><span class="mono" style="color:var(--amber)">${checkpoint.who} · ${t('checkpoint.title')}</span><span class="lbl">${clock(checkpoint.at)}</span></div>
+    <p>${t('checkpoint.text', { steps: checkpoint.steps })}</p>
+    <div class="btns">
+      <button class="btn primary" type="button" disabled=${busy} onClick=${() => answer('continue')}>${t('checkpoint.continue', { more: checkpoint.more })}</button>
+      <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('stop')}>${t('checkpoint.stop')}</button>
     </div>
   </div>`
 }
@@ -351,9 +371,10 @@ function OverviewView({ data, refresh, run, admin }: { data: Overview; refresh: 
           <div class="lbl">${t('spend.trend')}</div>
         </section>
         <section class="hud">
-          <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl" style="color:var(--amber)">${t('approvals.pending', { count: data.approvals.length })}</span></div>
+          <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl" style="color:var(--amber)">${t('approvals.pending', { count: data.approvals.length + data.checkpoints.length })}</span></div>
           ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
-          ${data.approvals.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
+          ${data.approvals.length + data.checkpoints.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
+          ${data.checkpoints.map((checkpoint) => html`<${CheckpointCard} key=${checkpoint.runId} checkpoint=${checkpoint} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
           ${data.approvals.slice(0, 2).map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
         </section>
       </div>
@@ -392,9 +413,10 @@ function OverviewView({ data, refresh, run, admin }: { data: Overview; refresh: 
 function ApprovalsView({ data, refresh, admin }: { data: Overview; refresh: () => void; admin: boolean }): VNode {
   const [gone, setGone] = useState<string | undefined>()
   return html`<section class="hud">
-    <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl">${t('approvals.pending', { count: data.approvals.length })}</span></div>
+    <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl">${t('approvals.pending', { count: data.approvals.length + data.checkpoints.length })}</span></div>
     ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
-    ${data.approvals.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
+    ${data.approvals.length + data.checkpoints.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
+    ${data.checkpoints.map((checkpoint) => html`<${CheckpointCard} key=${checkpoint.runId} checkpoint=${checkpoint} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
     ${data.approvals.map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
   </section>`
 }
@@ -720,7 +742,7 @@ function App(): VNode {
   // What a new install still lacks: a provider key, a first project.
   const unfinished = me?.role === 'admin' && settingsData !== undefined && (!settingsData.keys.some((entry) => entry.provider !== 'telegram' && entry.configured) || settingsData.projects.length === 0)
 
-  const pending = overviewData?.approvals.length ?? 0
+  const pending = (overviewData?.approvals.length ?? 0) + (overviewData?.checkpoints.length ?? 0)
   return html`${header}
     <div class="layout">
       <nav class="rail" aria-label=${t('nav.label')}>

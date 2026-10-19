@@ -352,6 +352,30 @@ describe('recovery', () => {
     expect(found.interrupted.length).toBeLessThanOrEqual(1)
   }, 60_000)
 
+  it('says once, after the upgrade to 0.6, which projects\' own limits now apply', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-health-limits-'))
+    dirs.push(dataDir)
+    const booted = await bootHealth({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 80\n  max_wallclock_min: 90`, beta: projectDocument(dataDir, 'beta') },
+    })
+    const { ConsoleChannelAdapter } = await import('@argus-agent/testkit')
+    const adapter = new ConsoleChannelAdapter({ name: 'console' })
+    booted.channel.register(adapter)
+    await booted.channel.adapterStarted('console')
+    // An install with history, started for the first time on 0.6.
+    booted.store.runs.start({ id: 'old', inbound_id: null, project_id: 'alpha', owner_key: 'project:alpha', session_id: 's', provider: 'fake', model: 'fake-model', reply_chat: null }, Date.now() - 86_400_000)
+    booted.store.runtimeState.delete('notice.limits_apply_0_6')
+    await booted.health.recover()
+    const notice = adapter.texts().find((text) => text.includes('now apply'))
+    expect(notice).toContain('alpha            80 steps a run, 90 min a run')
+    expect(notice).not.toContain('beta')
+    // Once only.
+    const before = adapter.texts().length
+    await booted.health.recover()
+    expect(adapter.texts().slice(before).some((text) => text.includes('now apply'))).toBe(false)
+  }, 60_000)
+
   it('RETRIES an interrupted request by resubmitting the original text', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-health-retry-'))
     dirs.push(dataDir)

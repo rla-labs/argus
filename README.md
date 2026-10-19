@@ -115,27 +115,29 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
 
-## Coming in 0.6.0
+## New in 0.6.0
 
-Long work that cannot run away. Already on `main`, not yet released:
+Long work that cannot run away. A project may now work for hundreds of steps, and a run
+that goes nowhere stops early, cheaply, and says why.
 
-- **A project's own limits apply.** Its `limits:` (or its template's) were read and
-  ignored before; `/tools` shows the ones in force.
+- **A checkpoint instead of a kill.** Every 60 steps (or 45 minutes) a run asks, with
+  what it did, the files it changed and its cost: **Continue** or **Stop**, in the chat
+  or on the web. A scheduled run stops and says how to go on. Each project has a
+  ceiling it never passes (`limits.max_steps_total`, 1000 by default, set by the
+  templates): a coding project may run for hundreds of steps, a short fixed job can be
+  held to a dozen.
 - **Loops are judged by what changes.** The same call with the same result, or a cycle
-  of 2–3 calls going nowhere, stops the run; the same call with a new result (tests run
-  again after a fix) is progress.
+  of 2–3 calls, stops the run; the same call with a new result (tests run again after a
+  fix) is progress. Times, ids and key order do not fool it.
 - **A run that brings nothing new stops**: 25 steps with no new result and no file
-  changed (`limits.stall_steps`).
-- **A checkpoint instead of a kill.** Every 60 steps (or 45 minutes) the run asks, with
-  what it did and **Continue / Stop** buttons; a scheduled run stops and says how to go
-  on. A ceiling per project (`limits.max_steps_total`, 1000 by default, set by the
-  templates) is never passed: a coding project may run for hundreds of steps, a short
-  fixed job can be held to a dozen.
-- **An optional judge at the checkpoint.** A model of your choice reads what Argus
-  measured about the run, not what the agent says, and gives it more steps or stops it,
-  within bounds set in code; then you decide. A scheduled run can go on this way too.
-
-Still to come in 0.6.0: the `office` extension.
+  changed.
+- **An optional judge.** A model of your choice reads what Argus measured about the run,
+  not what the agent says, and gives it more steps or stops it, within bounds set in
+  code; then you decide. Tested against real models with an agent that claims progress
+  it did not make: they stop it.
+- **A project's own limits apply.** Before, they were read and ignored; the upgrade
+  tells you which projects this changes. Upgrading from 0.5 needs no manual step;
+  [what changes](docs/user/backup-and-upgrade.md#upgrading-to-060).
 
 ## New in 0.5.0
 
@@ -245,7 +247,7 @@ What is not verified yet:
 
 An Agent OS is more than a reliable core. Next on the road:
 
-1. **Extensions to use** (0.6.0): a first-party `office` extension (Word, Excel,
+1. **Extensions to use** (0.7.0): a first-party `office` extension (Word, Excel,
    PowerPoint) and more, on the extension mechanism of 0.5.0.
 2. **More channels and more people.** Slack or Discord, and more roles than admin and
    operator, so a team can share one Argus.

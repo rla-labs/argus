@@ -130,6 +130,8 @@ export interface StartupSnapshot {
   readonly orphaned: readonly { readonly requestId: string; readonly reason: string }[]
   /** Project files that do not validate: those projects are ignored until fixed. */
   readonly invalid?: readonly { readonly id: string; readonly path: string; readonly reason: string }[]
+  /** Once, after the upgrade to 0.6: projects whose own limits were ignored before and now apply. */
+  readonly limitsNowApply?: readonly { readonly id: string; readonly limits: string }[]
 }
 
 /**
@@ -176,6 +178,13 @@ export function startupReport(
       for (const issue of project.reason.split('\n')) lines.push(`    ${issue}`)
     }
     lines.push('Everything else is running. Fix the file(s), then send /reload.')
+  }
+
+  const limits = snapshot.limitsNowApply ?? []
+  if (limits.length > 0) {
+    lines.push('', 'These projects\' own limits were ignored before 0.6 and now apply:')
+    for (const project of limits) lines.push(`  ${project.id.padEnd(16)} ${project.limits}`)
+    lines.push('/tools <project> shows them; /set <project> limits.<key> changes one.')
   }
 
   return lines.join('\n')

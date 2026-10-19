@@ -39,7 +39,8 @@ function lockingChild(lockPath: string): Promise<{ child: ChildProcess; outcome:
     script,
     `import { InstanceLock } from ${JSON.stringify(fileURLToPath(new URL('../../src/instance-lock.ts', import.meta.url)))}
 try {
-  InstanceLock.acquire(process.argv[2])
+  // Kept referenced: a collected connection is closed, and its lock goes with it.
+  ;(globalThis as { lock?: unknown }).lock = InstanceLock.acquire(process.argv[2])
   console.log('ACQUIRED')
   setInterval(() => {}, 1000)
 } catch (error) {

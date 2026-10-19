@@ -90,6 +90,19 @@ export interface RunInfo {
   readonly provider: string
   readonly steps: number
   readonly startedAt: number
+  /** Set while the run waits at a checkpoint for a person. */
+  readonly checkpoint?: { readonly steps: number; readonly more: number; readonly since: number }
+}
+
+/**
+ * The id a checkpoint question is asked under, so another surface (the web) can answer it.
+ *
+ * @param runId the run.
+ * @param steps its steps at the checkpoint.
+ * @returns the question id.
+ */
+export function checkpointQuestionId(runId: string, steps: number): string {
+  return `checkpoint:${runId}:${steps}`
 }
 
 /** The slot summary. */
@@ -212,6 +225,8 @@ interface RunTrack {
   checkpointTree?: string
   /** The agent's last text, for the judge. */
   lastText?: string
+  /** Set while the run waits for a person at a checkpoint. */
+  waiting?: { readonly steps: number; readonly more: number; readonly since: number }
   /** Set when a step was rejected, so the terminal status is known at idle. */
   pendingStop: { reason: StopReason; detail: string } | undefined
   /** Whether the downgrade was already audited for this run. */
@@ -1089,6 +1104,8 @@ export class OpsGovernor {
         startedAt: track.startedAt,
         costMicros: this.options.meter.runTotals(track.runId).costMicros,
       }
+      track.waiting = { steps: track.steps, more, since: this.options.now() }
+      this.ctx.emit('ops/checkpoint-waiting', { runId: track.runId, owner: track.owner, steps: track.steps })
       const answer = await Promise.race([asker(question, controller.signal), aborted])
       return answer.kind === 'continue' ? { kind: 'continue', steps: limits.maxSteps } : answer
     } catch (error) {
@@ -1097,6 +1114,7 @@ export class OpsGovernor {
     } finally {
       signal?.removeEventListener('abort', onAbort)
       controller.abort()
+      track.waiting = undefined
       // The next window starts here, whatever was decided.
       track.window = { fromStep: track.steps, newResults: 0, repeatedResults: 0, errors: 0, repeated: new Map() }
     }
@@ -1577,6 +1595,7 @@ export class OpsGovernor {
         provider: track.provider,
         steps: track.steps,
         startedAt: track.startedAt,
+        ...(track.waiting === undefined ? {} : { checkpoint: track.waiting }),
       })),
       pending: pending.map((request) => ({
         requestId: request.id,

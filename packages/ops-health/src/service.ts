@@ -11,7 +11,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { existsSync } from 'node:fs'
-import { MAX_TIMEOUT_MS, type ChannelAddress, type DoctorFinding, type DoctorSource, type HealthStatus, type ServiceHealth, type TimerHandle } from '@argus-agent/types'
+import { MAX_TIMEOUT_MS, orchestratorOwner, projectOwner, type ChannelAddress, type DoctorFinding, type DoctorSource, type HealthStatus, type ServiceHealth, type TimerHandle } from '@argus-agent/types'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
@@ -315,9 +315,10 @@ export class OpsHealth {
 
     // 4. One message.
     const invalid = this.options.projects.invalidProjects()
-    if (this.options.config.startup_report && (interrupted.length > 0 || orphaned.length > 0 || invalid.length > 0)) {
+    const limitsNowApply = this.limitsNowApply(now)
+    if (this.options.config.startup_report && (interrupted.length > 0 || orphaned.length > 0 || invalid.length > 0 || limitsNowApply.length > 0)) {
       const text = startupReport(
-        { version: this.options.version, interrupted, pending, orphaned, invalid },
+        { version: this.options.version, interrupted, pending, orphaned, invalid, limitsNowApply },
         (ms) => `${Math.round(ms / 60_000)}m`,
         now,
       )
@@ -331,6 +332,31 @@ export class OpsHealth {
       orphaned: orphaned.length,
     })
     return this.recovery
+  }
+
+  /**
+   * Once, at the first start of 0.6 on an existing install: the projects whose own
+   * step, time or loop limits differ from ops.yaml's. Before 0.6 those were read and
+   * ignored; now they apply, and the operator is told so.
+   */
+  private limitsNowApply(now: number): Array<{ id: string; limits: string }> {
+    const key = 'notice.limits_apply_0_6'
+    if (this.options.store.runtimeState.get<boolean>(key) === true) return []
+    this.options.store.runtimeState.set(key, true, now)
+    // A fresh install had nothing ignored.
+    if (this.options.store.runs.recent(1).length === 0) return []
+    const global = this.options.governor.stepLimitsOf(orchestratorOwner())
+    const changed: Array<{ id: string; limits: string }> = []
+    for (const id of this.options.projects.configuredIds()) {
+      const own = this.options.governor.stepLimitsOf(projectOwner(id))
+      const parts = [
+        own.maxSteps === global.maxSteps ? undefined : `${own.maxSteps} steps a run`,
+        own.maxWallclockMs === global.maxWallclockMs ? undefined : `${Math.round(own.maxWallclockMs / 60_000)} min a run`,
+        own.loopRepeatThreshold === global.loopRepeatThreshold ? undefined : `a loop after ${own.loopRepeatThreshold} repeats`,
+      ].filter((part): part is string => part !== undefined)
+      if (parts.length > 0) changed.push({ id, limits: parts.join(', ') })
+    }
+    return changed
   }
 
   /**

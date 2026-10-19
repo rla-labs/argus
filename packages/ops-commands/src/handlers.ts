@@ -2548,7 +2548,7 @@ function settingValue(text: string): { ok: true; value: unknown } | { ok: false;
 
 /** What an extension may do, one part each: its tools, skills, secrets, network. */
 function describeParts(manifest: ExtensionManifest): string[] {
-  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${[server.command, ...server.args].join(' ')}, access ${server.access})`)
+  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${commandLine(server)}, access ${server.access})`)
   return [
     ...(servers.length > 0 ? [`tools: ${servers.join(', ')}`] : []),
     ...(manifest.skills.length > 0 ? [`skills: ${manifest.skills.join(', ')}`] : []),
@@ -2571,7 +2571,7 @@ function describeStaged(staged: StagedExtension): string {
     : `Update ${manifest.name} ${installed.version} (${installed.commit.slice(0, 7)}) to ${manifest.version} (${staged.commit.slice(0, 7)})?`
   const lines = [head, manifest.summary, '']
   const servers = Object.entries(manifest.mcp)
-  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${[server.command, ...server.args].join(' ')}, access ${server.access}`).join('\n')}`)
+  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}`).join('\n')}`)
   lines.push(`Skills: ${manifest.skills.length === 0 ? 'none' : manifest.skills.join(', ')}`)
   lines.push(`Secrets it reads: ${manifest.requires.secrets.length === 0 ? 'none' : manifest.requires.secrets.join(', ')}`)
   lines.push(`Network: ${manifest.requires.network ? 'yes' : 'not needed'}`)
@@ -2680,3 +2680,8 @@ function ownerText(owner: { kind: string; projectId?: string; runId?: string }):
 
 export { ownerText, randomRunId }
 export type { ModelRef }
+
+/** An extension server's command line as a person reads it: its folder is `<extension>`. */
+function commandLine(server: { readonly command: string; readonly args: readonly string[] }): string {
+  return [server.command, ...server.args].join(' ').replaceAll('${EXTENSION_DIR}', '<extension>')
+}

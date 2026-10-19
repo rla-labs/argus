@@ -1665,7 +1665,7 @@ describe('/ext', () => {
     commit(manifest)
     return { path, commit }
   }
-  const manifest = 'name: notes\nversion: 1.0.0\nsummary: Note tools\nmcp:\n  notes: {command: node, args: [server.js], access: ask}\nrequires: {secrets: [NOTES_KEY]}\n'
+  const manifest = 'name: notes\nversion: 1.0.0\nsummary: Note tools\nmcp:\n  notes: {command: node, args: ["${EXTENSION_DIR}/server.js"], access: ask}\nrequires: {secrets: [NOTES_KEY]}\n'
 
   it('shows what an extension brings, installs it on confirmation, shows an update\'s changes, removes it; the admin\'s only', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
@@ -1675,9 +1675,9 @@ describe('/ext', () => {
     expect(await run(booted, '/ext install ftp://x/y')).toContain('https:// git URL')
 
     const asked = await booted.commands.runCommand(`/ext install ${repo.path}`, contextFor())
-    expect(asked.text).toMatch(/Install notes 1\.0\.0 \(\w{7}\) from[\s\S]*notes: node server\.js, access ask[\s\S]*Secrets it reads: NOTES_KEY/)
+    expect(asked.text).toMatch(/Install notes 1\.0\.0 \(\w{7}\) from[\s\S]*notes: node <extension>\/server\.js, access ask[\s\S]*Secrets it reads: NOTES_KEY/)
     expect((await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())).text).toContain('Installed notes 1.0.0')
-    expect(await run(booted, '/ext')).toMatch(/notes 1\.0\.0[\s\S]*Note tools[\s\S]*tools: notes \(node server\.js, access ask\)/)
+    expect(await run(booted, '/ext')).toMatch(/notes 1\.0\.0[\s\S]*Note tools[\s\S]*tools: notes \(node <extension>\/server\.js, access ask\)/)
 
     // Enabled in a project: its server is the project's, its access changeable there only.
     expect(await run(booted, '/ext enable alpha notes', contextFor({ isAdmin: false }))).toContain('Only the admin')
@@ -1695,8 +1695,8 @@ describe('/ext', () => {
     repo.commit(manifest.replace('1.0.0', '1.1.0').replace('access: ask', 'access: allow'))
     const update = await booted.commands.runCommand('/ext update notes', contextFor())
     expect(update.text).toContain('Update notes 1.0.0')
-    expect(update.text).toContain('- tools: notes (node server.js, access ask)')
-    expect(update.text).toContain('+ tools: notes (node server.js, access allow)')
+    expect(update.text).toContain('- tools: notes (node <extension>/server.js, access ask)')
+    expect(update.text).toContain('+ tools: notes (node <extension>/server.js, access allow)')
     await booted.commands.confirm(update.confirm?.token as string, true, contextFor())
     expect(await run(booted, '/ext')).toContain('notes 1.1.0')
 

@@ -1271,6 +1271,126 @@ describe('judge', () => {
   }, 45_000)
 })
 
+describe('long runs, with the default limits', () => {
+  /** One scripted step: the tool, its arguments, what it answers and whether it writes a file. */
+  interface Step {
+    readonly tool: string
+    readonly args: string
+    readonly result: string
+    readonly writes?: boolean
+  }
+
+  /**
+   * Run a project through the real governor with ops.yaml's defaults (threshold 5,
+   * stall 25, checkpoint 60, ceiling 1000). The model calls `script(n)` at its n-th
+   * request, or finishes when it returns undefined.
+   */
+  async function longRun(script: (n: number) => Step | undefined, asker?: () => 'continue' | 'stop'): Promise<{ status: string | undefined; steps: number | undefined; stops: string[]; asked: number[] }> {
+    const booted = await bootGovernor({ projects: { alpha: {} } })
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const { writeFileSync: write } = await import('node:fs')
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    const agent = await booted.projects.ensureAgent('alpha')
+    let pending: Step | undefined
+    let files = 0
+    for (const tool of ['read', 'edit', 'test', 'grep', 'ls']) {
+      agent.ctx.tools.register(
+        defineTool({ name: tool, description: tool, parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => {
+          if (pending?.writes === true) write(join(cwd, `out-${files++}.txt`), 'x')
+          return pending?.result ?? ''
+        } }),
+      )
+    }
+    let calls = 0
+    booted.boot.fake!.setScript(() => {
+      calls += 1
+      pending = script(calls)
+      return pending === undefined
+        ? { text: 'done', usage: { inputTokens: 10, outputTokens: 0 } }
+        : { text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: pending.tool, arguments: pending.args, id: `c${calls}` }] }
+    })
+    const asked: number[] = []
+    if (asker !== undefined) {
+      booted.governor.setCheckpointAsker(async ({ steps }) => {
+        asked.push(steps)
+        return asker() === 'continue' ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by test' }
+      })
+    }
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push(`${reason}: ${detail}`))
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'the long run')
+    const run = booted.store.runs.recent(1)[0]
+    return { status: run?.status, steps: run?.steps, stops, asked }
+  }
+
+  const same = (tool: string, args: object, result: string): Step => ({ tool, args: JSON.stringify(args), result })
+
+  it('1. the same call with the same result stops at the threshold', async () => {
+    const run = await longRun(() => same('test', { cmd: 'npm test' }, 'FAIL login.test.ts: 3 failed'))
+    expect(run.stops).toEqual(['loop_detected: "test" gave the same result 5 times in a row, with the same arguments'])
+    expect(run.steps).toBe(5)
+  }, 60_000)
+
+  it('2. the same call with a new result each time is progress', async () => {
+    const run = await longRun((n) => same('test', { cmd: 'npm test' }, `${Math.max(0, 80 - n)} failed`))
+    expect(run.stops).toEqual(['max_steps: the run reached its checkpoint after 60 steps: nobody can be asked to continue it'])
+    expect(run.steps).toBe(60)
+  }, 60_000)
+
+  it('3. a cycle of two calls stops', async () => {
+    const run = await longRun((n) => (n % 2 === 1 ? same('read', { path: 'a.ts' }, 'const a = 1') : same('edit', { path: 'a.ts', text: 'const a = 1' }, 'no change')))
+    expect(run.stops).toEqual(['loop_detected: a cycle of 2 calls (read, edit) repeated 5 times with the same results'])
+    expect(run.steps).toBe(10)
+  }, 60_000)
+
+  it('4. a cycle of three calls stops', async () => {
+    const cycle = [same('read', { path: 'a.ts' }, 'x'), same('edit', { path: 'a.ts' }, 'ok'), same('test', {}, '1 failed')]
+    const run = await longRun((n) => cycle[(n - 1) % 3])
+    expect(run.stops).toEqual(['loop_detected: a cycle of 3 calls (read, edit, test) repeated 5 times with the same results'])
+    expect(run.steps).toBe(15)
+  }, 60_000)
+
+  it('5. A-B-A-C is no loop, but brings nothing new: stalled', async () => {
+    const cycle = [same('read', { path: 'a.ts' }, 'x'), same('edit', { path: 'a.ts' }, 'ok'), same('read', { path: 'a.ts' }, 'x'), same('test', {}, '1 failed')]
+    const run = await longRun((n) => cycle[(n - 1) % 4])
+    // The last new result is step 4 (the first test); 25 repeats follow.
+    expect(run.stops).toEqual(['stalled: 25 steps in a row with no new result and no file changed'])
+    expect(run.steps).toBe(29)
+  }, 60_000)
+
+  it('6. arguments in another key order are the same call', async () => {
+    const run = await longRun((n) => ({ tool: 'grep', args: n % 2 === 0 ? '{"pattern":"TODO","path":"src"}' : '{"path":"src","pattern":"TODO"}', result: 'src/a.ts:3: TODO' }))
+    expect(run.stops).toEqual(['loop_detected: "grep" gave the same result 5 times in a row, with the same arguments'])
+    expect(run.steps).toBe(5)
+  }, 60_000)
+
+  it('7. results that differ only by the clock, a duration or a pid are the same result', async () => {
+    const run = await longRun((n) => same('test', { cmd: 'npm test' }, `2026-10-19T10:00:${String(n).padStart(2, '0')}Z pid ${4000 + n}: 3 failed in ${100 + n}ms`))
+    expect(run.stops).toEqual(['loop_detected: "test" gave the same result 5 times in a row, with the same arguments'])
+    expect(run.steps).toBe(5)
+  }, 60_000)
+
+  it('8. varied calls that bring nothing new and change no file stop as stalled', async () => {
+    const run = await longRun((n) => same('ls', { path: `dir-${n % 5}` }, 'empty'))
+    expect(run.stops).toEqual(['stalled: 25 steps in a row with no new result and no file changed'])
+    expect(run.steps).toBe(30)
+  }, 60_000)
+
+  it('9. the same answers while every step writes a file is work: no stall', async () => {
+    const run = await longRun((n) => ({ ...same('edit', { path: `dir-${n % 5}` }, 'written'), writes: true }))
+    expect(run.stops).toEqual(['max_steps: the run reached its checkpoint after 60 steps: nobody can be asked to continue it'])
+    expect(run.steps).toBe(60)
+  }, 60_000)
+
+  it('10. long work with new results is never cut off: it goes on at each checkpoint and finishes', async () => {
+    const run = await longRun((n) => (n <= 150 ? same('test', { cmd: 'npm test' }, `${150 - n} failed`) : undefined), () => 'continue')
+    expect(run.stops).toEqual([])
+    expect(run.asked).toEqual([60, 120])
+    expect(run).toMatchObject({ status: 'completed', steps: 151 })
+  }, 60_000)
+})
+
 describe('ADR 0002: no execution path bypasses submit', () => {
   it('calls opsProjects.deliver only from ops-governor', async () => {
     const { readdirSync, readFileSync, statSync } = await import('node:fs')

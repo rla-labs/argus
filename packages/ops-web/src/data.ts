@@ -78,6 +78,8 @@ export interface Overview {
   }
   readonly runs: ReadonlyArray<{ readonly runId: string; readonly who: string; readonly model: string; readonly steps: number; readonly startedAt: number; readonly micros: number }>
   readonly approvals: ReadonlyArray<{ readonly id: string; readonly projectId: string | null; readonly action: string; readonly kind: string; readonly at: number; readonly always: string | null }>
+  /** Runs waiting at their checkpoint for Continue or Stop. */
+  readonly checkpoints: ReadonlyArray<{ readonly runId: string; readonly who: string; readonly steps: number; readonly more: number; readonly at: number }>
   readonly schedules: ReadonlyArray<{ readonly id: string; readonly cron: string; readonly who: string; readonly what: string; readonly enabled: boolean; readonly next: number }>
   readonly log: ReadonlyArray<{ readonly at: number; readonly actor: string; readonly action: string; readonly target: string | null }>
 }
@@ -164,6 +166,9 @@ export function overview(sources: DataSources): Overview {
       startedAt: run.startedAt,
       micros: Number(meter.runTotals(run.runId).costMicros),
     })),
+    checkpoints: status.running.flatMap((run) =>
+      run.checkpoint === undefined ? [] : [{ runId: run.runId, who: run.owner.kind === 'project' ? run.owner.projectId : 'task', steps: run.checkpoint.steps, more: run.checkpoint.more, at: run.checkpoint.since }],
+    ),
     approvals: pending.map((row) => {
       const request = parseJson(row.request_json)
       return {

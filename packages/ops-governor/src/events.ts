@@ -40,6 +40,12 @@ declare module '@deepseek-ai/cordis' {
     }): void
 
     /**
+     * A run waits at its checkpoint for a person's Continue or Stop.
+     * @mode emit
+     */
+    'ops/checkpoint-waiting'(payload: { readonly runId: string; readonly owner: Owner; readonly steps: number }): void
+
+    /**
      * The judge decided at a run's checkpoint. `invalid` and `error` granted nothing.
      * @param payload.steps the steps granted, for `continue`.
      * @mode emit

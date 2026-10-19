@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { DoctorFinding } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
-import { governorConfigOf } from '@argus-agent/governor'
+import { checkpointQuestionId, governorConfigOf } from '@argus-agent/governor'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
 import { overview, projectDetail, projectList, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
@@ -78,6 +78,7 @@ const OVERVIEW_EVENTS = [
   'ops/usage',
   'ops/run-started',
   'ops/run-stopped',
+  'ops/checkpoint-waiting',
   'ops/agent-running',
   'ops/agent-idle',
   'ops/approval-requested',
@@ -259,6 +260,14 @@ export async function apply(ctx: Context): Promise<void> {
       answerApproval: (approvalId, value, session) =>
         [APPROVE, DENY, APPROVE_ALL, ALWAYS].includes(value) &&
         ctx.opsChannel.answerQuestion(`approval:${approvalId}`, value, { address: { channel: 'web', chatId: session.userId }, userId: session.userId }),
+      answerCheckpoint: (runId, value, session) => {
+        const waiting = ctx.opsGovernor.status().running.find((run) => run.runId === runId)?.checkpoint
+        return (
+          waiting !== undefined &&
+          ['continue', 'stop'].includes(value) &&
+          ctx.opsChannel.answerQuestion(checkpointQuestionId(runId, waiting.steps), value, { address: { channel: 'web', chatId: session.userId }, userId: session.userId })
+        )
+      },
       onChange: (listener) => {
         listeners.add(listener)
         return () => listeners.delete(listener)

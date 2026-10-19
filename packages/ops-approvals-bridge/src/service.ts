@@ -29,7 +29,7 @@ import type { ApprovalStatus, OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
 import type { CheckpointAnswer, CheckpointQuestion, OpsGovernor } from '@argus-agent/governor'
 import type { OpsChannel } from '@argus-agent/channel'
-import { argumentsOf } from '@argus-agent/governor'
+import { argumentsOf, checkpointQuestionId } from '@argus-agent/governor'
 import { isReadOnlyCommand, parseAction, renderAction, type ActionKind, type ParsedAction } from './argv.js'
 import { decideApproval, isGrant, policyOf, type ApprovalDecision } from './policy.js'
 import { ALWAYS, APPROVE, APPROVE_ALL, CONTINUE, DENY, alwaysButton, checkpointButtons, checkpointQuestion, alwaysRuleOf, approvalButtons, approvalQuestion, decisionText, refusedText, ruleCommand, sanitize, type AlwaysRule } from './question.js'
@@ -496,7 +496,7 @@ export class OpsApprovalsBridge {
       costMicros: question.costMicros,
       timeoutMinutes,
     })
-    const questionId = `checkpoint:${question.runId}:${question.steps}`
+    const questionId = checkpointQuestionId(question.runId, question.steps)
     const answer = await this.options.channel.ask(address, text, checkpointButtons(question.more), timeoutMinutes * 60_000, questionId)
     // ponytail: a run stopped while it waited leaves the buttons up until they time out; pressing them then changes nothing.
     if (signal.aborted) return { kind: 'stop', detail: 'it was stopped while it waited' }

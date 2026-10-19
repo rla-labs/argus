@@ -69,6 +69,8 @@ export interface ServerDeps {
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
+  /** Continue or stop a run waiting at its checkpoint. */
+  readonly answerCheckpoint: (runId: string, value: string, session: Session) => boolean
   /** Subscribe to "something changed"; returns the unsubscribe. */
   readonly onChange: (listener: (topic: string) => void) => () => void
   readonly log: (message: string) => void
@@ -299,6 +301,13 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       const value = typeof body['value'] === 'string' ? body['value'] : ''
       const ok = deps.answerApproval(decodeURIComponent(approval[1] as string), value, session)
       return send(response, ok ? 200 : 409, ok ? { ok } : { error: 'that question is no longer waiting' })
+    }
+    const checkpoint = /^\/api\/checkpoints\/([^/]+)$/.exec(path)
+    if (method === 'POST' && checkpoint !== null) {
+      const body = await readJson(request)
+      const value = typeof body['value'] === 'string' ? body['value'] : ''
+      const ok = deps.answerCheckpoint(decodeURIComponent(checkpoint[1] as string), value, session)
+      return send(response, ok ? 200 : 409, ok ? { ok } : { error: 'that run is no longer waiting' })
     }
     if (method === 'GET' && path === '/api/chat') return send(response, 200, { entries: deps.chat.history(session.userId) })
     if (method === 'GET' && path === '/api/chat/unread') return send(response, 200, { count: deps.chat.unread(session.userId) })
