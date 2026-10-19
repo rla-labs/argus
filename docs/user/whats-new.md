@@ -1,0 +1,117 @@
+# What's new
+
+What each release brought, newest first, and what has been verified. For the steps to
+upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
+
+## Next (unreleased)
+
+**Prices for any provider, without writing them.** A provider you declare under
+`providers:` (DeepInfra, Together, Fireworks, Groq…) is priced from lists refreshed
+daily: DeepInfra's own price list, which is what it bills, and models.dev for about
+230 others. You write no `pricing:` entry, and the price follows the provider's
+changes ([details](configuration.md#pricing)).
+
+## 0.6.0
+
+Long work that cannot run away. A project can now work for hundreds of steps, and a run
+that goes nowhere stops early and says why.
+
+- **A checkpoint instead of a kill.** Every 60 steps or 45 minutes, a run asks
+  **Continue** or **Stop**, in the chat or on the web. It shows what it did, the files
+  it changed and its cost. A scheduled run stops and tells you how to go on. Each
+  project has a ceiling it never passes (`limits.max_steps_total`, 1000 by default, set
+  by the templates).
+- **Loops are judged by what changes.** The same call with the same result stops the
+  run, and so does a cycle of 2 or 3 calls. The same call with a new result counts as
+  progress, for example tests run again after a fix. Times, ids and key order do not
+  fool it.
+- **A run that brings nothing new stops** after 25 steps with no new result and no file
+  changed.
+- **An optional judge.** A model of your choice reads what Argus measured about the run,
+  not what the agent says. It gives the run more steps or stops it, within bounds set in
+  code, and then you decide.
+- **A project's own limits apply.** Before 0.6.0 they were read and ignored. The upgrade
+  tells you which projects this changes
+  ([what changes](backup-and-upgrade.md#upgrading-to-060)).
+
+## 0.5.0
+
+Fewer approvals, because more actions are safe by construction.
+
+- **`/undo`** takes back any of a project's last runs.
+- **Precise rules.** Commands that only read no longer ask. `docker logs *` allows the
+  arguments of one command, and `*.example.com` covers only the subdomains.
+- **Layered templates.** A project made from a template follows the template's
+  improvements and keeps what you changed.
+- **Skills per project**, kept where the project's agent cannot write.
+- **Extensions:** tools and skills installed once from git (`/ext install`), pinned and
+  hashed, confined, and enabled per project.
+- **Scheduled runs never wait.** An action that would need approval is refused at once,
+  and you get the rule that would allow it as a button (`/rule`).
+- **The `site` template** runs its commands without asking, confined to its folder.
+
+[What changes](backup-and-upgrade.md#upgrading-to-050).
+
+## 0.4.0
+
+Telegram became optional.
+
+- **Users.** A person is a user of Argus, with one role, on the web, on Telegram, or
+  both (`/link`).
+- **A complete web interface.** It has its own passwords, a persistent chat and inbox,
+  invitations (`/users`), and every page that Telegram's commands offer. A one-time
+  **setup link** creates the admin on an install with no bot.
+- **Approvals on every channel.** A question goes to every channel of the user, and an
+  answer on one closes it on the others.
+- **Public mode** for the web, with an authenticator code for every sign-in and a Caddy
+  overlay for HTTPS.
+- **Confined commands.** A project's commands run confined to its own folder.
+
+## 0.3.0
+
+- The web interface.
+- Per-project tool permissions.
+- API keys and default models set from the chat.
+- MCP servers.
+- Project templates and instructions.
+- The admin and operator roles.
+- `/estimate`.
+- Projects asking each other questions.
+- The *Always allow* button.
+
+[What changes](backup-and-upgrade.md#upgrading-to-030).
+
+## What has been verified
+
+- **More than 2,000 automated tests.** They include a `SIGKILL` in the middle of a run,
+  a day-long outage of the scheduler, and approval bypass attempts.
+- **The Docker install, end to end, on a real daemon.** This covers install, health
+  checks, backup, restore, upgrade and forced rollback.
+- **The native install, end to end, on a fresh Ubuntu 24.04 with systemd.** This covers
+  install, crash recovery, upgrade and rollback from git, and uninstall
+  (`pnpm test:native-vps`).
+- **Every upgrade, 0.2 to 0.6, in the image and on a fresh Ubuntu.** An older project's
+  file is left as it was, and users carry over (`pnpm test:native-vps --upgrade`).
+- **The command sandbox in the real image.** A project's shell cannot read the database,
+  another project, a conversation, the keys or the application, nor write outside its
+  folder. The same holds for an extension's install and its MCP server
+  (`pnpm test:docker-sandbox`).
+- **A real Telegram bot with real billed models**, DeepSeek V4 Flash and GLM-5.3 Flash
+  through OpenRouter (`pnpm test:live`).
+- **Cost accounting against a provider's own bill.** Every request to DeepInfra matched
+  its reported tokens and its billed cost to within 1 µUSD.
+- **0.6.0's limits:** ten scripted long runs through the real governor. They include one
+  run per loop pattern and a run of 150 steps that is never cut off. The judge was also
+  tested against two real models, and both stop an agent that claims progress it did
+  not make.
+- **`web_fetch` never reaches a private address**: the server itself, the private
+  network and the cloud metadata service are refused.
+
+**Not verified yet:**
+
+- Agents running shell tools under the native systemd hardening.
+- The web interface through `tailscale serve`. So far it has been reached through an SSH
+  tunnel.
+- Public mode on a live deployment. It is covered by automated tests only.
+- Public MCP servers, such as GitHub's.
+- Long-running use by anyone but the author.

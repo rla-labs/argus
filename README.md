@@ -2,381 +2,128 @@
 
 ![Argus Agent](img/argus-agent.jpeg)
 
-**An operating system for AI agents: one you can leave running and trust.**
+Argus is a self-hosted system for running AI agents over days and weeks. It enforces a
+budget on every run, asks before risky actions and recovers after a crash. You run
+and watch it from a web interface or from Telegram.
 
 **Current release: [0.6.0](https://github.com/rla-labs/argus/releases/tag/v0.6.0)**
-(image `ghcr.io/rla-labs/argus:0.6.0`). Self-hosted, controlled from its own web
-interface, from Telegram, or both.
+(`ghcr.io/rla-labs/argus:0.6.0`). [What's new](docs/user/whats-new.md).
 
-*Formerly **dsh-ops**. The plugins keep their `ops-*` names.*
+## What it does
 
----
+**Projects.** A project is a long-running agent with its own folder, model,
+instructions, memory and budget. Templates are built in for `site`, `research`,
+`reports` and `devops` work.
 
-## Why this exists
+**Tasks and schedules.** One-off tasks, and cron schedules that fire exactly once even
+across restarts. The result is delivered to your chat.
 
-AI agents can already do real work: maintain a website, watch a build, write the
-morning report, answer the question you would otherwise have looked up yourself.
-Running them for days, though, is a different problem. Today an agent:
+**Control from a chat or a browser.** Commands such as `/status`, `/stop`, `/budget`
+and `/panic` are plain code, so they work with no model involved. Every other message
+goes to a project word for word.
 
-- **is fragile.** One bad configuration file, one crashed process, one network
-  hiccup at boot, and everything stops — often silently.
-- **is expensive in ways you can't see.** A loop at 3 a.m. spends money until
-  someone notices.
-- **is hard to keep in check.** A shell command you never approved, a task that
-  has quietly been running for hours.
-- **lives in a terminal.** To check on it you have to SSH in.
+**Budgets.** Every run passes through one governor, which checks limits before the run
+starts and again at every step. Prices refresh by themselves. `/panic` stops everything
+in under five seconds.
 
-Argus is named after the hundred-eyed watchman of Greek myth, whose eyes never all
-closed at once. We are building it to take those worries off you. The goal is an **Agent
-OS**: a small, self-hosted layer that does for agents what an operating system
-does for programs. It schedules them, isolates them, meters what they use,
-enforces limits, recovers them when they crash, and gives you one calm place to
-talk to all of them.
+**Approvals.** Each project has its own permissions (read, write, shell, web).
+Risky actions wait for your answer, and no answer counts as no.
 
-It should run on a modest VPS. It should keep running when something goes wrong.
-And it should tell you, in plain words, what happened and what it needs from you.
+**A sandbox.** An agent's commands are confined by the kernel (Landlock) to the
+project's own folder. `/undo` restores that folder to what it was before a run.
 
-## What it does today
+**Long runs that cannot run away.** A run stops on a loop or after many steps with no
+progress. At a checkpoint it asks whether to continue, and a project never passes its
+step ceiling.
 
-### Agents that do the work
+**Recovery.** A crash loses nothing, and interrupted runs come back as a retry button.
+A broken project file sidelines that project only.
 
-- **Projects.** Long-running agents, each in its own folder, with its own model,
-  instructions, memory and budget. Each one is a separate top-level agent, never a
-  subagent of another.
-- **Templates and instructions.** Start a project as a `site`, `research`, `reports`
-  or `devops` project (or from a template of your own) and tell it how to work with
-  `/instructions`. The instructions are in its prompt on every request, and only you
-  can change them.
-- **Memory.** Each project keeps durable notes that survive resets and compactions,
-  stored outside its own folder, where its tools can't touch them.
-- **One-off tasks** for a single job, accounted separately, and **scheduled work**:
-  cron schedules that fire exactly once, even across restarts, with the result
-  delivered to your chat.
-- **Integrations through MCP.** A project can use the tools of MCP servers (GitHub, a
-  database, a calendar). Each server is visible to that one project, its secrets stay
-  out of the project's files, and its calls go through the same approvals.
-- **Extensions and skills.** Tools (MCP servers) and skills the admin installs once from
-  a git repository, pinned and checked at every start, and enables per project; their
-  servers run confined to the project's folder. A project's own skills are added with
-  `/skill`, outside its folder, so its agent cannot write itself one.
-- **Projects that work together.** With delegation allowed, one project can ask
-  another a question; the work is paid from the other project's budget and runs under
-  its rules.
+**Extensions.** MCP servers and skills installed from git, pinned, and enabled per
+project.
 
-### You stay in control
+## Quick start
 
-- **Chat commands, on any channel.** Commands like `/status`, `/stop`, `/budget` and
-  `/panic`, typed in the web chat or to the Telegram bot, are deterministic code, so
-  they work without a model in the loop. Any other message
-  goes to the active project, verbatim, or to a cheap "front desk" agent that routes it.
-- **A web interface.** An overview of the projects, spending, live runs and schedules,
-  the pending approvals, the settings, users and the same chat, in English or Romanian.
-  Its own sign-in (a password, optionally an authenticator code), its own setup with no
-  Telegram at all. Built for a private network (Tailscale, a VPN, an SSH tunnel); a
-  [public mode](docs/user/web.md#public-mode) puts it behind Caddy with HTTPS and a
-  required second factor.
-- **Administration without SSH.** A project's runs, what each one did, its memory and
-  files (`/runs`, `/log`, `/memory`, `/files`, `/get`); its settings (`/set`); API keys,
-  checked with the provider before they are saved (`/key`); the default models
-  (`/defaults`); who may use the bot (`/allow`). On the host, `argus doctor` checks keys,
-  models and projects, and says how to fix what fails.
-- **Two roles.** The admin decides what spends money, what agents may do and what is
-  deleted; operators run, stop and approve work.
+You need a Linux server and an API key for a model provider. Telegram is optional.
 
-### Safety and cost
+```sh
+git clone https://github.com/rla-labs/argus.git && cd argus
+./deploy/scripts/install.sh                  # Docker (recommended)
+sudo ./deploy/native/install-native.sh       # or native, with systemd (Node 22, pnpm 8.6.11)
+```
 
-- **Per-project permissions.** Each project says what its agent may use (reading,
-  writing, the shell, the web, delegation), each `off`, `deny`, `ask` or `allow`, with
-  exceptions for single tools and a list of sites it may fetch.
-- **Approvals.** A risky action becomes a question in Telegram or on the web:
-  *Approve*, *Deny*, *Approve this kind for the rest of the run*, or *Always allow* this
-  exact command. No answer means no. Commands that only read never ask, and a scheduled
-  run never waits: it is refused what it would ask for, and you get the rule as a button.
-- **Confined commands.** Every command an agent runs is confined by the kernel
-  (Landlock): it reads and writes its own project's folder and nothing else of Argus's,
-  not the database, not the other projects, not the conversations, not the keys.
-- **Undo.** Before each run Argus records the project's folder; `/undo` puts it back as
-  it was, and an undo can itself be undone.
-- **Hard cost control.** Every execution passes through one governor, which enforces
-  concurrency and budgets before anything starts and again at every step. Prices for
-  DeepSeek, Anthropic and OpenAI models (direct or through OpenRouter) ship with Argus
-  and refresh themselves; you are told when a model you use changes price, and a free
-  remote model runs only after you allow it. Budgets warn, can downgrade the model, and
-  pause a project at the limit. `/estimate` shows what a project's runs usually cost
-  before you send a big one, and `/panic` stops everything in under five seconds.
+The installer asks for what it needs and prints a setup link. With Telegram, send
+`/start` to your bot. On the host, `argus status`, `argus doctor`, `argus logs -f`,
+`argus backup` and `argus upgrade` work the same for both installs.
 
-### Reliability
+The web interface listens only on the server (port 3091). Reach it
+[through Tailscale or an SSH tunnel](docs/user/web.md#reach-it-tailscale-recommended).
 
-- **Recovery.** Nothing is lost in a crash. Interrupted runs are reported, and you can
-  retry them with one button.
-- **One instance per data directory.** A second process on the same data refuses to
-  start, so schedules can never fire twice. The lock is released by the operating
-  system even after a hard crash.
-- **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
-  running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
+## Documentation
 
-## Coming next
-
-**Prices for any provider, without writing them.** A provider you declare under
-`providers:` (DeepInfra, Together, Fireworks, Groq…) is priced from lists refreshed
-daily: DeepInfra's own price list, what it actually bills, and models.dev for about
-230 others. No `pricing:` entry to write, and the price follows the provider's changes.
-
-## New in 0.6.0
-
-Long work that cannot run away. A project may now work for hundreds of steps, and a run
-that goes nowhere stops early, cheaply, and says why.
-
-- **A checkpoint instead of a kill.** Every 60 steps (or 45 minutes) a run asks, with
-  what it did, the files it changed and its cost: **Continue** or **Stop**, in the chat
-  or on the web. A scheduled run stops and says how to go on. Each project has a
-  ceiling it never passes (`limits.max_steps_total`, 1000 by default, set by the
-  templates): a coding project may run for hundreds of steps, a short fixed job can be
-  held to a dozen.
-- **Loops are judged by what changes.** The same call with the same result, or a cycle
-  of 2–3 calls, stops the run; the same call with a new result (tests run again after a
-  fix) is progress. Times, ids and key order do not fool it.
-- **A run that brings nothing new stops**: 25 steps with no new result and no file
-  changed.
-- **An optional judge.** A model of your choice reads what Argus measured about the run,
-  not what the agent says, and gives it more steps or stops it, within bounds set in
-  code; then you decide. Tested against real models with an agent that claims progress
-  it did not make: they stop it.
-- **A project's own limits apply.** Before, they were read and ignored; the upgrade
-  tells you which projects this changes. Upgrading from 0.5 needs no manual step;
-  [what changes](docs/user/backup-and-upgrade.md#upgrading-to-060).
-
-## New in 0.5.0
-
-Autonomy with guard rails: fewer approvals, because more actions are safe by
-construction. **`/undo`** takes any of a project's last runs back. **Precise rules**: the
-commands that only read no longer ask, `docker logs *` allows one command's arguments,
-`*.example.com` its subdomains only. **Layered templates**: a project made from a
-template follows its improvements, and keeps what you changed. **Skills** per project,
-kept where its agent cannot write. **Extensions**: tools and skills installed once from
-git (`/ext install`), pinned and hashed, their install and their servers confined, enabled
-per project. **Scheduled runs never wait**: what they would ask about is refused at once,
-with the rule that would allow it as a button (`/rule`). The `site` template runs its
-commands unasked, confined to its folder. Upgrading from 0.4 needs no manual step;
-[what changes](docs/user/backup-and-upgrade.md#upgrading-to-050).
-
-## New in 0.4.0
-
-Channels that stand on their own: Telegram is optional. A person is a **user** of
-Argus, with one role, on the web, on Telegram, or both (`/link`). The web has its own
-passwords, a persistent chat and inbox, invitations (`/users`), every page Telegram's
-commands offer, and a one-time **setup link** that creates the admin on an install with
-no bot. Approvals are asked on every channel of the user and closed on the others.
-**Public mode** for the web: an authenticator code for every sign-in, a Caddy overlay
-with automatic HTTPS. A project's commands now run confined to its own folder. Upgrading
-from 0.3 needs no manual step: the admin and the allowed users become users, with their
-Telegram identities.
-
-## New in 0.3.0
-
-The web interface; per-project tool permissions; API keys and default models from the
-chat; MCP servers; project templates and instructions; the admin and operator roles;
-`/estimate`; projects asking each other; and the *Always allow* button. Upgrading from
-0.2 needs no migration; [what changes](docs/user/backup-and-upgrade.md#upgrading-to-030)
-for your users and projects is listed in the upgrade guide.
+- [Getting started](docs/user/getting-started.md): from an empty server to a working
+  project in ten minutes
+- [Three scenarios](docs/user/scenarios.md): a website, a daily report, a file you send
+- [Daily use](docs/user/daily-use.md) and [chat commands](docs/user/commands.md)
+- [The web interface](docs/user/web.md)
+- [Configuration](docs/user/configuration.md) and
+  [extensions](docs/user/extensions.md)
+- [Backup and upgrades](docs/user/backup-and-upgrade.md),
+  [security](docs/user/security.md) and
+  [troubleshooting](docs/user/troubleshooting.md)
 
 ## How it is built
 
-Argus is a set of Cordis plugins on top of a pinned version of
-[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It does
-not patch dsh. Like an OS kernel, it rests on a few rules that are never bent:
+![How Argus is built](img/aa_graph.webp)
 
-| Rule | Why it matters |
+Argus is a set of Cordis plugins on a pinned version of
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh). It does not
+patch dsh. Tests enforce these rules:
+
+| Rule | Why |
 |---|---|
-| **One executor.** Only `ops-governor` starts work. | No path around the budget, the concurrency limits or `/panic`. |
-| **One writer.** Only `ops-store` touches the database. | Admissions, usage and recovery are transactional; a crash leaves nothing half-written. |
-| **Deterministic control.** Commands, schedules, budgets and cancellation are code. | The controls still work when a model is wrong, slow or offline. |
-| **Your words, verbatim.** No component rewrites what you send a project. | An agent cannot be steered by a paraphrase it never asked for. |
-| **Fail closed.** An unpriced model, an unanswered approval or an unknown user is a *no*. | Mistakes cost a retry, not money or a deleted file. |
-| **Separation.** A project is a top-level agent with its own folder, session, model, memory and budget. | Projects never share a conversation, a memory or a budget, and memory lives outside every workspace. An agent's commands run under Landlock: they read and write only their own project's folder, never the database, the other projects or the conversations. |
+| Only `ops-governor` starts work. | Nothing gets around a budget or `/panic`. |
+| Only `ops-store` writes to the database. | A crash leaves nothing half-written. |
+| Commands, schedules and budgets are code. | The controls work when a model is wrong or offline. |
+| A project gets your words as you sent them. | No component rewrites your instructions. |
+| A missing price, approval or user means no. | A mistake costs a retry, not money. |
+| Each project is a separate agent. | Projects never share a conversation, memory or budget. |
 
-Each rule is enforced by tests, not only stated here.
+## Status
 
-## Status: an honest picture
+Argus is early. It runs every day on its author's server and has more than 2,000
+automated tests. Its installs, upgrades and sandbox are tested end to end. Nobody else
+has run it in production yet, and dsh is still a release candidate (`0.2.0-rc.2`). See
+[what has been verified](docs/user/whats-new.md#what-has-been-verified), and what has
+not.
 
-**Early, and in use.** The foundation is done and heavily tested, and Argus runs day
-to day on its author's own server, but nobody else has run it in production yet. dsh
-itself is still a release candidate (`0.2.0-rc.2`).
-
-What has been verified:
-
-- **2,000+ automated tests.** They cover a `SIGKILL` crash in the middle of a
-  run, a day-long outage of the scheduler, and every approval bypass we could
-  think of.
-- **The Docker install, end to end, on a real daemon:** install, health checks,
-  backup, restore, upgrade, forced rollback, and upgrading a deployment that still
-  uses the old dsh-ops names.
-- **An upgrade from 0.2 to 0.3.0 on a real server** (a Docker host in a VM): every
-  `argus doctor` check passes, and the web interface answers through an SSH tunnel.
-- **The native install, end to end, on a fresh Ubuntu 24.04 with systemd:**
-  install, crash recovery, upgrade and rollback from git, uninstall.
-  `pnpm test:native-vps` repeats it on demand.
-- **0.4.0 on the same fresh Ubuntu, and in the Docker image:** an install with no
-  Telegram, the setup link creating the admin, the web chat answering, the admin's
-  recovery link; and an upgrade from 0.3.2 that turns the admin and an allowed user
-  into users with their Telegram identities (`pnpm test:native-vps --web-only`,
-  `--upgrade`). Public mode (TOTP, Caddy) is covered by automated tests, not yet by a
-  live deployment.
-- **The command sandbox inside the real image**, hardened as compose runs it: a
-  project's shell cannot read the database, another project, a conversation, the keys
-  or the application, nor write outside its folder (`pnpm test:docker-sandbox`).
-- **A live run with a real Telegram bot and real billed models.** `/help`, `/new`,
-  a free message answered in the chat, and `/status`, with DeepSeek V4 Flash and
-  GLM-5.3 Flash through OpenRouter, each run accounted at the provider's price.
-  `pnpm test:live` repeats it.
-- **0.5.0 in the real image and on a fresh Ubuntu:** an extension installed in the
-  sandbox cannot read the keys, and its MCP server works in the project's folder but
-  cannot read the database (`pnpm test:docker-sandbox`); an upgrade from 0.4.0 keeps the
-  users and leaves an old project's file as it was (`pnpm test:native-vps --upgrade`).
-- **0.6.0's limits, end to end:** ten scripted long runs through the real governor, one
-  per loop pattern and one of 150 steps that is never cut off; the judge's prompt against
-  two real models (DeepSeek V4 Flash, GLM-5.3 Flash), which both stop an agent that
-  claims progress the facts do not show (`pnpm test:live`); an upgrade from 0.5.0 in the
-  image and on a fresh Ubuntu, an old project's file untouched.
-- **`web_fetch` never reaches a private address:** the server itself, the private
-  network and the cloud metadata service are refused, by IP or by name
-  (`test/spikes/08-web-fetch-addresses.test.ts`).
-- **Cost accounting against a provider's own bill.** Every request to DeepInfra
-  matched DeepInfra's reported token counts (cached tokens included) and its
-  billed cost to within 1 µUSD.
-
-What is not verified yet:
-
-- **Agents running shell tools under the native systemd hardening.**
-- **The web interface through `tailscale serve`.** Reached so far through an SSH
-  tunnel and on the local machine.
-- **MCP servers in production.** Tested with a real stdio server in the test suite,
-  not yet with the public servers (GitHub and the like).
-- **Long-running use by others.** No deployment but the author's has run for weeks
-  against real budgets.
-
-## Where it is going
-
-An Agent OS is more than a reliable core. Next on the road:
-
-1. **Extensions to use** (0.7.0): a first-party `office` extension (Word, Excel,
-   PowerPoint) and more, on the extension mechanism of 0.5.0.
-2. **More channels and more people.** Slack or Discord, and more roles than admin and
-   operator, so a team can share one Argus.
-3. **Memory that finds meaning**, not only words, and **parallel work** inside one
-   project.
-4. **Operations:** metrics for an existing monitoring stack, and encrypted backups
-   copied off the machine.
-
-If any of this is something you need, an issue describing your use case is the
-most helpful thing you can send.
-
-## Try it
-
-You need a Linux machine. For Docker you need Docker with the Compose plugin; for the
-native install, **Node 22** and **pnpm 8.6.11**:
-
-```sh
-corepack enable && corepack prepare pnpm@8.6.11 --activate
-```
-
-Either way, you need an API key for your model provider. Telegram is optional: for it,
-a bot token from [@BotFather](https://t.me/BotFather) and your numeric Telegram user id
-from [@userinfobot](https://t.me/userinfobot). The installer asks.
-
-### Docker (recommended)
-
-```sh
-git clone https://github.com/rla-labs/argus.git
-cd argus
-./deploy/scripts/install.sh
-```
-
-It pulls the published image (`ghcr.io/rla-labs/argus`); `--build` builds it from your
-checkout instead. The container runs as a non-root user with a read-only filesystem and no
-capabilities. All state lives in one data directory, which is the only thing you
-need to back up.
-
-### Native install (a VPS without Docker)
-
-```sh
-git clone https://github.com/rla-labs/argus.git
-cd argus
-sudo ./deploy/native/install-native.sh
-```
-
-A fully supported alternative. The installer creates a service account, builds the
-code and composes the dsh profile. It then installs a hardened systemd unit, waits for
-the health check and, with Telegram, sends your first message.
-
-After either install: without Telegram, open the **setup link** the installer prints (it
-creates the admin, then walks through the key, the models and a first project;
-`argus setup-link` shows it again). With Telegram, open the chat with your bot and send
-`/start`. On the host, one
-command runs the rest, for both installs: `argus status`, `argus doctor`, `argus logs -f`,
-`argus backup`, `argus restore`, `argus upgrade`.
-
-For the web interface, open a private path to the server's port 3091 (on the server:
-`sudo tailscale serve --bg 3091`; or from your computer:
-`ssh -N -L 3091:127.0.0.1:3091 you@server`), then sign in, or send `/web` to the bot
-for a sign-in link. Nothing is opened to the internet unless you choose
-[public mode](docs/user/web.md#public-mode).
-
-The user documentation starts at [`docs/user/`](docs/user/README.md):
-
-- [Getting started](docs/user/getting-started.md): from an empty server to a working
-  project and a schedule, in ten minutes
-- [Three scenarios](docs/user/scenarios.md): a website, a daily report, a file you send
-- [Working with Argus every day](docs/user/daily-use.md): the commands, by situation,
-  and how to work well with them
-- [The web interface](docs/user/web.md): reaching it privately, signing in
-- [Chat commands](docs/user/commands.md), [Configuration](docs/user/configuration.md),
-  [Extensions](docs/user/extensions.md),
-  [Backup, restore and upgrades](docs/user/backup-and-upgrade.md),
-  [Security](docs/user/security.md), [Troubleshooting](docs/user/troubleshooting.md)
+**Next:** an `office` extension for Word, Excel and PowerPoint (0.7.0). After that,
+Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
+your use case helps the most.
 
 ## Development
 
 ```sh
 pnpm install
 pnpm build && pnpm typecheck && pnpm lint && pnpm test
-
-pnpm test:spikes        # the verified facts about dsh, as runnable tests
-pnpm test:native-vps    # the native install on a throwaway Ubuntu + systemd container
-                        # (needs Docker; runs a privileged container)
-pnpm test:docker-sandbox  # what a project's shell may read and write, in the real image
+pnpm test:native-vps      # the native install in a throwaway Ubuntu container
+pnpm test:docker-sandbox  # what a project's shell can reach, in the real image
 ```
 
-```
-packages/          one Cordis plugin per folder (ops-*, ops-web for the web interface),
-                   plus the argus-agent bundle
-profiles/ops/      the dsh profile that stacks the bundles
-deploy/            Docker, compose, native systemd install, backup/upgrade scripts,
-                   and the config templates (ops.yaml.minimal, ops.yaml.example, a project)
-test/              spikes, end-to-end crash recovery, deploy tests
-```
-
-A change is done when the four commands above pass. The architecture rules in
-[How it is built](#how-it-is-built) are checked by tests, so a change that breaks
-one fails loudly.
+`packages/` holds one plugin per folder plus the `argus-agent` bundle. `deploy/` holds
+Docker, the native install and the config templates. `test/` holds the spikes,
+crash recovery and deploy tests.
 
 ## License
 
-Argus is source-available under the [Sustainable Use License](LICENSE.md), the license
-n8n uses. You may run it for yourself or for your own company, commercial work included,
-and change it for that use. You may not offer it to others as a hosted or managed
-service, and you may not sell or commercially distribute it, or a modified version.
+[Sustainable Use License](LICENSE.md), the license n8n uses. You may run and change
+Argus for yourself or your company, commercial work included. You may not offer it as a
+hosted service or sell it.
 
 ## Acknowledgements
 
-Argus stands on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-and Cordis. Their extension points made it possible to build an agent OS as a set
-of plugins, without forking either.
-
-Model prices come from the [AI API Pricing dataset](https://aicostbudget.com/en/datasets/ai-api-pricing)
-by aicostbudget.com, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-Prices for other providers come from [models.dev](https://models.dev) (MIT) and, for
-DeepInfra, from DeepInfra's own price list.
-Argus keeps the token-priced models and, for each, the highest standard price that
-can apply (see `packages/ops-meter/src/catalog-snapshot.ts`). Provider invoices remain
-the final word on what you pay.
+Argus is built on [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+and Cordis. Model prices come from the
+[AI API Pricing dataset](https://aicostbudget.com/en/datasets/ai-api-pricing)
+(CC BY 4.0) and [models.dev](https://models.dev) (MIT), and from DeepInfra's own price
+list for DeepInfra. Your provider's invoice is the final word on what you pay.

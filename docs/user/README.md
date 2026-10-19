@@ -21,6 +21,7 @@ supported alternative.
 | Back up, restore, or upgrade | [Backup, restore and upgrades](backup-and-upgrade.md) |
 | Know what it protects you from, and what it does not | [Security](security.md) |
 | Fix something | [Troubleshooting](troubleshooting.md) |
+| See what each release brought, and what has been verified | [What's new](whats-new.md) |
 
 ## Before you install
 
