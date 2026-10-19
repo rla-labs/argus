@@ -1,7 +1,8 @@
 // == ARGUS AGENT PROJECT ==
 /**
  * Keeping prices current: a weekly refresh of the dataset, a daily one of
- * OpenRouter's own price list.
+ * OpenRouter's own price list, and a daily one of the providers' lists (models.dev
+ * for every provider, DeepInfra's own for DeepInfra).
  *
  * The network is consulted on a timer, never on the path of a request: a price
  * decision always reads the table in memory, so a slow or dead network can delay
@@ -23,6 +24,11 @@ export const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models'
 export const openRouterEndpointsUrl = (model: string): string =>
   `https://openrouter.ai/api/v1/models/${model.replace(/:[\w-]+$/, '')}/endpoints`
 
+/** Prices of many providers, kept by models.dev (MIT). */
+export const MODELS_DEV_URL = 'https://models.dev/api.json'
+/** DeepInfra's public model list, prices included. */
+export const DEEPINFRA_MODELS_URL = 'https://api.deepinfra.com/models/list'
+
 const DAY_MS = 24 * 60 * 60 * 1000
 /** How often each source is refreshed. */
 export const DATASET_EVERY_MS = 7 * DAY_MS
@@ -36,7 +42,16 @@ const KEYS = {
   openRouter: 'pricing.openrouter',
   openRouterAt: 'pricing.openrouter_fetched_at',
   ceilings: 'pricing.openrouter_ceilings',
+  lists: 'pricing.provider_lists',
+  listsAt: 'pricing.provider_lists_fetched_at',
 } as const
+
+/** What the providers' lists refresh saves. */
+interface SavedLists {
+  readonly fetchedAt: string
+  readonly modelsDev: Record<string, Price>
+  readonly deepInfra: Record<string, Price>
+}
 
 /**
  * OpenRouter's price list, as USD per million tokens by model id.
@@ -112,6 +127,75 @@ function priceOf(pricing: Record<string, unknown> | undefined): Price | undefine
 }
 
 /**
+ * models.dev's price list, as USD per million tokens by `provider/model`.
+ *
+ * Conservative, as the catalog is: the highest of a model's tiers (long context),
+ * and reasoning tokens at their own price when it is higher than output's. Its
+ * `openrouter` entries are left out: OpenRouter's own rules price those.
+ *
+ * @param document the parsed `api.json`.
+ * @returns the prices.
+ * @throws when the document does not have its shape.
+ */
+export function parseModelsDev(document: unknown): Map<string, Price> {
+  if (document === null || typeof document !== 'object' || Array.isArray(document)) throw new Error('the models.dev list is not an object')
+  type Cost = { input?: unknown; output?: unknown; cache_read?: unknown; cache_write?: unknown; reasoning?: unknown }
+  const prices = new Map<string, Price>()
+  for (const [provider, entry] of Object.entries(document as Record<string, { models?: Record<string, { cost?: Cost & { tiers?: Cost[]; context_over_200k?: Cost } }> }>)) {
+    if (provider === 'openrouter') continue
+    for (const [model, { cost } = {}] of Object.entries(entry?.models ?? {})) {
+      if (cost === undefined) continue
+      const levels = [cost, ...(Array.isArray(cost.tiers) ? cost.tiers : []), ...(cost.context_over_200k === undefined ? [] : [cost.context_over_200k])]
+      const most = (pick: (level: Cost) => unknown) => {
+        const values = levels.map(pick).filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0)
+        return values.length === 0 ? undefined : Math.max(...values)
+      }
+      const input = most((l) => l.input)
+      const output = most((l) => l.output)
+      if (input === undefined || output === undefined) continue
+      prices.set(`${provider}/${model}`, {
+        input,
+        output: Math.max(output, most((l) => l.reasoning) ?? 0),
+        cached: most((l) => l.cache_read) ?? input,
+        cacheWrite: most((l) => l.cache_write) ?? input,
+      })
+    }
+  }
+  return prices
+}
+
+/**
+ * DeepInfra's own price list, as USD per million tokens by model id: what it bills.
+ *
+ * It quotes cents per token, a `discount` it bills (`price × (1 − discount)`), and
+ * the cached rate as a share of input. A discount that ends before the next refresh
+ * (a day) is left out, so a price never goes up unseen.
+ *
+ * @param document the parsed `/models/list` response.
+ * @param now the current time, ms.
+ * @returns the prices.
+ * @throws when the document does not have its shape.
+ */
+export function parseDeepInfra(document: unknown, now: number): Map<string, Price> {
+  if (!Array.isArray(document)) throw new Error('the DeepInfra list is not a list')
+  const prices = new Map<string, Price>()
+  for (const model of document as Array<{ model_name?: unknown; type?: unknown; deprecated?: unknown; pricing?: Record<string, unknown> | null }>) {
+    const p = model.pricing
+    if (typeof model.model_name !== 'string' || model.type !== 'text-generation' || model.deprecated || p?.['type'] !== 'tokens') continue
+    const ends = typeof p['discount_ends_at'] === 'number' ? p['discount_ends_at'] * 1000 : Infinity
+    const discount = typeof p['discount'] === 'number' && p['discount'] > 0 && p['discount'] < 1 && ends > now + DAY_MS ? p['discount'] : 0
+    const perMillion = (cents: unknown) =>
+      typeof cents === 'number' && Number.isFinite(cents) && cents >= 0 ? Math.round(cents * 10_000 * (1 - discount) * 1e6) / 1e6 : undefined
+    const input = perMillion(p['cents_per_input_token'])
+    const output = perMillion(p['cents_per_output_token'])
+    if (input === undefined || output === undefined) continue
+    const share = (rate: unknown) => (typeof rate === 'number' && rate >= 0 ? Math.round(input * rate * 1e6) / 1e6 : input)
+    prices.set(model.model_name, { input, output, cached: share(p['rate_per_input_token_cached']), cacheWrite: share(p['rate_per_input_token_cache_write']) })
+  }
+  return prices
+}
+
+/**
  * Why a refreshed catalog must not replace the current one, or `undefined`.
  *
  * A truncated download, a schema change or a bad publish must never replace a
@@ -154,7 +238,7 @@ export interface RefresherOptions {
   readonly onApplied?: () => void
 }
 
-/** Refreshes the dataset weekly and OpenRouter daily, on a timer. */
+/** Refreshes the dataset weekly, and OpenRouter and the providers' lists daily, on a timer. */
 export class PriceRefresher {
   private timers: ReturnType<typeof setTimeout>[] = []
   private warnedStaleOn: string | undefined
@@ -178,19 +262,21 @@ export class PriceRefresher {
     if (openRouter !== undefined) prices.setOpenRouter(new Map(Object.entries(openRouter.prices)), openRouter.fetchedAt)
     const ceilings = store.runtimeState.get<Record<string, Price>>(KEYS.ceilings)
     if (ceilings !== undefined) prices.setOpenRouterCeilings(new Map(Object.entries(ceilings)))
+    const lists = store.runtimeState.get<SavedLists>(KEYS.lists)
+    if (lists !== undefined) prices.setProviderLists(new Map(Object.entries(lists.modelsDev)), new Map(Object.entries(lists.deepInfra)), lists.fetchedAt)
   }
 
   /**
    * Start the timer. The first check waits a few minutes, so a crash loop does not
    * hammer the sources and a boot is never slowed by the network — unless no
-   * OpenRouter list was ever saved: then every OpenRouter model outside the shipped
-   * catalog is unpriced, and blocked, until the check runs, so it runs within seconds.
+   * OpenRouter or providers' list was ever saved: then every model only they price
+   * is unpriced, and blocked, until the check runs, so it runs within seconds.
    * @param firstAfterMs delay before the first check.
    * @param everyMs interval between checks.
    * @returns a function that stops the timer.
    */
   start(firstAfterMs = 5 * 60_000, everyMs = 6 * 60 * 60_000): () => void {
-    if (this.options.store.runtimeState.get(KEYS.openRouterAt) === undefined) firstAfterMs = Math.min(firstAfterMs, 10_000)
+    if ([KEYS.openRouterAt, KEYS.listsAt].some((key) => this.options.store.runtimeState.get(key) === undefined)) firstAfterMs = Math.min(firstAfterMs, 10_000)
     const tick = () => void this.refreshIfDue()
     const first = setTimeout(() => {
       tick()
@@ -222,6 +308,8 @@ export class PriceRefresher {
     if (now() - at(KEYS.catalogAt) >= DATASET_EVERY_MS) await this.refreshDataset()
     if (this.halt.signal.aborted) return
     if (now() - at(KEYS.openRouterAt) >= OPENROUTER_EVERY_MS) await this.refreshOpenRouter()
+    if (this.halt.signal.aborted) return
+    if (now() - at(KEYS.listsAt) >= OPENROUTER_EVERY_MS) await this.refreshLists()
     this.warnIfStale()
   }
 
@@ -277,6 +365,44 @@ export class PriceRefresher {
       log.warn(`OpenRouter price refresh failed (${(error as Error).message}); keeping the previous prices`)
       return false
     }
+  }
+
+  /**
+   * Fetch, save and apply the providers' lists. Each list is fetched on its own: one
+   * that fails or looks truncated keeps its previous prices.
+   * @returns whether either was replaced.
+   */
+  async refreshLists(): Promise<boolean> {
+    const { store, prices, now, log } = this.options
+    const saved = store.runtimeState.get<SavedLists>(KEYS.lists)
+    const fetchList = async (name: string, url: string, parse: (document: unknown) => Map<string, Price>, least: number) => {
+      try {
+        const parsed = parse(await this.getJson(url))
+        if (parsed.size >= least) return parsed
+        log.warn(`${name} price refresh refused (only ${parsed.size} model(s)); keeping the previous prices`)
+      } catch (error) {
+        if (!this.halt.signal.aborted) log.warn(`${name} price refresh failed (${(error as Error).message}); keeping the previous prices`)
+      }
+      return undefined
+    }
+    const modelsDev = await fetchList('models.dev', MODELS_DEV_URL, parseModelsDev, 1000)
+    if (this.halt.signal.aborted) return false
+    const deepInfra = await fetchList('DeepInfra', DEEPINFRA_MODELS_URL, (document) => parseDeepInfra(document, now()), 20)
+    if (this.halt.signal.aborted || (modelsDev === undefined && deepInfra === undefined)) return false
+    const lists: SavedLists = {
+      fetchedAt: new Date(now()).toISOString().slice(0, 10),
+      modelsDev: modelsDev === undefined ? (saved?.modelsDev ?? {}) : Object.fromEntries(modelsDev),
+      deepInfra: deepInfra === undefined ? (saved?.deepInfra ?? {}) : Object.fromEntries(deepInfra),
+    }
+    const changes = this.diff(() =>
+      prices.setProviderLists(new Map(Object.entries(lists.modelsDev)), new Map(Object.entries(lists.deepInfra)), lists.fetchedAt),
+    )
+    // ponytail: the whole models.dev list (~9000 models, ~1 MB) is kept, so a provider declared later is priced at once.
+    store.runtimeState.set(KEYS.lists, lists, now())
+    store.runtimeState.set(KEYS.listsAt, now(), now())
+    log.info(`providers' prices refreshed: ${Object.keys(lists.modelsDev).length} from models.dev, ${Object.keys(lists.deepInfra).length} from DeepInfra`)
+    if (changes.length > 0) this.options.onChanges(changes)
+    return true
   }
 
   /**

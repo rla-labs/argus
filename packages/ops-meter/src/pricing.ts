@@ -15,6 +15,9 @@
  * 5. Every other provider: pi-ai's model catalog (`provider-catalog.ts`), the one
  *    dsh routes with. A direct provider bills its published price, so tokens times
  *    this price is the bill.
+ * 6. The providers' lists, refreshed daily, by the provider's name: DeepInfra's own
+ *    (what it bills, discounts included) for `deepinfra`, then models.dev for any
+ *    provider it lists — a provider declared under `providers:` included.
  *
  * Any remote model that resolves to $0 needs the operator's confirmation.
  *
@@ -40,7 +43,7 @@ export interface Price {
 }
 
 /** Where a resolved price came from. */
-export type PriceSource = 'config' | 'local' | 'openrouter' | 'openrouter-free' | 'catalog' | 'provider-catalog'
+export type PriceSource = 'config' | 'local' | 'openrouter' | 'openrouter-free' | 'catalog' | 'provider-catalog' | 'deepinfra' | 'models.dev'
 
 /** One resolved price entry, with where it came from. */
 export interface ResolvedPrice extends Price {
@@ -124,6 +127,10 @@ export class PriceTable {
   private openRouterDate: string | null = null
   /** The highest price among each model's OpenRouter providers, which is what is charged. */
   private openRouterCeilings = new Map<string, Price>()
+  /** The providers' lists: models.dev by `provider/model`, DeepInfra's by model id. */
+  private modelsDev = new Map<string, Price>()
+  private deepInfra = new Map<string, Price>()
+  private listsDate: string | null = null
 
   /**
    * @param config the pricing configuration.
@@ -180,6 +187,18 @@ export class PriceTable {
    */
   setOpenRouterCeilings(ceilings: ReadonlyMap<string, Price>): void {
     this.openRouterCeilings = new Map(ceilings)
+  }
+
+  /**
+   * Replace the providers' lists.
+   * @param modelsDev models.dev's prices by `provider/model`.
+   * @param deepInfra DeepInfra's prices by model id.
+   * @param fetchedAt when they were fetched, `YYYY-MM-DD`.
+   */
+  setProviderLists(modelsDev: ReadonlyMap<string, Price>, deepInfra: ReadonlyMap<string, Price>, fetchedAt: string): void {
+    this.modelsDev = new Map(modelsDev)
+    this.deepInfra = new Map(deepInfra)
+    this.listsDate = fetchedAt
   }
 
   /** Whether an OpenRouter model has a provider ceiling. */
@@ -243,8 +262,13 @@ export class PriceTable {
         : this.catalog.get(`${datasetProvider}/${modelKey(model.replace(/:[\w-]+$/, ''))}`)
     if (entry === undefined) {
       // A router's price depends on where it routes; only its own rules above apply.
-      const listed = ref.provider === 'openrouter' ? undefined : this.providerCatalog?.(ref)
-      return listed === undefined ? undefined : { ...listed, matchedBy: key, exact: true, source: 'provider-catalog' }
+      if (ref.provider === 'openrouter') return undefined
+      const listed = this.providerCatalog?.(ref)
+      if (listed !== undefined) return { ...listed, matchedBy: key, exact: true, source: 'provider-catalog' }
+      const billed = ref.provider === 'deepinfra' ? this.deepInfra.get(ref.model) : undefined
+      if (billed !== undefined) return { ...billed, matchedBy: key, exact: true, source: 'deepinfra', verifiedAt: this.listsDate }
+      const kept = this.modelsDev.get(key)
+      return kept === undefined ? undefined : { ...kept, matchedBy: key, exact: true, source: 'models.dev', verifiedAt: this.listsDate }
     }
     return {
       input: entry.input,

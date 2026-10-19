@@ -203,8 +203,16 @@ A **scalar**, not a map: `keep` or `reject`.
 has one, the peak-hour price when a provider discounts off-peak. `/new` and `/model`
 show the price they will use and where it came from.
 
+**A provider you declare yourself** (`providers:`) is priced too, from lists fetched
+daily, by the provider's name: for `deepinfra`, DeepInfra's own price list (what it
+bills, its discounts included); for any other, [models.dev](https://models.dev)
+(MIT), which covers about 230 providers. Name the provider the way models.dev does
+(`deepinfra`, `togetherai`, `fireworks-ai`, `groq`, `nebius`…) and you write no price.
+models.dev gives list prices: when a provider discounts a model, Argus counts more than
+you are billed, never less. A model on no list still needs a line here.
+
 A price comes from the first of: this table (exact key, then `provider/*`), a local
-provider, OpenRouter's `:free` variants, the catalog.
+provider, OpenRouter's `:free` variants, the catalog, the providers' lists.
 
 ```yaml
 pricing:
@@ -212,16 +220,12 @@ pricing:
   acme/new-model: { input: 1, cached: 0.1, output: 4, cache_write: 1.25 }
 ```
 
-**A provider you declare yourself** (`providers:`, e.g. DeepInfra) has no catalog price:
-write one here, from the price the provider actually bills. DeepInfra lists some models
-with a `discount` and bills `list price × (1 − discount)`; copy the undiscounted list
-price and Argus over-counts that model (GLM-5.3-Flash, discount 0.5, would be accounted
-at twice its bill). Use the discounted price:
+**To correct a list price**, write the one you are billed: a negotiated rate, or a
+models.dev price above a provider's discount:
 
 ```yaml
 pricing:
-  deepinfra/deepseek-ai/DeepSeek-V4-Flash: { input: 0.09, cached: 0.018, output: 0.18 }
-  deepinfra/zai-org/GLM-5.3-Flash: { input: 0.075, cached: 0.015, output: 0.25 }   # 0.15/0.5 list, 50% off
+  togetherai/deepseek-ai/DeepSeek-V4-Flash: { input: 0.09, cached: 0.018, output: 0.18 }
 ```
 
 **A remote model priced at $0** — an OpenRouter `:free` variant, or a 0 in this table —

@@ -184,7 +184,10 @@ local_providers: [ollama]
 # mistral, xai, openrouter, together, fireworks, …) works with no entry here: set
 # <PROVIDER>_API_KEY in .env and name the model `provider/model`. Declare a
 # provider the catalog does not ship (an OpenAI-compatible endpoint), or add models
-# to a catalog one. A declared provider's models need a price under pricing: above.
+# to a catalog one. A declared provider's models are priced from lists fetched daily
+# (DeepInfra's own for `deepinfra`, models.dev for the rest) when it has the name
+# models.dev uses (deepinfra, togetherai, fireworks-ai, groq…); otherwise add a price
+# under pricing: above.
 # Changes here take effect on restart.
 providers: {}
 #   deepinfra:                                  # key: DEEPINFRA_API_KEY
@@ -197,8 +200,8 @@ providers: {}
 #   openrouter:                                 # a model newer than the catalog
 #     models: [vendor/brand-new-model]
 
-# Keep prices current: the dataset is re-fetched weekly and OpenRouter's own prices
-# daily, saved, and applied without a restart; you are told when a model you use
+# Keep prices current: the dataset is re-fetched weekly, OpenRouter's own prices and
+# the providers' lists (DeepInfra, models.dev) daily, saved, and applied without a restart; you are told when a model you use
 # changes price. A failed fetch keeps the last good prices. `false` for a server
 # with no internet access — the catalog shipped with the release is used.
 price_refresh: true

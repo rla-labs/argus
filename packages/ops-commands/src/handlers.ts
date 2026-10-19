@@ -132,7 +132,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
               : 'OpenRouter list price'
             : price.source === 'provider-catalog'
               ? 'provider price list'
-              : `catalog, verified ${price.verifiedAt ?? 'n/a'}`
+              : price.source === 'deepinfra'
+                ? `DeepInfra's price list, ${price.verifiedAt ?? 'n/a'}`
+                : price.source === 'models.dev'
+                  ? `models.dev, ${price.verifiedAt ?? 'n/a'}; its list price, a discount not included`
+                  : `catalog, verified ${price.verifiedAt ?? 'n/a'}`
     const retired = price.status === 'retired' ? ' ⚠️ its provider has retired this model.' : ''
     return `Price: $${price.input} in / $${price.output} out per 1M tokens (${where}).${retired}`
   }

@@ -115,6 +115,13 @@ And it should tell you, in plain words, what happened and what it needs from you
 - **Fault tolerance.** A broken project file sidelines that one project. The rest keeps
   running, you are told exactly what is wrong, and `/reload` brings it back once fixed.
 
+## Coming next
+
+**Prices for any provider, without writing them.** A provider you declare under
+`providers:` (DeepInfra, Together, Fireworks, Groq…) is priced from lists refreshed
+daily: DeepInfra's own price list, what it actually bills, and models.dev for about
+230 others. No `pricing:` entry to write, and the price follows the provider's changes.
+
 ## New in 0.6.0
 
 Long work that cannot run away. A project may now work for hundreds of steps, and a run
@@ -368,6 +375,8 @@ of plugins, without forking either.
 
 Model prices come from the [AI API Pricing dataset](https://aicostbudget.com/en/datasets/ai-api-pricing)
 by aicostbudget.com, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Prices for other providers come from [models.dev](https://models.dev) (MIT) and, for
+DeepInfra, from DeepInfra's own price list.
 Argus keeps the token-priced models and, for each, the highest standard price that
 can apply (see `packages/ops-meter/src/catalog-snapshot.ts`). Provider invoices remain
 the final word on what you pay.
