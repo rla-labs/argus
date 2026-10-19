@@ -4,8 +4,8 @@
 
 **An operating system for AI agents: one you can leave running and trust.**
 
-**Current release: [0.5.0](https://github.com/rla-labs/argus/releases/tag/v0.5.0)**
-(image `ghcr.io/rla-labs/argus:0.5.0`). Self-hosted, controlled from its own web
+**Current release: [0.6.0](https://github.com/rla-labs/argus/releases/tag/v0.6.0)**
+(image `ghcr.io/rla-labs/argus:0.6.0`). Self-hosted, controlled from its own web
 interface, from Telegram, or both.
 
 *Formerly **dsh-ops**. The plugins keep their `ops-*` names.*
@@ -226,6 +226,11 @@ What has been verified:
   sandbox cannot read the keys, and its MCP server works in the project's folder but
   cannot read the database (`pnpm test:docker-sandbox`); an upgrade from 0.4.0 keeps the
   users and leaves an old project's file as it was (`pnpm test:native-vps --upgrade`).
+- **0.6.0's limits, end to end:** ten scripted long runs through the real governor, one
+  per loop pattern and one of 150 steps that is never cut off; the judge's prompt against
+  two real models (DeepSeek V4 Flash, GLM-5.3 Flash), which both stop an agent that
+  claims progress the facts do not show (`pnpm test:live`); an upgrade from 0.5.0 in the
+  image and on a fresh Ubuntu, an old project's file untouched.
 - **`web_fetch` never reaches a private address:** the server itself, the private
   network and the cloud metadata service are refused, by IP or by name
   (`test/spikes/08-web-fetch-addresses.test.ts`).
