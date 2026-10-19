@@ -149,6 +149,7 @@ describe('parseProjectConfig', () => {
       max_tokens_per_request: 8000,
       max_subagent_depth: 1,
       loop_repeat_threshold: 5,
+      stall_steps: 25,
     })
     expect(config.budget).toEqual({
       day_usd: 3,

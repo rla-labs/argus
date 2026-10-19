@@ -362,6 +362,7 @@ export type StopReason =
   | 'max_steps'
   | 'max_wallclock'
   | 'loop_detected'
+  | 'stalled'
 
 /** What to do with a step. */
 export type StepVerdict =
@@ -375,6 +376,8 @@ export interface RunView {
   readonly startedAt: number
   /** The most recent steps (a call and its result, {@link stepKey}), oldest first. */
   readonly recentToolCalls: readonly string[]
+  /** Set when the no-progress check found the run stalled: what it saw. */
+  readonly stalled?: string
   readonly budgetLevel: BudgetLevel
   /** The scope whose budget applies, for the detail message. */
   readonly budgetScope?: Scope
@@ -385,6 +388,8 @@ export interface StepLimits {
   readonly maxSteps: number
   readonly maxWallclockMs: number
   readonly loopRepeatThreshold: number
+  /** Steps in a row with nothing new before a run is stalled; 0 is off. */
+  readonly stallSteps: number
 }
 
 /**
@@ -437,6 +442,8 @@ export function decideStep(run: RunView, limits: StepLimits, now: number): StepV
           : `a cycle of ${loop.period} calls (${loop.tools.join(', ')}) repeated ${limits.loopRepeatThreshold} times with the same results`,
     }
   }
+
+  if (run.stalled !== undefined) return { kind: 'reject', reason: 'stalled', detail: run.stalled }
 
   return { kind: 'allow' }
 }

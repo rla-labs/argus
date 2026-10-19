@@ -97,6 +97,26 @@ export class Snapshots {
   }
 
   /**
+   * The folder's tree id, as a snapshot would record it now, or the tree of a recorded
+   * snapshot: two equal ids mean nothing in the folder changed between them.
+   *
+   * @param projectId the project.
+   * @param cwd its folder.
+   * @param ref a snapshot's ref (`refs/runs/<runId>`), or none for the folder as it is.
+   * @returns the tree id, or undefined when the ref does not exist.
+   */
+  async tree(projectId: string, cwd: string, ref?: string): Promise<string | undefined> {
+    return this.locked(projectId, async () => {
+      if (ref === undefined) return this.stage(projectId, cwd)
+      try {
+        return (await this.git(projectId, cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{tree}`])).trim() || undefined
+      } catch {
+        return undefined
+      }
+    })
+  }
+
+  /**
    * The newest snapshots, newest first.
    *
    * @param projectId the project.

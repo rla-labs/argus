@@ -1754,7 +1754,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         const { limits } = config
-        const limitsLine = `\nLimits per run: ${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}, ${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}, stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}`
+        const limitsLine = `\nLimits per run: ${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}, ${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}, stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
           `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +

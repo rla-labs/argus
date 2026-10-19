@@ -688,6 +688,56 @@ describe('per-run limits', () => {
     expect(details[0]).toBe('a cycle of 2 calls (look, change) repeated 3 times with the same results')
   }, 60_000)
 
+  it('stops a run that gets nothing new and changes no file', async () => {
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    // Four different calls in turn: no repetition and no cycle of 2 or 3, so only the
+    // no-progress check can see that nothing happens.
+    const script = Array.from({ length: 40 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'probe', arguments: JSON.stringify({ n: n % 4 }), id: `c${n}` }] }))
+    const boot = () =>
+      bootGovernor({
+        projects: { alpha: {} },
+        opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_per_run: 20\n${PRICING}`,
+        script,
+        repeatLast: true,
+      }).then(async (booted) => {
+        ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+          defineTool({ name: 'probe', description: 'probe', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'nothing new' }),
+        )
+        const stops: Array<{ reason: string; detail: string }> = []
+        booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push({ reason, detail }))
+        submit(booted, 'alpha', 'go')
+        await waitFor(() => stops.length > 0, { timeoutMs: 25_000, label: 'the run stopped' })
+        return stops[0]
+      })
+    expect(await boot()).toEqual({ reason: 'stalled', detail: '6 steps in a row with no new result and no file changed' })
+  }, 60_000)
+
+  it('does not stall a run whose tools answer the same while it writes files', async () => {
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const { writeFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const booted = await bootGovernor({
+      projects: { alpha: {} },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_per_run: 20\n${PRICING}`,
+      script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'probe', arguments: JSON.stringify({ n: n % 4 }), id: `c${n}` }] })),
+      repeatLast: true,
+    })
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    let n = 0
+    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
+      defineTool({ name: 'probe', description: 'probe', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => {
+        writeFileSync(join(cwd, `out-${n++}.txt`), 'x')
+        return 'nothing new'
+      } }),
+    )
+    const stops: string[] = []
+    booted.ctx.on('ops/run-stopped', ({ reason }) => stops.push(reason))
+    submit(booted, 'alpha', 'go')
+    await waitFor(() => stops.length > 0, { timeoutMs: 25_000, label: 'the run stopped' })
+    // FACT: the step limit stops it, not the no-progress check: files kept changing.
+    expect(stops).toEqual(['max_steps'])
+  }, 60_000)
+
   it('stops a run that exceeds its step limit', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },
@@ -778,7 +828,7 @@ describe('per-run limits', () => {
         recentToolCalls: [],
         budgetLevel: 'ok',
       },
-      { maxSteps: 50, maxWallclockMs: 60_000, loopRepeatThreshold: 5 },
+      { maxSteps: 50, maxWallclockMs: 60_000, loopRepeatThreshold: 5, stallSteps: 0 },
       60_000,
     )
     expect(verdict).toMatchObject({ kind: 'reject', reason: 'max_wallclock' })

@@ -122,6 +122,9 @@ limits:
   max_tokens_per_request: 8000
   max_subagent_depth: 1
   loop_repeat_threshold: 5
+  # Steps in a row with no new result and no file changed before a run is stopped as
+  # stalled (it is going round in circles with varied calls). 0 turns the check off.
+  stall_steps: 25
 
 # ── queues ──────────────────────────────────────────────────────────────────────
 

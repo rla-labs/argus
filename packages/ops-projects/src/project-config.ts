@@ -31,6 +31,8 @@ export interface ProjectLimits {
   readonly max_tokens_per_request: number
   readonly max_subagent_depth: number
   readonly loop_repeat_threshold: number
+  /** Steps in a row with no new result and no file changed before the run stops as stalled; 0 is off. */
+  readonly stall_steps: number
 }
 
 /** A project's budget. */
@@ -202,6 +204,7 @@ export const projectConfigSchema = z.object({
       max_tokens_per_request: z.number().default(8000),
       max_subagent_depth: z.number().default(1),
       loop_repeat_threshold: z.number().default(5),
+      stall_steps: z.number().min(0).default(25),
     })
     .default({}),
   budget: z

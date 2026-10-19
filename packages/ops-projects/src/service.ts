@@ -497,6 +497,24 @@ export class OpsProjects {
   }
 
   /**
+   * A project folder's tree id now, or at the start of a run: the governor's check that
+   * a run which keeps getting the same results has not changed any file either.
+   *
+   * @param projectId the project.
+   * @param runId the run whose starting snapshot is wanted, or none for now.
+   * @returns the tree id, or undefined without snapshots (off, git missing, none taken).
+   */
+  async folderTree(projectId: string, runId?: string): Promise<string | undefined> {
+    const config = this.configOf(projectId)
+    if (this.snapshots === undefined || config === undefined || !this.undoAvailable()) return undefined
+    try {
+      return await this.snapshots.tree(projectId, config.cwd, runId === undefined ? undefined : `refs/runs/${runId}`)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
    * A project's skills folder: `<state>/<id>/skills`, outside the project's folder, so
    * its agent cannot write itself a skill. `undefined` without a state directory.
    *

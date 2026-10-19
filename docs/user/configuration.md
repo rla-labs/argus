@@ -161,6 +161,7 @@ desk use these.
 | `max_tokens_per_request` | int | `8000` | Tokens in one model request. |
 | `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
 | `loop_repeat_threshold` | int | `5` | How many times in a row the same call **with the same result** (or a cycle of 2–3 such calls, like read-edit-read-edit) may repeat before the run is stopped as a loop. The same call with a different result (tests run again after a fix) is progress. Times, durations, ids and temp paths are ignored in the comparison. |
+| `stall_steps` | int | `25` | How many steps in a row may bring **nothing new** before the run is stopped as `stalled`: no tool result it has not had before in this run, and no file changed in the project's folder. This catches an agent going round in circles with varied calls, which the loop check cannot see. Long work that keeps producing new results or changing files is never stopped by it. `0` turns it off. |
 
 Before 0.6, a project's own `limits:` were read but not applied (except
 `max_tokens_per_request`): `ops.yaml`'s applied to every project. They apply now.

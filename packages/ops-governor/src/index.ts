@@ -112,6 +112,8 @@ export function apply(ctx: Context): void {
     // a test's, or another plugin's — must not be halted by a budget that is not
     // its own, so the decided step passes through untouched.
     if (!governor.isGoverned(sessionId)) return decision
+    // A no-progress check may be looking at the folder: the step waits for its answer.
+    await governor.settle(sessionId)
     return governor.preStep(sessionId).kind === 'reject' ? { kind: 'reject' } : decision
   })
 

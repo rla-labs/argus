@@ -702,7 +702,7 @@ describe('checkBudgets', () => {
 // ── decideStep ─────────────────────────────────────────────────────────────
 
 describe('decideStep', () => {
-  const limits = { maxSteps: 10, maxWallclockMs: 60_000, loopRepeatThreshold: 3 }
+  const limits = { maxSteps: 10, maxWallclockMs: 60_000, loopRepeatThreshold: 3, stallSteps: 0 }
   const run = {
     runId: 'run-1',
     steps: 0,
@@ -718,6 +718,10 @@ describe('decideStep', () => {
   it('rejects at the step limit', () => {
     const verdict = decideStep({ ...run, steps: 10 }, limits, 1_000)
     expect(verdict).toMatchObject({ kind: 'reject', reason: 'max_steps' })
+  })
+
+  it('rejects a run the no-progress check found stalled, with what it saw', () => {
+    expect(decideStep({ ...run, stalled: '25 steps in a row with no new result and no file changed' }, limits, 1_000)).toEqual({ kind: 'reject', reason: 'stalled', detail: '25 steps in a row with no new result and no file changed' })
   })
 
   it('allows the step just below the limit', () => {

@@ -133,6 +133,16 @@ interface RunTrack {
   recentToolCalls: string[]
   /** Calls waiting for their result, by call id: their `toolCallKey`. */
   pendingCalls: Map<string, string>
+  /** Every step key this run has had: a step not in it is a new result. */
+  seenSteps: Set<string>
+  /** Steps in a row since the last new result. */
+  sinceNew: number
+  /** The folder's tree at the last no-progress check; undefined before the first. */
+  lastTree: string | undefined
+  /** The no-progress check in flight, which the next step waits for. */
+  stallCheck: Promise<void> | undefined
+  /** What the no-progress check saw, when it found the run stalled. */
+  stalled: string | undefined
   /**
    * The most recent tool call's name and raw arguments.
    *
@@ -432,6 +442,11 @@ export class OpsGovernor {
             steps: 0,
             recentToolCalls: [],
         pendingCalls: new Map(),
+        seenSteps: new Set(),
+        sinceNew: 0,
+        lastTree: undefined,
+        stallCheck: undefined,
+        stalled: undefined,
             lastToolCall: undefined,
             pendingStop: undefined,
             downgradeAudited: false,
@@ -844,18 +859,52 @@ export class OpsGovernor {
   // ── step enforcement ─────────────────────────────────────────────────────
 
   /**
+   * Nothing new for `stall` steps: the run is stalled unless its folder changed since the
+   * last check (or since the run started). Without snapshots the results alone decide.
+   * The folder is looked at only here, so a run that keeps getting new results costs
+   * nothing.
+   *
+   * @param track the run.
+   * @param stall the steps without a new result that started the check.
+   */
+  private async checkStall(track: RunTrack, stall: number): Promise<void> {
+    const projectId = track.owner.kind === 'project' ? track.owner.projectId : undefined
+    if (projectId !== undefined) {
+      const base = track.lastTree ?? (await this.options.projects.folderTree(projectId, track.runId))
+      const now = await this.options.projects.folderTree(projectId)
+      if (base !== undefined && now !== undefined && now !== base) {
+        // Files changed: work is being done, even if the tools keep answering the same.
+        track.lastTree = now
+        track.sinceNew = 0
+        return
+      }
+    }
+    track.stalled = `${stall} steps in a row with no new result${projectId === undefined ? '' : ' and no file changed'}`
+  }
+
+  /**
+   * Wait for a no-progress check in flight, so the step it concerns is decided with it.
+   *
+   * @param sessionId the session whose step is starting.
+   */
+  async settle(sessionId: string): Promise<void> {
+    await this.running.get(sessionId)?.stallCheck
+  }
+
+  /**
    * A run's limits: its project's (which already fall back to ops.yaml `limits`), or
    * ops.yaml's for a task and the front desk.
    *
    * @param owner the run's owner.
    * @returns the limits a step is checked against.
    */
-  private stepLimitsOf(owner: Owner): StepLimits {
+  stepLimitsOf(owner: Owner): StepLimits {
     const limits = (owner.kind === 'project' ? this.options.projects.configOf(owner.projectId)?.limits : undefined) ?? this.options.config.limits
     return {
       maxSteps: limits.max_steps_per_run,
       maxWallclockMs: limits.max_wallclock_min * 60_000,
       loopRepeatThreshold: limits.loop_repeat_threshold,
+      stallSteps: limits.stall_steps,
     }
   }
 
@@ -878,6 +927,7 @@ export class OpsGovernor {
         steps: track.steps,
         startedAt: track.startedAt,
         recentToolCalls: track.recentToolCalls,
+        ...(track.stalled === undefined ? {} : { stalled: track.stalled }),
         budgetLevel,
         ...(this.worstBudgetScope(track.owner) === undefined
           ? {}
@@ -1022,6 +1072,11 @@ export class OpsGovernor {
         steps: 0,
         recentToolCalls: [],
         pendingCalls: new Map(),
+        seenSteps: new Set(),
+        sinceNew: 0,
+        lastTree: undefined,
+        stallCheck: undefined,
+        stalled: undefined,
         lastToolCall: undefined,
         pendingStop: undefined,
         downgradeAudited: false,
@@ -1049,7 +1104,21 @@ export class OpsGovernor {
     const call = track?.pendingCalls.get(callId)
     if (track === undefined || call === undefined) return
     track.pendingCalls.delete(callId)
-    track.recentToolCalls.push(stepKey(call, result, isError))
+    const step = stepKey(call, result, isError)
+    track.recentToolCalls.push(step)
+    // ponytail: one 40-byte key per distinct step, for the run's life; cap it if a run ever has tens of thousands.
+    if (track.seenSteps.has(step)) track.sinceNew += 1
+    else {
+      track.seenSteps.add(step)
+      track.sinceNew = 0
+    }
+    const stall = this.stepLimitsOf(track.owner).stallSteps
+    if (stall > 0 && track.sinceNew >= stall && track.stallCheck === undefined && track.stalled === undefined) {
+      const check = this.checkStall(track, stall)
+      track.stallCheck = check.finally(() => {
+        if (track.stallCheck === check) track.stallCheck = undefined
+      })
+    }
     // Keep only what the longest cycle needs: the history is a loop detector, not a
     // log, and an unbounded array would grow with the run.
     const keep = this.stepLimitsOf(track.owner).loopRepeatThreshold * MAX_LOOP_CYCLE
@@ -1151,6 +1220,11 @@ export class OpsGovernor {
       steps: 0,
       recentToolCalls: [],
         pendingCalls: new Map(),
+        seenSteps: new Set(),
+        sinceNew: 0,
+        lastTree: undefined,
+        stallCheck: undefined,
+        stalled: undefined,
       pendingStop: undefined,
       downgradeAudited: false,
       requestId: undefined,
