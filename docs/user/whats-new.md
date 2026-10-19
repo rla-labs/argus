@@ -3,13 +3,16 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## Next (unreleased)
+## 0.6.1
 
 **Prices for any provider, without writing them.** A provider you declare under
 `providers:` (DeepInfra, Together, Fireworks, Groq…) is priced from lists refreshed
 daily: DeepInfra's own price list, which is what it bills, and models.dev for about
 230 others. You write no `pricing:` entry, and the price follows the provider's
 changes ([details](configuration.md#pricing)).
+
+Upgrading from 0.6.0 needs no manual step. A price you wrote under `pricing:` still
+wins; remove it to follow the provider's list.
 
 ## 0.6.0
 
