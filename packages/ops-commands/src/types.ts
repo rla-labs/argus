@@ -120,9 +120,10 @@ export interface CommandSpec {
   readonly requires?: string
   /**
    * Whether its arguments carry a secret. The audit row then keeps only the first
-   * argument, and the channel deletes the message that carried it.
+   * argument (or the first N, when a number), and the channel deletes the message
+   * that carried it.
    */
-  readonly secret?: boolean
+  readonly secret?: boolean | number
 }
 
 /** A command implementation: its help text and its behavior. */

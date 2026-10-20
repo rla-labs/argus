@@ -98,6 +98,7 @@
   "tools.shell": "shell",
   "tools.web": "web",
   "tools.agents": "agenți",
+  "tools.git": "git",
   "tools.other": "altele",
   "common.loading": "Se încarcă…",
   "common.error": "Ceva n-a mers: {message}",
@@ -249,5 +250,12 @@
   "totp.saved": "Le-am salvat",
   "totp.on": "Pornit: fiecare logare cere un cod. Ca să-l oprești, introdu un cod.",
   "totp.onPublic": "Pornit. E obligatoriu cât timp web-ul e public.",
-  "totp.disable": "Oprește"
+  "totp.disable": "Oprește",
+  "projects.git": "Git",
+  "projects.gitHint": "Argus face clone, pull și push pentru proiect; tokenul nu ajunge niciodată la agent. Fiecare remote are tokenul lui.",
+  "projects.gitRemote": "Remote",
+  "projects.gitUrl": "URL https",
+  "projects.gitToken": "Token pentru {remote}",
+  "projects.gitForget": "Uită tokenul",
+  "projects.gitRemove": "Șterge remote-ul"
 }

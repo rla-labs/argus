@@ -33,6 +33,8 @@ export interface OpsErrorCodeMap {
   'EXTENSION_NOT_FOUND': true
   /** An extension's `install` failed, or the command sandbox to run it is missing. */
   'EXTENSION_INSTALL_FAILED': true
+  /** A git clone, pull or push could not be done: no remote, no token, a refused or failed push. */
+  'GIT_FAILED': true
   /** Another Argus Agent process already uses this data directory. */
   'INSTANCE_LOCKED': true
   /** A project exists but its status forbids the operation (`paused`, `archived`). */

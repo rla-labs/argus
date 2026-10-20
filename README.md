@@ -39,6 +39,10 @@ model can watch it too, and then stop it, tell you, or ask you.
 **Recovery.** A crash loses nothing, and interrupted runs come back as a retry button.
 A broken project file sidelines that project only.
 
+**Git.** A project clones, pulls and pushes its repositories through Argus, with a
+token per project and per remote that never reaches the agent. A push shows its
+commits and asks first.
+
 **Extensions.** MCP servers and skills installed from git, pinned, and enabled per
 project.
 

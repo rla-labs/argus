@@ -98,6 +98,7 @@
   "tools.shell": "shell",
   "tools.web": "web",
   "tools.agents": "agents",
+  "tools.git": "git",
   "tools.other": "other",
   "common.loading": "Loading…",
   "common.error": "Something went wrong: {message}",
@@ -249,5 +250,12 @@
   "totp.saved": "I saved them",
   "totp.on": "On: every sign-in asks for a code. To turn it off, enter a code.",
   "totp.onPublic": "On. It is required while the web is public.",
-  "totp.disable": "Turn off"
+  "totp.disable": "Turn off",
+  "projects.git": "Git",
+  "projects.gitHint": "Argus clones, pulls and pushes for the project; its token never reaches the agent. Each remote has its own token.",
+  "projects.gitRemote": "Remote",
+  "projects.gitUrl": "https URL",
+  "projects.gitToken": "Token for {remote}",
+  "projects.gitForget": "Forget token",
+  "projects.gitRemove": "Remove remote"
 }

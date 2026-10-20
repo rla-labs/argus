@@ -10,7 +10,7 @@
  */
 
 /** A group of tools a project names in its `tools:` block. */
-export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'other'
+export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'git' | 'other'
 
 /**
  * What a project allows for a group.
@@ -27,6 +27,8 @@ export interface ToolPolicy {
   readonly shell: ToolAccess
   readonly web: ToolAccess
   readonly agents: ToolAccess
+  /** `git_clone`, `git_pull` and `git_push` on the project's declared remotes, done by Argus. */
+  readonly git: ToolAccess
   /** Any tool not in a group: one a later dsh adds, or an integration's. Never `off`. */
   readonly other: Exclude<ToolAccess, 'off'>
   /** Hosts `web_fetch` reaches unasked under `web: ask`; a host covers its subdomains. */
@@ -48,6 +50,7 @@ export const TOOL_GROUPS: Readonly<Record<Exclude<ToolGroup, 'other'>, readonly 
   shell: ['bash', 'pwsh', 'run_code'],
   web: ['web_fetch', 'web_search'],
   agents: ['subagent', 'workflow', 'ralph', 'send_message', 'interrupt_agent', 'list_agents', 'list_subagent_models', 'ask_project'],
+  git: ['git_clone', 'git_pull', 'git_push'],
 }
 
 /**
@@ -75,6 +78,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
   shell: 'ask',
   web: 'ask',
   agents: 'off',
+  git: 'ask',
   other: 'ask',
   web_hosts: [],
   exceptions: {},
@@ -90,7 +94,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
  */
 export function taskToolPolicy(adhoc: 'auto' | 'ask' | 'deny'): ToolPolicy {
   const risky = adhoc === 'deny' ? 'deny' : 'ask'
-  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', other: risky, web_hosts: [], exceptions: {} }
+  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', git: 'off', other: risky, web_hosts: [], exceptions: {} }
 }
 
 /**

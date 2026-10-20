@@ -235,8 +235,9 @@ export class OpsCommands {
     try {
       const out = await handler.run(parsed.input, context)
       if (handler.spec.mutating && out.error !== true && out.confirm === undefined) {
-        // A secret's command keeps only its first argument (`/key openrouter`).
-        const target = handler.spec.secret === true ? (parsed.input.trim().split(/\s+/)[0] ?? '') : parsed.input.trim()
+        // A secret's command keeps only its first arguments (`/key openrouter`).
+        const secret = handler.spec.secret
+        const target = secret === undefined || secret === false ? parsed.input.trim() : parsed.input.trim().split(/\s+/).slice(0, secret === true ? 1 : secret).join(' ')
         this.audit(context, `command.${parsed.name}`, target)
       }
       return out

@@ -180,6 +180,35 @@ export class OpsApprovalsBridge {
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
   }
 
+  /**
+   * A `git_push` the gate would ask about, shown as what it sends: its commits and
+   * changes, prepared by the projects service, which then pushes that commit or
+   * nothing. One that cannot be pushed (protected, no token, not a fast-forward) is
+   * refused here, without a question nobody could usefully answer.
+   *
+   * @param exec the pending call.
+   * @param verdict the gate's.
+   * @returns the verdict, with the push described.
+   */
+  async describePush(
+    exec: { readonly name: string; readonly arguments: unknown; readonly callId: string; readonly agent?: Agent },
+    verdict: { kind: 'ask'; reason: string },
+  ): Promise<{ kind: 'ask'; reason: string } | { kind: 'deny'; reason: string }> {
+    const owner = exec.agent === undefined ? undefined : this.options.projects.ownerOf(exec.agent.id as string)
+    if (owner?.kind !== 'project') return verdict
+    const record = (typeof exec.arguments === 'object' && exec.arguments !== null ? exec.arguments : {}) as Record<string, unknown>
+    const text = (key: string): string | undefined => (typeof record[key] === 'string' && (record[key] as string).length > 0 ? (record[key] as string) : undefined)
+    const preview = await this.options.projects.gitPushPreview(owner.projectId, {
+      ...(text('remote') === undefined ? {} : { remote: text('remote') as string }),
+      ...(text('branch') === undefined ? {} : { branch: text('branch') as string }),
+      ...(text('path') === undefined ? {} : { path: text('path') as string }),
+    })
+    if (!preview.ok) return { kind: 'deny', reason: preview.text }
+    const action = parseAction(exec.name, [], preview.text)
+    this.gated.set(exec.callId, action)
+    return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
+  }
+
   // ── the waterfall ────────────────────────────────────────────────────────
 
   /**

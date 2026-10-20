@@ -749,6 +749,34 @@ since install and the projects that use each. Seeing them is anyone's; the rest 
 
 ---
 
+## `/git [project-id] | remote <project-id> <name> <https-url> | token <project-id> <remote> <token> | forget <project-id> <remote> | remove <project-id> <remote>`
+
+A project's [git remotes](configuration.md#git--remotes-argus-clones-pulls-and-pushes):
+Argus clones, pulls and pushes for the project's agent, with each remote's own token,
+which never reaches the agent.
+
+```
+/git site-firma
+/git remote site-firma origin https://github.com/acme/site.git
+/git token site-firma origin github_pat_…
+/git forget site-firma origin
+/git remove site-firma origin
+```
+
+```
+site-firma's git remotes:
+origin     https://github.com/acme/site.git
+           token saved; protected: main, master
+```
+
+`remote` adds a remote or changes its URL, which forgets its token. `token` **deletes your
+message at once** and saves the token for that project and that remote only; the reply
+names it by its last four characters. `forget` removes the token, `remove` the remote,
+its token and Argus's copy of it; the project's folder is unchanged. Seeing them is
+anyone's; the rest is the admin's.
+
+---
+
 ## `/reset <project-id>`  *(asks first)*
 
 Disposes the project's agent and clears its recorded session, so the next message
@@ -932,8 +960,9 @@ a template, a value that still comes from it is marked with the template's name:
 ## `/archive <project-id>`  *(admin, asks first)*
 
 Stops a project taking work without deleting anything. Its file moves to
-`config/projects/archived/`; its folder, memory, history and costs stay. A running
-project must be stopped first.
+`config/projects/archived/`; its folder, memory, history and costs stay. Its git tokens
+are forgotten: bringing it back asks for them again. A running project must be stopped
+first.
 
 ```
 /archive site-firma

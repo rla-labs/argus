@@ -182,7 +182,10 @@ export function parseManifest(raw: unknown): ExtensionManifest {
   if (!isMapping(requires)) problems.push('requires: a mapping with secrets and network')
   const needs = isMapping(requires) ? requires : {}
   const secrets = strings(needs['secrets'], 'requires.secrets')
-  for (const secret of secrets) if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(secret)) problems.push(`requires.secrets: ${secret} is not a NAME_LIKE_THIS`)
+  for (const secret of secrets) {
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(secret)) problems.push(`requires.secrets: ${secret} is not a NAME_LIKE_THIS`)
+    else if (secret.startsWith('ARGUS_GIT_')) problems.push(`requires.secrets: ${secret}: ARGUS_GIT_ names are reserved for git tokens`)
+  }
   const network = needs['network'] ?? false
   if (typeof network !== 'boolean') problems.push('requires.network: true or false')
   const instructions = doc['instructions'] ?? ''

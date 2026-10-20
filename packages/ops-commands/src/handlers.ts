@@ -12,7 +12,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml, parseDocument, stringify as toYaml } from 'yaml'
-import { OpsError, TOOL_GROUPS, type ModelRef, type Scope } from '@argus-agent/types'
+import { OpsError, TOOL_GROUPS, keyTail, type ModelRef, type Scope } from '@argus-agent/types'
 import { RUN_TRAIL_ACTION, type RunTrail } from '@argus-agent/projects'
 import {
   formatAge,
@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { layerTemplate, loadTemplates, parseSource, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
+import { GIT_REMOTE_PATTERN, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 
 /** Return a failed parse as an error that shows the syntax. */
@@ -1986,6 +1986,72 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /git ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'git',
+        description: 'A project’s git remotes and their tokens (admin to change)',
+        syntax: '/git [project-id] | /git remote <project-id> <name> <https-url> | /git token <project-id> <remote> <token> | /git forget <project-id> <remote> | /git remove <project-id> <remote>',
+        detail:
+          'A project clones, pulls and pushes through its remotes, and Argus does it: the ' +
+          'token never reaches the agent, its shell or the conversation. remote adds one, or ' +
+          'changes its URL (which forgets its token). token deletes your message at once and ' +
+          'saves the token for that project and that remote only: no other project can use ' +
+          'it. forget removes the token; remove the remote, its token and its copy. Seeing ' +
+          'them is anyone’s; the rest is the admin’s.',
+        examples: ['/git site-firma', '/git remote site-firma origin https://github.com/acme/site.git', '/git token site-firma origin github_pat_…', '/git forget site-firma origin'],
+        mutating: true,
+        secret: 3,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const git = projects.git
+        const [action, projectId, remote, value, ...rest] = tokenize(input)
+        const actions = ['remote', 'token', 'forget', 'remove']
+        if (action === undefined || !actions.includes(action)) {
+          const id = projectOf(action, context)
+          const config = id === undefined ? undefined : projects.configOf(id)
+          if (config === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, id === undefined ? 'Which project? /git <project-id>' : `No project "${id}". Send /projects to see them.`)
+          const remotes = Object.entries(config.git.remotes)
+          if (remotes.length === 0) return result(`${config.id} has no git remote. Add one: /git remote ${config.id} origin https://github.com/<owner>/<repo>.git`)
+          const lines = await Promise.all(
+            remotes.map(async ([name, entry]) => `${name.padEnd(10)} ${entry.url}\n${''.padEnd(11)}${(await git.hasToken(config.id, name)) ? 'token saved' : `no token (/git token ${config.id} ${name} <token>)`}; protected: ${entry.protected.length > 0 ? entry.protected.join(', ') : 'none'}`),
+          )
+          return result(`${config.id}'s git remotes:\n${lines.join('\n')}`)
+        }
+        if (!context.isAdmin) return errorResult('Only the admin can change a project’s git remotes and tokens.')
+        const config = projectId === undefined ? undefined : projects.configOf(projectId)
+        if (config === undefined || remote === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, projectId === undefined || config !== undefined ? `${action} needs a project and a remote.` : `No project "${projectId}". Send /projects to see them.`)
+        const known = config.git.remotes[remote]
+        if (action === 'remote') {
+          if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'remote needs a name and one https:// URL.')
+          if (!GIT_REMOTE_PATTERN.test(remote)) return errorResult(`"${remote}" is not a remote name: lowercase letters, digits and dashes.`)
+          const problem = remoteUrlProblem(value)
+          if (problem !== undefined) return errorResult(problem.replace(/^url: /, ''))
+          const written = writeSetting(config.id, (doc) => doc.setIn(['git', 'remotes', remote, 'url'], value))
+          if (written !== undefined) return errorResult(`Not changed. ${written}`)
+          // A token belongs to the URL it was given for.
+          const forgot = known !== undefined && known.url !== value && (await git.forget(config.id, remote))
+          return result(`${config.id}: remote ${remote} = ${value}.${forgot ? ' Its token was for the old URL and is forgotten.' : ''}${forgot || known === undefined ? ` Save its token: /git token ${config.id} ${remote} <token>` : ''}`)
+        }
+        if (known === undefined) return errorResult(`${config.id} has no remote "${remote}". /git ${config.id} lists them.`)
+        if (action === 'token') {
+          if (value === undefined || rest.length > 0 || value.length < 8) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'token needs the token, one word with no spaces.')
+          await git.setToken(config.id, remote, value)
+          return result(`${config.id}: the token ${keyTail(value)} for ${remote} (${new URL(known.url).host}) is saved. Only ${config.id}'s git operations on ${remote} use it.`)
+        }
+        if (action === 'forget') {
+          return result((await git.forget(config.id, remote)) ? `${config.id}: the token for ${remote} is forgotten.` : `${config.id}: ${remote} has no token.`)
+        }
+        const written = writeSetting(config.id, (doc) => {
+          doc.deleteIn(['git', 'remotes', remote])
+          if (Object.keys(config.git.remotes).length === 1) doc.deleteIn(['git'])
+        })
+        if (written !== undefined) return errorResult(`Not changed. ${written}`)
+        await git.remove(config.id, remote)
+        return result(`${config.id}: the remote ${remote}, its token and its copy are removed. The project's own folder is unchanged.`)
+      },
+    },
+
     // ── /archive ───────────────────────────────────────────────────────────
     {
       spec: {
@@ -2026,12 +2092,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         mutating: true,
         adminOnly: true,
       },
-      run(input, context): CommandResult {
+      async run(input, context): Promise<CommandResult> {
         const projectId = tokenize(input)[0] ?? ''
         // Checked again: the project may have started while the question was open.
         const refusal = archiveRefusal(projectId)
         if (refusal !== undefined) return errorResult(refusal)
         const file = (projects.configOf(projectId)?.sourcePath ?? projects.invalidOf(projectId)?.path) as string
+        // Its git tokens go: an archived project does not push, and bringing it back asks for them again.
+        const remotes = Object.keys(projects.configOf(projectId)?.git.remotes ?? {})
+        await projects.git.removeAll(projectId, remotes)
         const dir = join(options.projectsConfigDir, 'archived')
         mkdirSync(dir, { recursive: true })
         // An earlier archive of the same id is kept, not overwritten.
@@ -2039,7 +2108,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         renameSync(file, join(dir, name))
         options.reloadProjects()
         return result(
-          `${projectId} is archived; its file is now ${join(dir, name)}.\n` +
+          `${projectId} is archived; its file is now ${join(dir, name)}.${remotes.length > 0 ? ' Its git tokens are forgotten.' : ''}\n` +
             `To bring it back, move that file to ${join(options.projectsConfigDir, `${projectId}.yaml`)} and send /reload.`,
         )
       },

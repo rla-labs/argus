@@ -1715,6 +1715,64 @@ describe('/ext', () => {
   }, 60_000)
 })
 
+describe('/git', () => {
+  /** dsh's credentials service, in memory, mounted on the booted tree. */
+  function withCredentials(booted: Booted): Map<string, string> {
+    const values = new Map<string, string>()
+    ;(booted.ctx as unknown as { provide(name: string, value: unknown): void }).provide('credentials', {
+      set: async (ref: unknown, value: string) => void values.set(String(ref), value),
+      unset: async (ref: unknown) => void values.delete(String(ref)),
+      resolve: async (ref: unknown) => (values.has(String(ref)) ? { value: values.get(String(ref)) } : undefined),
+    })
+    return values
+  }
+
+  it('adds a remote, keeps its token per project and per remote, forgets it with a new URL; the admin\'s only', async () => {
+    const booted = await bootCommands({ projects: { alpha: {}, beta: {} } })
+    const values = withCredentials(booted)
+    expect(await run(booted, '/git alpha')).toContain('alpha has no git remote')
+    expect(await run(booted, '/git remote alpha origin https://github.com/acme/site.git', contextFor({ isAdmin: false }))).toContain('Only the admin')
+    expect(await run(booted, '/git remote alpha origin http://github.com/acme/site.git')).toContain('https:// only')
+    expect(await run(booted, '/git remote alpha origin https://ghp_x@github.com/acme/site.git')).toContain('no user or token in the URL')
+    expect(await run(booted, '/git remote alpha origin https://github.com/acme/site.git')).toContain('Save its token: /git token alpha origin <token>')
+    expect(readFileSync(booted.projects.configOf('alpha')!.sourcePath, 'utf8')).toContain('url: https://github.com/acme/site.git')
+
+    expect(await run(booted, '/git token alpha nope tok-12345678')).toContain('alpha has no remote "nope"')
+    expect(await run(booted, '/git token alpha origin github_pat_alpha_secret', contextFor({ isAdmin: false }))).toContain('Only the admin')
+    expect(await run(booted, '/git token alpha origin github_pat_alpha_secret')).toMatch(/the token …cret for origin \(github\.com\) is saved/)
+    expect(await booted.projects.git.token('alpha', 'origin')).toBe('github_pat_alpha_secret')
+    // Not beta's, and not in the file or the audit.
+    expect(await booted.projects.git.token('beta', 'origin')).toBeUndefined()
+    expect(readFileSync(booted.projects.configOf('alpha')!.sourcePath, 'utf8')).not.toContain('github_pat')
+    const audited = booted.store.audit.byAction('command.git')
+    expect(audited.map((row) => row.details_json ?? '').join(' ') + JSON.stringify(audited)).not.toContain('github_pat')
+    expect(JSON.stringify(audited)).toContain('token alpha origin')
+    expect(await run(booted, '/git alpha', contextFor({ isAdmin: false }))).toMatch(/origin\s+https:\/\/github\.com\/acme\/site\.git\n\s+token saved; protected: main, master/)
+    // An MCP server cannot be handed it.
+    expect([...values.keys()].every((key) => key.startsWith('ARGUS_GIT_'))).toBe(true)
+
+    expect(await run(booted, '/git remote alpha origin https://gitlab.com/acme/site.git')).toContain('Its token was for the old URL and is forgotten')
+    expect(await booted.projects.git.hasToken('alpha', 'origin')).toBe(false)
+    await run(booted, '/git token alpha origin glpat-secret-value')
+    expect(await run(booted, '/git forget alpha origin')).toContain('the token for origin is forgotten')
+    await run(booted, '/git token alpha origin glpat-secret-value')
+    expect(await run(booted, '/git remove alpha origin')).toContain('the remote origin, its token and its copy are removed')
+    expect(booted.projects.configOf('alpha')?.git.remotes).toEqual({})
+    expect(readFileSync(booted.projects.configOf('alpha')!.sourcePath, 'utf8')).not.toContain('git:')
+    expect(values.size).toBe(0)
+  })
+
+  it('forgets a project\'s tokens when it is archived', async () => {
+    const booted = await bootCommands({ projects: { alpha: { git: { remotes: { origin: { url: 'https://github.com/acme/site.git' } } } } } })
+    const values = withCredentials(booted)
+    await run(booted, '/git token alpha origin github_pat_alpha_secret')
+    expect(values.size).toBe(1)
+    const asked = await booted.commands.runCommand('/archive alpha', contextFor())
+    expect((await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())).text).toContain('Its git tokens are forgotten')
+    expect(values.size).toBe(0)
+  })
+})
+
 describe('/rule', () => {
   it('adds a command or a host the project then runs unasked; refuses what cannot be named exactly; the admin\'s only', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })

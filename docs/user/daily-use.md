@@ -379,6 +379,35 @@ later.
 
 ---
 
+## A project on a git repository
+
+Give the project its repository once, from the chat or the project's page on the web:
+
+```
+/git remote site-firma origin https://github.com/acme/site.git
+/git token site-firma origin github_pat_…      your message is deleted at once
+```
+
+Then ask in plain words: "clone the site", "get the latest from origin", "push your
+branch". The agent clones, pulls and pushes through Argus, which holds the token; the
+agent never sees it. It commits as it works, on a branch of its own, and a push asks you
+first, showing its commits and the files they change:
+
+```
+Approval needed
+  project   site-firma
+  tool      git_push
+  action    push 3 commit(s) to origin/feature-contact on github.com/acme/site:
+            a1b2c3d Fix the contact form · … ; 12 files changed, 240 insertions(+), 31 deletions(-)
+```
+
+`main` and `master` are protected: the agent pushes another branch and you merge it. A
+token that can reach only that repository is the right one (a GitHub fine-grained token,
+a GitLab project access token). Each project has its own, so two projects can work on
+repositories of two different accounts.
+
+---
+
 ## Connecting other systems (MCP)
 
 An MCP server gives a project tools from another system: GitHub issues, a database, a

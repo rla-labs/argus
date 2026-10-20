@@ -363,6 +363,7 @@ export class OpsProviders {
    * project names as `${NAME}`. Nothing can check it, so it is saved as given.
    */
   private async setSecret(name: string, value: string): Promise<KeyChange> {
+    if (name.startsWith(GIT_TOKEN_PREFIX)) return { ok: false, message: `${GIT_TOKEN_PREFIX} names are reserved for git tokens: /git token <project> <remote> <token>.` }
     if (value.length === 0 || /\s/.test(value)) return { ok: false, message: 'A secret is one word with no spaces.' }
     try {
       await this.keys.set(name, value)
@@ -410,6 +411,7 @@ export class OpsProviders {
 
   /** Remove a secret saved with {@link setSecret}. */
   private async removeSecret(name: string): Promise<KeyChange> {
+    if (name.startsWith(GIT_TOKEN_PREFIX)) return { ok: false, message: `${GIT_TOKEN_PREFIX} names are reserved for git tokens: /git forget <project> <remote>.` }
     try {
       await this.keys.unset(name)
     } catch (error) {
@@ -443,6 +445,9 @@ const looksLikeToken = (token: string): boolean => /^\d+:[A-Za-z0-9_-]{20,}$/.te
 
 /** A name in capitals is a secret for an MCP server, not a provider (provider names are lower case). */
 const SECRET_NAME = /^[A-Z][A-Z0-9_]{1,63}$/
+
+/** Git tokens' names (`@argus-agent/projects` `GIT_TOKEN_PREFIX`): only `/git` manages them. */
+const GIT_TOKEN_PREFIX = 'ARGUS_GIT_'
 
 /** An error's message, never its stack. */
 function errorText(error: unknown): string {

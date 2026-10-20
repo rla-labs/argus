@@ -142,6 +142,23 @@ The same limit as for the provider keys applies: the agent's commands run as the
 user as the credentials store, so a command could read it. The approvals on shell
 commands are what stand in the way.
 
+**A git token is the exception: no process of the project ever gets it.** It is kept per
+project and per remote under a name `/key` and `${NAME}` refuse (`ARGUS_GIT_…`), and only
+Argus's own git uses it, as a header for that remote's host, on a copy of the repository
+kept outside the project's folder (`state/<id>/remotes/`). Only git bundles, which are
+plain data, cross between that copy and the project:
+
+| What | Why it holds |
+|---|---|
+| The project's repository is read only by a confined process, with the project read-only | Its hooks, config (`core.fsmonitor`, `include.path`, `insteadOf`…), filters, alternates or a `.git` that points elsewhere run or resolve only under Landlock, where they reach nothing outside the project. |
+| The process with the token never opens the project's repository | Nothing the agent wrote can run beside the token. |
+| HTTPS only, no redirect followed, no prompt, no user or system git config | The token goes to the remote's host and nowhere else. |
+| A push is a fast-forward of the commit the person approved | A branch that moved after the question is not pushed; nothing is force-pushed; protected branches are refused. |
+| Archiving a project forgets its tokens | A project that no longer runs holds nothing. |
+
+The tests plant each of these in a project's repository and check that nothing ran
+with Argus's rights and that another project's commits never left.
+
 The project's own state directory (`state/<id>/`, outside its folder) holds its memory
 and its instructions, which the agent reads in its prompt but cannot write.
 

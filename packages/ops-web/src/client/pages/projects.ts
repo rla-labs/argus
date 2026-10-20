@@ -41,7 +41,7 @@ interface ProjectDetail extends ProjectRow {
   schedules: Array<{ id: string; cron: string; what: string; enabled: boolean; next: number }>
 }
 
-const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
+const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other'] as const
 
 /** Spent of a limit, or just spent. */
 function spent(micros: number, limit: number | null): string {
@@ -157,6 +157,7 @@ export function ProjectView({ id, version, run, outcome, can }: PageProps & { id
     <${Instructions} project=${project} run=${run} can=${can} />
     <${Undo} id=${id} version=${version} run=${run} can=${can} />
     <${Extensions} id=${id} version=${version} run=${run} can=${can} />
+    <${Git} id=${id} version=${version} run=${run} can=${can} />
     <${Memory} id=${id} version=${version} run=${run} can=${can} />
     <${Files} id=${id} version=${version} run=${run} />`
 }
@@ -259,6 +260,31 @@ function Extensions({ id, version, run, can }: { id: string; version: number; ru
           <${Field} id="x-name" label=${t('projects.extensionName')} value=${name} onInput=${setName} placeholder="office" grow="1 1 200px" />
           <button class="btn ghost" type="submit">${t('projects.extensionEnable')}</button>
           <button class="btn ghost" type="button" onClick=${() => act('disable')}>${t('projects.extensionDisable')}</button>
+        </form>`
+      : null}
+  </section>`
+}
+
+function Git({ id, version, run, can }: { id: string; version: number; run: (line: string) => void; can: (name: string) => boolean }): VNode {
+  const [remote, setRemote] = useState('origin')
+  const [url, setUrl] = useState('')
+  const [token, setToken] = useState('')
+  const name = remote.trim() || 'origin'
+  return html`<section class="hud">
+    <h2>${t('projects.git')}</h2>
+    <p class="muted" style="margin:0">${t('projects.gitHint')}</p>
+    <${CommandText} line=${`/git ${id}`} version=${version} />
+    ${can('key')
+      ? html`<form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (url.trim().length > 0) run(`/git remote ${id} ${name} ${url.trim()}`) }}>
+          <${Field} id="g-remote" label=${t('projects.gitRemote')} value=${remote} onInput=${setRemote} grow="0 1 120px" />
+          <${Field} id="g-url" label=${t('projects.gitUrl')} value=${url} onInput=${setUrl} placeholder="https://github.com/owner/repo.git" grow="1 1 260px" />
+          <button class="btn ghost" type="submit">${t('settings.save')}</button>
+        </form>
+        <form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (token.trim().length > 0) { run(`/git token ${id} ${name} ${token.trim()}`); setToken('') } }}>
+          <${Field} id="g-token" type="password" label=${t('projects.gitToken', { remote: name })} value=${token} onInput=${setToken} grow="1 1 260px" />
+          <button class="btn ghost" type="submit">${t('settings.save')}</button>
+          <button class="btn ghost" type="button" onClick=${() => run(`/git forget ${id} ${name}`)}>${t('projects.gitForget')}</button>
+          <button class="btn danger" type="button" onClick=${() => run(`/git remove ${id} ${name}`)}>${t('projects.gitRemove')}</button>
         </form>`
       : null}
   </section>`

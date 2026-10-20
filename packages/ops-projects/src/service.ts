@@ -41,6 +41,7 @@ import type { InvalidProject } from './project-loader.js'
 import { projectModelRef } from './project-config.js'
 import type { SnapshotEntry, Snapshots, SnapshotSettings } from './snapshots.js'
 import type { Extensions } from './extensions.js'
+import { GitError, GitRemotes, isGitTokenName, type GitRemote, type PushPlan, type TokenStore } from './git-remotes.js'
 
 /** What a delivery targets. */
 export type AgentTarget =
@@ -111,6 +112,8 @@ export class OpsProjects {
   private readonly snapshots: Snapshots | undefined
   /** The installed extensions (`/ext`); undefined in a bare composition. */
   readonly extensions: Extensions | undefined
+  /** The projects' git remotes: tokens and mirrors. */
+  readonly git: GitRemotes
   private readonly snapshotSettings: () => SnapshotSettings
   private gitPresent: boolean | undefined
   private disposed = false
@@ -127,7 +130,116 @@ export class OpsProjects {
     this.projectsRoot = options.projectsRoot
     this.snapshots = options.snapshots
     this.extensions = options.extensions
+    this.git = new GitRemotes(
+      options.stateDir ?? join(options.scratchDir, '..', 'state'),
+      () => ctx.get('credentials' as never) as unknown as TokenStore | undefined,
+      async (argv, root, reads) => {
+        const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
+        if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available')
+        return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: root }, reads)).argv
+      },
+    )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
+  }
+
+  // ── git remotes ──────────────────────────────────────────────────────────
+
+  /** Pushes a person approved, by project, remote and branch: the commit they saw. */
+  private readonly approvedPushes = new Map<string, string>()
+
+  /**
+   * The remote a git tool names, or the project's only one, or `origin`.
+   *
+   * @throws {GitError} naming the remotes there are, or how to add one.
+   */
+  private remoteFor(projectId: string, asked: string | undefined): { config: ProjectConfig; name: string; remote: GitRemote } {
+    const config = this.requireConfig(projectId)
+    const names = Object.keys(config.git.remotes)
+    if (names.length === 0) throw new GitError(`${projectId} has no git remote. The admin adds one with /git remote ${projectId} origin <https-url>.`)
+    const name = asked ?? (names.length === 1 ? (names[0] as string) : names.includes('origin') ? 'origin' : undefined)
+    const remote = name === undefined ? undefined : config.git.remotes[name]
+    if (name === undefined || remote === undefined) throw new GitError(`${asked === undefined ? 'Which remote?' : `No remote "${asked}".`} ${projectId} has ${names.join(', ')}.`)
+    return { config, name, remote }
+  }
+
+  /** Audit a git operation and give back its text. */
+  private async gitAudited(projectId: string, action: string, details: Record<string, unknown>, work: (more: Record<string, unknown>) => Promise<string>): Promise<string> {
+    const more: Record<string, unknown> = {}
+    try {
+      const text = await work(more)
+      this.store.audit.record({ actor: `project:${projectId}`, action: `git.${action}`, target: projectId, details: { ...details, ...more, ok: true } }, Date.now())
+      return text
+    } catch (error) {
+      const message = error instanceof GitError ? error.message : `${action} failed: ${(error as Error).message}`
+      this.store.audit.record({ actor: `project:${projectId}`, action: `git.${action}`, target: projectId, details: { ...details, ok: false, error: message } }, Date.now())
+      return message
+    }
+  }
+
+  /**
+   * `git_clone`: a project's remote into its folder.
+   *
+   * @returns what happened, for the agent.
+   */
+  gitClone(projectId: string, args: { remote?: string; branch?: string; into?: string }): Promise<string> {
+    return this.gitAudited(projectId, 'clone', { remote: args.remote ?? null, branch: args.branch ?? null }, async () => {
+      const { config, name, remote } = this.remoteFor(projectId, args.remote)
+      return this.git.clone(projectId, config.cwd, name, remote, { ...(args.branch === undefined ? {} : { branch: args.branch }), ...(args.into === undefined ? {} : { into: args.into }) })
+    })
+  }
+
+  /**
+   * `git_pull`: a project's remote fetched into its repository.
+   *
+   * @returns what happened, for the agent.
+   */
+  gitPull(projectId: string, args: { remote?: string; path?: string }): Promise<string> {
+    return this.gitAudited(projectId, 'pull', { remote: args.remote ?? null }, async () => {
+      const { config, name, remote } = this.remoteFor(projectId, args.remote)
+      return this.git.pull(projectId, config.cwd, name, remote, args.path)
+    })
+  }
+
+  /**
+   * What a `git_push` would send, for the person asked to approve it. The commit is
+   * remembered: the push that follows sends that commit or nothing.
+   *
+   * @returns the one-line description, or why it cannot be pushed.
+   */
+  async gitPushPreview(projectId: string, args: { remote?: string; branch?: string; path?: string }): Promise<{ ok: true; text: string } | { ok: false; text: string }> {
+    try {
+      const plan = await this.planPush(projectId, args)
+      this.approvedPushes.set(`${projectId}\0${plan.remote}\0${plan.branch}`, plan.sha)
+      return { ok: true, text: GitRemotes.describe(plan) }
+    } catch (error) {
+      return { ok: false, text: error instanceof GitError ? error.message : (error as Error).message }
+    }
+  }
+
+  /**
+   * `git_push`: a branch of the project's repository to its remote. When a person was
+   * asked, only the commit they saw goes.
+   *
+   * @returns what happened, for the agent.
+   */
+  gitPush(projectId: string, args: { remote?: string; branch?: string; path?: string }): Promise<string> {
+    return this.gitAudited(projectId, 'push', { remote: args.remote ?? null, branch: args.branch ?? null }, async (more) => {
+      const plan = await this.planPush(projectId, args)
+      const key = `${projectId}\0${plan.remote}\0${plan.branch}`
+      const approved = this.approvedPushes.get(key)
+      this.approvedPushes.delete(key)
+      if (approved !== undefined && approved !== plan.sha) throw new GitError(`${plan.branch} changed after the push was approved (${approved.slice(0, 7)} then, ${plan.sha.slice(0, 7)} now): nothing was pushed. Push again to be asked about it.`)
+      const { remote } = this.remoteFor(projectId, plan.remote)
+      Object.assign(more, { remote: plan.remote, sha: plan.sha, commits: plan.count })
+      return this.git.push(projectId, remote, plan)
+    })
+  }
+
+  /** A push, prepared. */
+  private async planPush(projectId: string, args: { remote?: string; branch?: string; path?: string }): Promise<PushPlan> {
+    if (args.branch === undefined || args.branch.length === 0) throw new GitError('git_push needs the branch to push.')
+    const { config, name, remote } = this.remoteFor(projectId, args.remote)
+    return this.git.preparePush(projectId, config.cwd, name, remote, args.branch, args.path)
   }
 
   // ── snapshots and undo ───────────────────────────────────────────────────
@@ -636,6 +748,8 @@ export class OpsProjects {
     for (const [key, value] of Object.entries(values)) {
       let filled = value
       for (const [reference, name] of value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+        // A git token is for Argus's own git, on its own remote: never handed to a server.
+        if (isGitTokenName(name as string)) throw new Error(`\${${name}} is a git token, which only Argus's git operations may use`)
         // Without the credentials service (a bare composition) only the environment is read.
         const secret =
           credentials === undefined

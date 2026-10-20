@@ -340,8 +340,8 @@ export class OpsChannel {
       return { kind: 'rejected', reason: access.reason ?? 'not_listed' }
     }
 
-    // A key never reaches a model, and is taken out of the chat. `/key` is the way
-    // to send one; anything else that looks like a key is not routed at all.
+    // A key never reaches a model, and is taken out of the chat. `/key` (or `/git
+    // token`) is the way to send one; anything else that looks like a key is not routed at all.
     const keyCommand = KEY_COMMAND.test(message.text.trim())
     if (keyCommand || looksLikeSecret(message.text)) {
       const deleted = await this.deleteIncoming(message)
@@ -1111,7 +1111,7 @@ export type { IncomingAttachment, OutgoingMessage }
 const execFileAsync = promisify(execFile)
 
 /** `/key <provider> <key>`: the form that carries a key (not `/key remove <provider>`). */
-const KEY_COMMAND = /^\/key(@\S+)?\s+(?!remove\s)\S+\s+\S+/i
+const KEY_COMMAND = /^\/(key(@\S+)?\s+(?!remove\s)\S+\s+\S+|git(@\S+)?\s+token\s+\S+\s+\S+\s+\S+)/i
 /** `/link <code>`: the one command a sender not yet known may send. */
 const LINK_COMMAND = /^\/link(@\S+)?\s+\S+$/i
 

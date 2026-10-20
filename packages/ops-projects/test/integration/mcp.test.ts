@@ -12,6 +12,7 @@ const echo = { command: process.execPath, args: [server], env: { ECHO_SECRET: '$
 
 afterEach(() => {
   delete process.env['ECHO_SECRET']
+  delete process.env['ARGUS_GIT_0123ABCD']
 })
 
 /** The tool an agent sees under a name, through the scope-aware lookup. */
@@ -36,5 +37,11 @@ describe('MCP servers', () => {
     const { projects } = await bootProjects({ projects: { site: { mcp: { echo } } } })
     const agent = await projects.ensureAgent('site')
     expect(await toolOf(agent, 'mcp__echo__echo')).toBeUndefined()
+  }, 60_000)
+
+  it('never hands a server a git token, even one the environment holds', async () => {
+    process.env['ARGUS_GIT_0123ABCD'] = 'ghp_secret'
+    const { projects } = await bootProjects({ projects: { site: { mcp: { echo: { ...echo, env: { ECHO_SECRET: '${ARGUS_GIT_0123ABCD}' } } } } } })
+    expect(await toolOf(await projects.ensureAgent('site'), 'mcp__echo__echo')).toBeUndefined()
   }, 60_000)
 })

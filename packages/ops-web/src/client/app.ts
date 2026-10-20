@@ -82,7 +82,7 @@ function fromHash(): { view: View; sub: string } {
   const [view, ...rest] = location.hash.slice(1).split('/')
   return { view: view === 'setup' ? 'setup' : (VIEWS.find((each) => each === view) ?? 'overview'), sub: decodeURIComponent(rest.join('/')) }
 }
-const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'other'] as const
+const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
 

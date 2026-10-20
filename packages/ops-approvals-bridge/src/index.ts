@@ -94,7 +94,12 @@ export function apply(ctx: Context): void {
    * The trigger. dsh asks for approval only when a `tools/pre-execute` listener
    * answers `ask`; the bridge's gate does, for commands and file writes.
    */
-  ctx.on('tools/pre-execute', async (exec, next) => bridge.gate(exec) ?? next())
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const verdict = bridge.gate(exec)
+    // A push is asked about with what it sends, which takes git to find out.
+    if (verdict?.kind === 'ask' && exec.name === 'git_push') return bridge.describePush(exec, verdict)
+    return verdict ?? next()
+  })
 
   logger.info(
     'approvals ready: ad-hoc policy=%s, timeout=%d minute(s), run grants=%s',

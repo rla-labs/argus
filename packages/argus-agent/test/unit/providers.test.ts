@@ -193,6 +193,14 @@ describe('saving and removing a key', () => {
     expect(keys.saved['PINNED_TOKEN']).toBeUndefined()
   })
 
+  it('refuses the names git tokens are kept under: only /git manages them', async () => {
+    const keys = memoryKeys({}, {})
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, keys, answer(500))
+    expect((await service.setKey('ARGUS_GIT_0123ABCD', 'ghp_x')).message).toContain('reserved for git tokens')
+    expect(keys.saved['ARGUS_GIT_0123ABCD']).toBeUndefined()
+    expect((await service.removeKey('ARGUS_GIT_0123ABCD')).ok).toBe(false)
+  })
+
   it('saves a Telegram bot token Telegram accepts, refuses a malformed or rejected one, and lists telegram', async () => {
     const token = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw'
     const urls: string[] = []

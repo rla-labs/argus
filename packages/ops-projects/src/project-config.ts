@@ -15,6 +15,7 @@ import z from '@deepseek-ai/schemastery'
 import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 import type { ProjectTemplate } from './templates.js'
 import { EXTENSION_NAME, type UsableExtension } from './extensions.js'
+import { parseGitBlock, type GitRemote } from './git-remotes.js'
 
 /**
  * A project slug.
@@ -94,6 +95,8 @@ export interface ProjectConfig {
   readonly extensions: readonly ProjectExtension[]
   /** Extensions `extensions:` names that are not installed, or whose files changed: left out. */
   readonly extensionsMissing: readonly string[]
+  /** Its git remotes (`git.remotes`), by name. Their tokens are not in the file. */
+  readonly git: { readonly remotes: Readonly<Record<string, GitRemote>> }
   /** The template it follows (`template:`), or null for a fully explicit project. */
   readonly template: string | null
   /** The dotted keys whose value comes from the template: the project's file does not set them. */
@@ -117,7 +120,7 @@ function toolAccess(fallback: string) {
 }
 
 /** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
-const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'other', 'web_hosts', 'exceptions']
+const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other', 'web_hosts', 'exceptions']
 
 /** What one tool's exception may be. */
 const ACCESS_VALUES = ['off', 'deny', 'ask', 'allow']
@@ -241,6 +244,7 @@ export const projectConfigSchema = z.object({
       shell: toolAccess(PROJECT_TOOL_DEFAULTS.shell),
       web: toolAccess(PROJECT_TOOL_DEFAULTS.web),
       agents: toolAccess(PROJECT_TOOL_DEFAULTS.agents),
+      git: toolAccess(PROJECT_TOOL_DEFAULTS.git),
       other: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default(PROJECT_TOOL_DEFAULTS.other),
       web_hosts: z.array(z.string()).default([]),
     })
@@ -528,6 +532,8 @@ export function parseProjectConfig(
 
   issues.push(...mcpIssues(document['mcp']))
   issues.push(...ruleIssues(document))
+  const git = parseGitBlock(document['git'])
+  issues.push(...git.issues)
 
   if (issues.length > 0) {
     throw new ProjectConfigError(`${options.sourcePath} is not a valid project`, issues, {
@@ -592,6 +598,7 @@ export function parseProjectConfig(
     progress: validated['progress'] as boolean,
     extensions: enabled,
     extensionsMissing,
+    git: { remotes: git.remotes },
     template,
     fromTemplate,
     sourcePath: options.sourcePath,

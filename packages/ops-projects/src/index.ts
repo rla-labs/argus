@@ -20,6 +20,7 @@ import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProjec
 import type { BudgetDefaults, ProjectConfig, ProjectLimits } from './project-config.js'
 import { loadTemplates, templateIssues } from './templates.js'
 import { Extensions } from './extensions.js'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import './events.js'
 
 export * from './project-config.js'
@@ -31,6 +32,7 @@ export * from './run-trail.js'
 export * from './snapshots.js'
 export * from './templates.js'
 export * from './extensions.js'
+export * from './git-remotes.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -109,6 +111,63 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => {
     void service.disposeAll()
+  })
+
+  // ── git tools ────────────────────────────────────────────────────────────
+  // Global, like send_file; the project comes from the calling agent (rule 6), never
+  // from an argument. Argus does the remote work: the agent never holds the token.
+  ctx.inject(['tools'], (child) => {
+    const text = { schema: { type: 'string' }, render: (_args: unknown, value: string) => [{ type: 'text' as const, text: value }] } as const
+    const projectOf = (exec: { agent?: { id: unknown } }): string | undefined => {
+      const owner = exec.agent === undefined ? undefined : service.ownerOf(exec.agent.id as string)
+      return owner?.kind === 'project' ? owner.projectId : undefined
+    }
+    const str = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 ? value : undefined)
+    const remote = { type: 'string', description: 'The remote, by its name in the project (default: its only one, or origin).' } as const
+    const path = { type: 'string', description: 'The repository, relative to your folder (default: your folder itself).' } as const
+    const tools = [
+      defineTool({
+        name: 'git_clone',
+        description: 'Clone one of the project\'s git remotes into your folder. Argus does it with the remote\'s token; you never see or need one.',
+        parameters: {
+          remote,
+          branch: { type: 'string', description: 'The branch to check out (default: the remote\'s).' },
+          into: { type: 'string', description: 'The folder to clone into, relative to yours (default: the repository\'s name).' },
+        },
+        output: text,
+        execute: async (args, exec) => {
+          const projectId = projectOf(exec)
+          if (projectId === undefined) return 'git_clone works only in a project.'
+          const input = args as Record<string, unknown>
+          return service.gitClone(projectId, { ...(str(input['remote']) === undefined ? {} : { remote: str(input['remote']) }), ...(str(input['branch']) === undefined ? {} : { branch: str(input['branch']) }), ...(str(input['into']) === undefined ? {} : { into: str(input['into']) }) })
+        },
+      }),
+      defineTool({
+        name: 'git_pull',
+        description: 'Fetch the remote\'s branches into your repository as refs/remotes/<remote>/*. Then merge or rebase them yourself. Your own git pull or fetch cannot reach a private remote.',
+        parameters: { remote, path },
+        output: text,
+        execute: async (args, exec) => {
+          const projectId = projectOf(exec)
+          if (projectId === undefined) return 'git_pull works only in a project.'
+          const input = args as Record<string, unknown>
+          return service.gitPull(projectId, { ...(str(input['remote']) === undefined ? {} : { remote: str(input['remote']) }), ...(str(input['path']) === undefined ? {} : { path: str(input['path']) }) })
+        },
+      }),
+      defineTool({
+        name: 'git_push',
+        description: 'Push a branch of your repository to the remote, as a fast-forward. Commit first. Protected branches (main, master unless the project says otherwise) are refused: push another branch. A person may be asked first, and is shown the commits.',
+        parameters: { remote, path, branch: { type: 'string', description: 'The branch to push.', required: true } },
+        output: text,
+        execute: async (args, exec) => {
+          const projectId = projectOf(exec)
+          if (projectId === undefined) return 'git_push works only in a project.'
+          const input = args as Record<string, unknown>
+          return service.gitPush(projectId, { ...(str(input['remote']) === undefined ? {} : { remote: str(input['remote']) }), ...(str(input['path']) === undefined ? {} : { path: str(input['path']) }), ...(str(input['branch']) === undefined ? {} : { branch: str(input['branch']) }) })
+        },
+      }),
+    ]
+    for (const tool of tools) child.effect(() => (child as unknown as { tools: { register(tool: unknown): () => void } }).tools.register(tool))
   })
 
   // ── session events: run-output extraction ────────────────────────────────

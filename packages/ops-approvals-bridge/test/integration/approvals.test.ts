@@ -242,6 +242,18 @@ describe('the gate', () => {
     }
   }, 60_000)
 
+  it('asks about a git_push by default, and refuses one that cannot be pushed without asking', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-git-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({ dataDir, projects: { alpha: `${projectDocument(dataDir, 'alpha')}\ngit:\n  remotes:\n    origin:\n      url: https://github.com/acme/site.git` } })
+    const agent = await booted.projects.ensureAgent('alpha')
+    const exec = (name: string, args: Record<string, unknown>) => ({ name, arguments: args, callId: `${name}-1`, agent: agent as never })
+    for (const name of ['git_clone', 'git_pull', 'git_push']) expect(booted.bridge.gate(exec(name, {}))?.kind, name).toBe('ask')
+    const verdict = booted.bridge.gate(exec('git_push', { branch: 'main' }))
+    expect(await booted.bridge.describePush(exec('git_push', { branch: 'main' }), verdict as never)).toEqual({ kind: 'deny', reason: expect.stringContaining('main is protected on origin') })
+    expect(await booted.bridge.describePush(exec('git_push', { branch: 'feature' }), verdict as never)).toEqual({ kind: 'deny', reason: expect.stringContaining('origin has no token') })
+  }, 60_000)
+
   it('runs an allow-listed command under the default mode without asking', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-gate-'))
     dirs.push(dataDir)

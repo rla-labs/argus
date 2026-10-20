@@ -517,6 +517,7 @@ Each group takes one of four values:
 | `shell` | `bash`, `pwsh`, `run_code` | `ask` |
 | `web` | `web_fetch`, `web_search` | `ask` |
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
+| `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
 
 **A read or write outside the project's folder asks even under `allow`**, and is
@@ -618,6 +619,53 @@ A local server runs as Argus's own user, outside the shell sandbox, and is given
 the variables in its `env` (dsh removes every inherited variable that looks like a key,
 token or password). Install only servers you would install on the machine yourself.
 In the Docker image `npx` and `uvx` are available.
+
+### `git` — remotes Argus clones, pulls and pushes
+
+```yaml
+git:
+  remotes:
+    origin:
+      url: https://github.com/acme/site.git
+    mirror:
+      url: https://gitlab.com/acme/site.git
+      protected: []          # default [main, master]
+```
+
+A project's agent works on a repository in its folder like on any other files: `git
+status`, `diff`, `commit` and `branch` are ordinary commands. **What needs the remote
+and its token, Argus does**, when the agent asks:
+
+| Tool | What happens |
+|---|---|
+| `git_clone` | The remote is cloned into the project's folder (`into`, default the repository's name). |
+| `git_pull` | The remote's branches arrive as `refs/remotes/<remote>/*`; the agent merges or rebases them itself. |
+| `git_push` | A branch goes to the remote, as a fast-forward. A **protected** branch is refused; so is a push that would overwrite someone else's commits (no force push). |
+
+Each remote has **its own token**, which only the admin sets, with `/git token <project>
+<remote> <token>` in the chat (the message is deleted at once) or on the project's
+page on the web. It is never in the file, and it never reaches the agent, its commands
+or the conversation: Argus uses it only for its own git process, as a header, for that
+remote's host. Two projects can push to repositories of two different accounts, and no
+project can use another's token. Use a token that can reach only that repository: a
+GitHub fine-grained token, a GitLab project access token.
+
+| Field | Meaning | Default |
+|---|---|---|
+| name (the key) | lowercase letters, digits and dashes, up to 32 | — |
+| `url` | `https://` only, with no user or token in it | — |
+| `protected` | branches `git_push` refuses | `[main, master]` |
+
+**A push asks first** (the `git` group is `ask`), and the question shows exactly what
+goes: the commits, their messages and the files changed. That commit is what is pushed,
+or nothing: if the branch moved while the question waited, the push is refused and asked
+again. `/set <project> tools.git allow` lets a project push unasked; `tools.exceptions.git_pull
+allow` lets it pull unasked and still ask for pushes.
+
+A public repository needs no token to clone or pull. Changing a remote's URL
+(`/git remote`) forgets its token; archiving the project forgets all of them. `/undo`
+puts the files back, not the commits or the pushes. A server with its own certificate
+authority is trusted when the service has `GIT_SSL_CAINFO` set to its CA file.
 
 ### `extensions` — tools, skills and instructions installed once
 
