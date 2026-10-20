@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import type { WebAuth, Session } from './auth.js'
 import type { SetupGate } from './setup.js'
 import type { WebChannelAdapter } from './web-channel.js'
-import { FileRefusal, receiveUpload, streamZip, type DownloadLinks } from './files.js'
+import { FileRefusal, receiveUpload, sendZip, type DownloadLinks } from './files.js'
 
 /** The session cookie's name. */
 export const COOKIE = 'argus_session'
@@ -76,8 +76,10 @@ export interface ServerDeps {
   readonly projectDir: (id: string) => string | undefined
   /** The largest upload, in bytes. */
   readonly maxUploadBytes: number
-  /** The command sandbox, read-only on a project's folder, for its zip. */
-  readonly confineReadOnly: (cwd: string) => (argv: readonly string[]) => Promise<readonly string[]>
+  /** The command sandbox, for a project's zip: `root` writable, `reads` read-only. */
+  readonly confineZip: (argv: readonly string[], root: string, reads: readonly string[]) => Promise<readonly string[]>
+  /** Where a zip is made before it is sent. */
+  readonly zipScratch: string
   /** The one-time download links. */
   readonly links: DownloadLinks
   /** Record an upload. */
@@ -332,7 +334,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       if (cwd === undefined) return send(response, 404, { error: 'no such project' })
       const folder = new URL(request.url ?? '/', 'http://x').searchParams.get('path') ?? '.'
       try {
-        await streamZip(response, cwd, folder, deps.confineReadOnly(cwd), `${id}${folder === '.' ? '' : `-${folder.replace(/[^\w.-]+/g, '-')}`}.zip`)
+        await sendZip(response, cwd, folder, deps.confineZip, `${id}${folder === '.' ? '' : `-${folder.replace(/[^\w.-]+/g, '-')}`}.zip`, deps.zipScratch)
         return
       } catch (error) {
         if (error instanceof FileRefusal) return send(response, error.status, { error: error.message })

@@ -103,55 +103,61 @@ export async function receiveUpload(request: IncomingMessage, cwd: string, name:
 }
 
 /**
- * Stream a folder of a project as a zip, made confined and read-only: symlinks stay
- * links (`-y`), and the skipped folders are left out.
+ * Send a folder of a project as a zip. zip runs confined: the project read-only, and
+ * only a fresh folder of its own writable, where it writes the archive (some builds
+ * refuse to write a stored entry, a symlink for one, to a pipe). Symlinks stay links
+ * (`-y`), the skipped folders are left out, and the archive is deleted once sent.
  *
  * @param response the response, not yet written.
  * @param cwd the project's folder.
  * @param path the folder, relative to it (`.` for all of it).
- * @param confine the command sandbox, read-only on the project's folder.
+ * @param confine the command sandbox: `root` writable, `reads` read-only.
  * @param fileName the archive's name.
- * @throws {FileRefusal} for a path outside the project or not a folder.
+ * @param scratch where the archive's folder is made.
+ * @throws {FileRefusal} for a path outside the project or not a folder, or a zip that failed.
  */
-export async function streamZip(
+export async function sendZip(
   response: ServerResponse,
   cwd: string,
   path: string,
-  confine: (argv: readonly string[]) => Promise<readonly string[]>,
+  confine: (argv: readonly string[], root: string, reads: readonly string[]) => Promise<readonly string[]>,
   fileName: string,
+  scratch: string,
 ): Promise<void> {
   if (isAbsolute(path) || normalize(path).split(sep).includes('..')) throw new FileRefusal(400, 'a folder inside the project, relative to it')
   const target = resolve(cwd, path)
   if (!existsSync(target) || !statSync(target).isDirectory() || !isInside(cwd, target)) throw new FileRefusal(404, 'no such folder in the project')
   const member = path === '.' || path === '' ? '.' : `./${normalize(path)}`
   const excluded = ZIP_SKIPPED.flatMap((name) => [`${name}/*`, `*/${name}/*`])
-  const argv = await confine(['zip', '-r', '-q', '-y', '-', member, '-x', ...excluded])
-  const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-  let errors = ''
-  child.stderr.on('data', (chunk: Buffer) => {
-    errors = `${errors}${chunk.toString()}`.slice(-2000)
-  })
-  // The answer starts with the archive's first bytes: a zip that fails before any is a
-  // 500 with its reason, never an empty "200".
-  child.stdout.once('data', (first: Buffer) => {
+  const dir = join(scratch, randomUUID())
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const archive = join(dir, 'archive.zip')
+  try {
+    const argv = await confine(['zip', '-r', '-q', '-y', archive, member, '-x', ...excluded], dir, [cwd])
+    const errors = await new Promise<string | undefined>((done) => {
+      const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: ['ignore', 'ignore', 'pipe'] })
+      let text = ''
+      child.stderr.on('data', (chunk: Buffer) => {
+        text = `${text}${chunk.toString()}`.slice(-2000)
+      })
+      child.on('error', (error) => done(error.message))
+      child.on('close', (code) => done(code === 0 ? undefined : text.trim() || `zip exited ${code}`))
+    })
+    if (errors !== undefined || !existsSync(archive)) throw new FileRefusal(500, `the zip could not be made: ${errors ?? 'no archive'}`)
     response.writeHead(200, {
       'content-type': 'application/zip',
+      'content-length': String(statSync(archive).size),
       'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       'cache-control': 'no-store',
     })
-    response.write(first)
-    child.stdout.pipe(response)
-  })
-  const code = await new Promise<number | null>((done) => {
-    child.on('error', (error) => {
-      errors = error.message
-      done(null)
+    await new Promise<void>((done) => {
+      const stream = createReadStream(archive)
+      stream.on('close', () => done())
+      stream.pipe(response)
     })
-    child.on('close', done)
-  })
-  if (!response.headersSent) throw new FileRefusal(500, `the zip could not be made: ${errors.trim() || `zip exited ${code}`}`)
-  // A failure after the first byte can only cut the download; the browser shows it as failed.
-  if (code !== 0) response.destroy()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 /** A file waiting at a one-time link. */

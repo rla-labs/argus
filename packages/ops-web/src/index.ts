@@ -293,11 +293,12 @@ export async function apply(ctx: Context): Promise<void> {
       },
       projectDir: (id) => ctx.opsProjects.configOf(id)?.cwd,
       maxUploadBytes: config.max_upload_mb * 1024 * 1024,
-      confineReadOnly: (cwd) => async (argv) => {
-        const sandbox = ctx.get('sandbox' as never) as unknown as { confine(argv: readonly string[], policy: { mode: 'read-only'; workspaceRoot: string }): Promise<{ argv: readonly string[] }> } | undefined
-        if (sandbox === undefined) throw new Error('the command sandbox is not available')
-        return (await sandbox.confine(argv, { mode: 'read-only', workspaceRoot: cwd })).argv
+      confineZip: async (argv, root, reads) => {
+        const sandbox = ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
+        if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available')
+        return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: root }, reads)).argv
       },
+      zipScratch: join(pathsOf(ctx.opsRawConfig).stateDir, 'web-zips'),
       links,
       uploaded: (session, projectId, path, bytes) =>
         ctx.opsStore.audit.record({ actor: session.userId, action: 'web.upload', target: projectId, details: { path, bytes } }, Date.now()),
