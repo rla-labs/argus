@@ -6,8 +6,8 @@ Argus is a self-hosted system for running AI agents over days and weeks. It enfo
 budget on every run, asks before risky actions and recovers after a crash. You run
 and watch it from a web interface or from Telegram.
 
-**Current release: [0.6.1](https://github.com/rla-labs/argus/releases/tag/v0.6.1)**
-(`ghcr.io/rla-labs/argus:0.6.1`). [What's new](docs/user/whats-new.md).
+**Current release: [0.6.2](https://github.com/rla-labs/argus/releases/tag/v0.6.2)**
+(`ghcr.io/rla-labs/argus:0.6.2`). [What's new](docs/user/whats-new.md).
 
 ## What it does
 
