@@ -10,8 +10,8 @@ project, where no agent can change it.
 
 | Extension | What a project gets | Install |
 |---|---|---|
-| **office** | `officecli` ([OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 1.0.158): create, read, check and edit `.docx`, `.xlsx` and `.pptx`, existing documents included; its skill. About 35 MB. No screenshots or PDF yet: they need a browser. | `/ext install https://github.com/rla-labs/argus-extensions-office` |
-| **media** | `ffmpeg` and `ffprobe` 7.0.2 (static, GPL): cut, join, convert, compress, extract audio, thumbnails, GIFs, subtitles; a skill of recipes, with long renders in the background. About 160 MB. | `/ext install https://github.com/rla-labs/argus-extensions-media` |
+| **office** | `officecli` ([OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 1.0.158): create, read, check and edit `.docx`, `.xlsx` and `.pptx`, existing documents included; its skill. About 35 MB. No screenshots or PDF yet: they need a browser. | `/ext install https://github.com/rla-labs/argus-extensions#office` |
+| **media** | `ffmpeg` and `ffprobe` 7.0.2 (static, GPL): cut, join, convert, compress, extract audio, thumbnails, GIFs, subtitles; a skill of recipes, with long renders in the background. About 160 MB. | `/ext install https://github.com/rla-labs/argus-extensions#media` |
 
 Each downloads its program at install from its publisher, pinned to one version and
 checked against a sha-256 the extension records, so what runs is exactly what was
@@ -22,14 +22,18 @@ reviewed. Then `/ext enable <project> office`; the button it offers (`officecli 
 ## Installing one
 
 ```
-/ext install https://github.com/rla-labs/argus-extensions-office
-/ext install https://github.com/rla-labs/argus-extensions-office@v1.2.0
+/ext install https://github.com/rla-labs/argus-extensions#office
+/ext install https://github.com/rla-labs/argus-extensions#office@v1.2.0
+/ext install https://github.com/someone/argus-office
 /ext install /srv/argus-agent/data/ext-src/office
 ```
 
 The source is an `https://` git URL, or the absolute path of a git repository on the
 server (with Docker, a path inside the data directory, which is all the container sees).
-`@` and a branch, tag or commit picks a version; without one, the default branch.
+`#` and a folder picks an extension in a repository that holds several (the first-party
+ones are all in [rla-labs/argus-extensions](https://github.com/rla-labs/argus-extensions));
+only that folder is installed. `@` and a branch, tag or commit picks a version; without
+one, the default branch.
 
 Argus then:
 
@@ -38,7 +42,7 @@ Argus then:
 2. **shows what it brings, and asks:**
 
    ```
-   Install office 1.2.0 (3f9c2a1) from https://github.com/rla-labs/argus-extensions-office?
+   Install office 1.2.0 (3f9c2a1) from https://github.com/rla-labs/argus-extensions#office?
    Create and edit Word, Excel and PowerPoint files
 
    Tools (MCP servers, run confined to the project's folder):
@@ -117,7 +121,9 @@ Seeing the extensions is anyone's; installing, updating and removing are the adm
 
 ## Writing one
 
-An extension is a git repository with `extension.yaml` at its root:
+An extension is a git repository with `extension.yaml` at its root, or a folder of one
+(`<repository>#<folder>`) with `extension.yaml` in it; its paths are then relative to
+that folder:
 
 ```yaml
 name: office                    # lowercase letters, digits and dashes

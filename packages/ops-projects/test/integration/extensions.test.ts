@@ -4,7 +4,7 @@
  * start checks; `install` run through the sandbox, or not at all.
  */
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -64,6 +64,24 @@ describe('extensions', () => {
     expect(readFileSync(join(extensions.dir, 'lock.yaml'), 'utf8')).toContain(head)
     expect(extensions.verify()).toEqual([])
     expect(existsSync(join(extensions.dir, '.staging', staged.id))).toBe(false)
+  })
+
+  it('installs one folder of a repository that holds several, and only that folder', async () => {
+    const repo = repository()
+    const commit = repo.commit({ 'media/extension.yaml': MANIFEST.replace('name: office', 'name: media'), 'media/server.js': '1\n', 'media/skills/office-docs/SKILL.md': '---\nname: x\ndescription: x.\n---\nx\n' })
+    const extensions = store()
+    const entry = await extensions.install((await extensions.fetch(`${repo.path}#media`, null)).id, 'admin')
+    expect(entry).toMatchObject({ name: 'media', commit, source: `${repo.path}#media` })
+    const dir = join(extensions.dir, entry.path)
+    expect(readFileSync(join(dir, 'built.txt'), 'utf8')).toBe('built\n')
+    expect(existsSync(join(dir, 'media'))).toBe(false)
+    expect(readdirSync(join(extensions.dir, '.staging'))).toEqual([])
+    await expect(extensions.fetch(`${repo.path}#nothing`, null)).rejects.toThrow('no folder nothing')
+    repo.commit({ 'out/extension.yaml': 'x' })
+    symlinkSync(tmpdir(), join(repo.path, 'escape'))
+    repo.commit({})
+    await expect(extensions.fetch(`${repo.path}#escape`, null)).rejects.toThrow('no folder escape')
+    await expect(extensions.fetch(`${repo.path}#../x`, null)).rejects.toThrow('not a folder')
   })
 
   it('reports a tree that changed after install', async () => {
@@ -153,6 +171,11 @@ describe('extensions', () => {
     expect(parseSource('git://host/a').ok).toBe(false)
     expect(parseSource('ext/office').ok).toBe(false)
     expect(parseSource('/srv/x@--upload-pack=evil').ok).toBe(false)
+    expect(parseSource('https://github.com/a/b#office@v1')).toEqual({ ok: true, source: 'https://github.com/a/b#office', ref: 'v1' })
+    expect(parseSource('https://github.com/a/b#tools/office')).toEqual({ ok: true, source: 'https://github.com/a/b#tools/office', ref: null })
+    expect(parseSource('https://github.com/a/b#../x').ok).toBe(false)
+    expect(parseSource('https://github.com/a/b#/etc').ok).toBe(false)
+    expect(parseSource('/srv/ext#a/./b').ok).toBe(false)
   })
 
   const sandbox = new ArgusSandbox(new Context())

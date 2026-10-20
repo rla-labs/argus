@@ -17,7 +17,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { parse as parseYaml, stringify as toYaml } from 'yaml'
-import { MCP_SERVER_PATTERN, OpsError } from '@argus-agent/types'
+import { MCP_SERVER_PATTERN, OpsError, isInside } from '@argus-agent/types'
 
 const run = promisify(execFile)
 
@@ -109,9 +109,19 @@ export interface UsableExtension {
 /** Wrap a command so it runs confined to one folder (the command sandbox). */
 export type Confine = (argv: readonly string[], root: string) => Promise<readonly string[]>
 
+/** An extension's folder inside a repository: relative, plain, never `..`. */
+const FOLDER = /^(?!.*(^|\/)\.\.?(\/|$))[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/
+
+/** A source's repository and, after `#`, the extension's folder in it (null: the root). */
+export function splitFolder(source: string): { repository: string; folder: string | null } {
+  const hash = source.indexOf('#')
+  return hash === -1 ? { repository: source, folder: null } : { repository: source.slice(0, hash), folder: source.slice(hash + 1) }
+}
+
 /**
- * Split `/ext install`'s argument into a source and a ref: `<source>@<ref>`, where the
- * `@` comes after the last `/` (an `https://user@host/...` keeps its `@`).
+ * Split `/ext install`'s argument into a source and a ref: `<source>[#<folder>][@<ref>]`,
+ * where the `@` comes after the last `/` (an `https://user@host/...` keeps its `@`).
+ * `#<folder>` picks an extension in a folder of a repository that holds several.
  *
  * @param text the argument.
  * @returns the source and the ref, or why the source is not accepted.
@@ -122,6 +132,8 @@ export function parseSource(text: string): { ok: true; source: string; ref: stri
   const source = split ? text.slice(0, at) : text
   const ref = split ? text.slice(at + 1) : null
   if (ref !== null && !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,100}$/.test(ref)) return { ok: false, message: `"${ref}" is not a branch, tag or commit.` }
+  const folder = splitFolder(source).folder
+  if (folder !== null && !FOLDER.test(folder)) return { ok: false, message: `"${folder}" is not a folder of the repository (letters, digits, . _ - and /, never ..).` }
   if (/^https:\/\/[^\s]+$/.test(source)) return { ok: true, source, ref }
   if (isAbsolute(source) && !source.includes('\n')) return { ok: true, source: normalize(source), ref }
   return { ok: false, message: 'Give an https:// git URL or the absolute path of a git repository on the server.' }
@@ -348,13 +360,29 @@ export class Extensions {
     const dir = this.stagingOf(id)
     mkdirSync(join(this.dir, '.staging'), { recursive: true })
     try {
-      await this.git(['clone', '--quiet', '--no-checkout', '--', source, dir])
+      const { repository, folder } = splitFolder(source)
+      if (folder !== null && !FOLDER.test(folder)) throw new OpsError('EXTENSION_INVALID', `"${folder}" is not a folder of the repository.`)
+      await this.git(['clone', '--quiet', '--no-checkout', '--', repository, dir])
       await this.git(['-C', dir, 'checkout', '--quiet', '--detach', ref ?? 'HEAD'])
       const commit = (await this.git(['-C', dir, 'rev-parse', 'HEAD'])).trim()
       // The tree is what was reviewed; its history and git's own files are not part of it.
       rmSync(join(dir, '.git'), { recursive: true, force: true })
+      if (folder !== null) {
+        // Only the extension's folder is kept: what is reviewed, run, hashed and installed.
+        const inner = join(dir, folder)
+        if (!existsSync(inner) || lstatSync(inner).isSymbolicLink() || !lstatSync(inner).isDirectory() || !isInside(dir, inner)) {
+          throw new OpsError('EXTENSION_INVALID', `The repository has no folder ${folder}.`)
+        }
+        const whole = `${dir}.repository`
+        renameSync(dir, whole)
+        try {
+          renameSync(join(whole, folder), dir)
+        } finally {
+          rmSync(whole, { recursive: true, force: true })
+        }
+      }
       const file = join(dir, 'extension.yaml')
-      if (!existsSync(file)) throw new OpsError('EXTENSION_INVALID', 'The repository has no extension.yaml at its root.')
+      if (!existsSync(file)) throw new OpsError('EXTENSION_INVALID', `The repository has no extension.yaml ${folder === null ? 'at its root' : `in ${folder}`}.`)
       const manifest = parseManifest(parseYaml(readFileSync(file, 'utf8')))
       let installedManifest: ExtensionManifest | undefined
       try {

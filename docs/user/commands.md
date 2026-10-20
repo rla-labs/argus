@@ -20,7 +20,7 @@ For which command fits which moment, read
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
-| Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
+| Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
@@ -723,14 +723,14 @@ An edited template file reaches the projects that follow it at the next
 
 ---
 
-## `/ext [list] | install <git-url | path>[@ref] | update <name>[@ref] | remove <name> | enable|disable <project-id> <name>`
+## `/ext [list] | install <git-url | path>[#folder][@ref] | update <name>[@ref] | remove <name> | enable|disable <project-id> <name>`
 
 [Extensions](extensions.md): tools, skills and instructions installed once, from a git
 repository, outside every project.
 
 ```
 /ext
-/ext install https://github.com/rla-labs/argus-extensions-office@v1.2.0
+/ext install https://github.com/rla-labs/argus-extensions#office@v1.2.0
 /ext install /srv/argus-agent/data/ext-src/office
 /ext update office
 /ext remove office

@@ -18,7 +18,9 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 - **Extensions with programs.** An extension can put programs in a project's shell,
   confined like any other command. Two first-party ones: **office** (OfficeCLI: Word,
   Excel and PowerPoint, existing documents edited in place) and **media** (ffmpeg and
-  ffprobe).
+  ffprobe), both in [rla-labs/argus-extensions](https://github.com/rla-labs/argus-extensions):
+  `/ext install https://github.com/rla-labs/argus-extensions#office`. A repository can
+  now hold several extensions, one per folder (`#folder`).
 - **Web searches are in the budget**, and `/tools` says when there is no DeepSeek key to
   search with.
 

@@ -1,13 +1,13 @@
 // == ARGUS AGENT PROJECT ==
 // The extension check `pnpm test:docker-extensions` and `pnpm test:native-vps` run, as
-// the service's user: node extension-check.mjs <app root> <data dir> <sources dir>.
-// Each extension in <sources dir> is installed as /ext install does (confined, with the
+// the service's user: node extension-check.mjs <app root> <data dir> <repository>.
+// Each extension in a folder of <repository> is installed as /ext install <repository>#<folder> does (confined, with the
 // network), enabled in a project, and its test/smoke.sh run in that project's folder,
 // confined; a project that did not enable it must not reach its programs.
-import { cpSync, mkdirSync, readdirSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-const [app, data, sources] = process.argv.slice(2)
+const [app, data, repository] = process.argv.slice(2)
 const require = createRequire(`${app}/packages/argus-agent/lib/sandbox-row.js`)
 const { Context } = await import(require.resolve('@deepseek-ai/cordis'))
 const { default: ArgusSandbox } = await import(`${app}/packages/argus-agent/lib/sandbox-row.js`)
@@ -27,15 +27,15 @@ const shell = async (cwd, command) => {
   return { code: out.status, text: `${out.stdout}${out.stderr}` }
 }
 
-for (const name of readdirSync(sources)) {
+// A copy the ops user owns: git refuses a repository another user owns.
+const copy = `${data}/ext-src`
+cpSync(repository, copy, { recursive: true })
+for (const name of readdirSync(copy).filter((folder) => existsSync(`${copy}/${folder}/extension.yaml`))) {
   console.log(`== ${name}`)
-  // A copy the ops user owns: git refuses a repository another user owns.
-  const source = `${data}/ext-src/${name}`
-  cpSync(`${sources}/${name}`, source, { recursive: true })
   const started = Date.now()
   let entry
   try {
-    entry = await extensions.install((await extensions.fetch(source, null)).id, 'test')
+    entry = await extensions.install((await extensions.fetch(`${copy}#${name}`, null)).id, 'test')
   } catch (error) {
     check(`${name} installs, confined`, false, error.message)
     continue

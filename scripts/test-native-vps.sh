@@ -154,15 +154,11 @@ check "backup-native.sh works without sqlite3" vps bash -c '! command -v sqlite3
 
 # The first-party extensions next to this repository, as the service's user installs
 # and runs them: confined, under the native install's Landlock.
-for ext in "${REPO}/../argus-extensions-office" "${REPO}/../argus-extensions-media"; do
-  [ -d "${ext}/.git" ] || continue
-  vps mkdir -p /srv/ext-src
-  docker cp "${ext}" "${NAME}:/srv/ext-src/$(basename "${ext}")"
-done
-if vps test -d /srv/ext-src; then
-  vps chown -R ops:ops /srv/ext-src
+if [ -d "${REPO}/../argus-extensions/.git" ]; then
+  docker cp "${REPO}/../argus-extensions" "${NAME}:/srv/argus-extensions"
+  vps chown -R ops:ops /srv/argus-extensions
   docker cp "${REPO}/scripts/extension-check.mjs" "${NAME}:/tmp/extension-check.mjs"
-  extensions="$(vps su -s /bin/bash ops -c 'node /tmp/extension-check.mjs /opt/argus-agent /srv/argus-agent/data /srv/ext-src' 2>&1 || true)"
+  extensions="$(vps su -s /bin/bash ops -c 'node /tmp/extension-check.mjs /opt/argus-agent /srv/argus-agent/data /srv/argus-extensions' 2>&1 || true)"
   printf '%s\n' "${extensions}" | grep -E '^ +(ok|err) ' || true
   check "the first-party extensions install and run" grep -q 'extension check: PASSED' <<<"${extensions}"
 fi

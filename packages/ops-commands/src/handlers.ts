@@ -1859,7 +1859,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'ext',
         description: 'Extensions: skills and tools installed once (admin to change)',
-        syntax: '/ext [list] | /ext install <git-url | path>[@ref] | /ext update <name>[@ref] | /ext remove <name> | /ext enable|disable <project-id> <name>',
+        syntax: '/ext [list] | /ext install <git-url | path>[#folder][@ref] | /ext update <name>[@ref] | /ext remove <name> | /ext enable|disable <project-id> <name>',
         detail:
           'An extension is a git repository with an extension.yaml: MCP tools, skills and ' +
           'instructions, installed once for every project to use. install fetches it (an ' +
@@ -1869,7 +1869,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'in what it may do. enable gives a project its tools (run confined to the project\'s ' +
           'folder), skills and instructions, from its next conversation (/reset); disable takes ' +
           'them away. Seeing them is anyone\'s; the rest is the admin\'s.',
-        examples: ['/ext enable site-firma office', '/ext', '/ext install https://github.com/rla-labs/argus-extensions-office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
+        examples: ['/ext enable site-firma office', '/ext', '/ext install https://github.com/rla-labs/argus-extensions#office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
         mutating: true,
       },
       async run(input, context): Promise<CommandResult> {
