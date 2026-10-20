@@ -336,6 +336,10 @@ web:
   # public_url: https://argus.tail1234.ts.net
   # How long a sign-in lasts.
   session_hours: 24
+  # The largest file a project's page uploads into its inbox/, in MB.
+  max_upload_mb: 2048
+  # How long a download link (a file too big for the chat) stays valid.
+  download_link_hours: 24
 
 # ── rate limits ─────────────────────────────────────────────────────────────────
 

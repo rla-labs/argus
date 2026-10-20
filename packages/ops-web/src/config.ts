@@ -34,6 +34,10 @@ export interface WebSection {
   readonly public: boolean
   /** In public mode, how long an unused session lasts. */
   readonly idle_minutes: number
+  /** The largest file a project's page uploads into its `inbox/`. */
+  readonly max_upload_mb: number
+  /** How long a download link for a file too big for a chat stays valid. */
+  readonly download_link_hours: number
 }
 
 /** The `web` schema. */
@@ -46,6 +50,8 @@ export const webSchema: Schema = z
     session_hours: z.number().min(1).max(24 * 30).default(24),
     public: z.boolean().default(false),
     idle_minutes: z.number().min(5).max(24 * 60).default(30),
+    max_upload_mb: z.number().min(1).max(100_000).default(2048),
+    download_link_hours: z.number().min(1).max(24 * 7).default(24),
   })
   .default({})
 

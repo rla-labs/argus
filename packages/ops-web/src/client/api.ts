@@ -25,6 +25,34 @@ export async function post<T>(path: string, body: unknown): Promise<{ ok: boolea
   return { ok: response.ok, status: response.status, body: (text.length === 0 ? {} : JSON.parse(text)) as T }
 }
 
+/**
+ * Upload a file into a project's `inbox/`, streamed, with its progress. XHR rather than
+ * fetch: only XHR reports an upload's progress.
+ *
+ * @returns the saved path, or the server's reason.
+ */
+export function upload(projectId: string, file: File, onProgress: (fraction: number) => void): Promise<{ ok: boolean; path?: string; error?: string }> {
+  return new Promise((done) => {
+    const request = new XMLHttpRequest()
+    request.open('POST', `/api/projects/${encodeURIComponent(projectId)}/upload?name=${encodeURIComponent(file.name)}`)
+    request.setRequestHeader('x-argus', '1')
+    request.setRequestHeader('content-type', 'application/octet-stream')
+    request.upload.onprogress = (event) => event.lengthComputable && onProgress(event.loaded / event.total)
+    request.onload = () => {
+      const body = (() => {
+        try {
+          return JSON.parse(request.responseText) as { path?: string; error?: string }
+        } catch {
+          return {}
+        }
+      })()
+      done(request.status === 201 ? { ok: true, ...(body.path === undefined ? {} : { path: body.path }) } : { ok: false, error: body.error ?? `HTTP ${request.status}` })
+    }
+    request.onerror = () => done({ ok: false, error: 'the connection failed' })
+    request.send(file)
+  })
+}
+
 /** A command's outcome. */
 export interface CommandOutcome {
   readonly text: string

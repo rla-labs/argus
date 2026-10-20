@@ -124,6 +124,8 @@ export function apply(ctx: Context): void {
       })
     },
     now: () => Date.now(),
+    // The web plugin mounts after the channel, so it is looked up at the time of use.
+    downloadLink: (path, name, take) => (ctx.get('opsWeb' as never) as unknown as { downloadLink?(path: string, name: string, take?: boolean): string | undefined } | undefined)?.downloadLink?.(path, name, take),
     orchestratorInput: (input) => {
       // Always the event: its handler in ops-orchestrator sends the reply and catches
       // a failed turn. Calling the service here dropped both, and a failed turn

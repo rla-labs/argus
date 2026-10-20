@@ -238,6 +238,18 @@ Argus's own interface (the dashboard, approvals, settings and chat) is for a
   in Telegram. Every POST needs a header a cross-site form cannot send, and the page
   runs under a strict content security policy.
 
+### Files through the web
+
+Argus writes and reads a project's files with its own rights, in a folder the agent
+controls, so it never follows a link the agent made:
+
+| What | How |
+|---|---|
+| An upload, or a file sent in the chat | Written only into an `inbox/` that is a real folder inside the project, as a new file (never through a link, never over another file). An inbox the agent turned into a link is refused. |
+| A folder as a zip | Made in the command sandbox, read-only; a link stays a link (`zip -y`), so nothing outside the folder is read through one. |
+| A download link | Needs a signed-in browser, works once, expires (`web.download_link_hours`). A file swapped for a link after the link was made is not served. |
+| An upload's size | At most `web.max_upload_mb`, refused before anything is written, and only while 512 MB of disk stay free. Every upload is in the audit log (`web.upload`). |
+
 ## The dsh web UI
 
 dsh's own web UI must listen on **`127.0.0.1` only**. Access is through an SSH tunnel:

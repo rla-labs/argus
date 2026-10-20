@@ -10,7 +10,7 @@ settings, and a chat. It is built for **one person on a private network**.
 |---|---|
 | **Overview** | Your projects around the front desk: which are running, which wait for you, how much of today's budget each used. Spending today and this month, with the last 14 days. The runs going on now (with a Stop button), the approvals waiting, the next 24 hours of schedules, and the latest actions. It updates by itself. |
 | **Approvals** | Every pending approval, whichever chat asked it, with Approve, Deny, "All of this kind, this run" and, for the admin, "Always allow" where the rule can be named. An answer here closes the question in Telegram: its buttons give way to who answered. A run the loop checker found in a loop, under `on_loop: ask`, is here too, with its reason, Continue and Stop. |
-| **Projects** | Every project: state, model, today's and this month's spending against its budget. **New project** (an id, a template, a model). A project's own page: its status with Stop, Reset and Archive; spending and its day/month budget; its model; what it may use (tools, MCP servers); its runs; its schedules; its instructions; its memory (and forgetting a section); its files, with a download; Undo; its [extensions](extensions.md) (Enable/Disable here). |
+| **Projects** | Every project: state, model, today's and this month's spending against its budget. **New project** (an id, a template, a model). A project's own page: its status with Stop, Reset and Archive; spending and its day/month budget; its model; what it may use (tools, MCP servers); its runs; its schedules; its instructions; its memory (and forgetting a section); its files, with a download, a folder as a zip, and an upload into `inbox/`; Undo; its [extensions](extensions.md) (Enable/Disable here); its [git remotes](configuration.md#git--remotes-argus-clones-pulls-and-pushes) and their tokens (admin). |
 | **Tasks** | Run a one-off task, see what tasks have cost (Estimate), and the recent tasks with a Stop button for one that is running. |
 | **Schedules** | Every schedule with its next run: Run now, Enable/Disable, Remove; and a form for a new one (a project or a task, a cron expression, the text). |
 | **Runs & costs** | Spending today and this month for everything, tasks, the front desk and each project, against their budgets, with a form to set a limit; the recent runs; the audit log. |
@@ -28,6 +28,26 @@ arrive in it as they do in Telegram. Its history (the last 500 messages, with th
 files) survives a restart, and **Chat** in the menu shows how many messages from Argus
 you have not seen yet. A question still waiting when Argus restarts shows "No answer
 in time": ask again, or answer the new one.
+
+## Large files
+
+The chats have limits (Telegram takes 20 MB from you and sends 50 MB). The web has
+none of them:
+
+- **Upload** on a project's page (**Files** → **Upload to inbox/**): the file is written
+  to the project's `inbox/` as it arrives, never held in memory, up to
+  `web.max_upload_mb` (2 GB by default) and only while enough disk stays free. A name
+  already there gets ` (2)`. Then tell the project in the chat where it is.
+- **Download a folder as a zip** from the same section: a whole project, or the folder
+  shown. `node_modules`, `.venv` and `dist` are left out; a link inside the folder stays
+  a link, so nothing outside it is read through one.
+- **A file too big for the chat** that an agent sends (`send_file`) arrives as a link
+  instead: it opens only in a browser signed in to the web, works once, and expires
+  after `web.download_link_hours` (24 by default). A link from before a restart no
+  longer works; ask for the file again.
+
+For a codebase, use [git](configuration.md#git--remotes-argus-clones-pulls-and-pushes)
+rather than uploads: a project clones and pushes it itself.
 
 ## Reach it: Tailscale (recommended)
 

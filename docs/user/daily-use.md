@@ -370,8 +370,13 @@ message. The agent edits its memory itself. To remove a whole section yourself,
 the chat the work came from, as an attachment. One file goes as it is; several files, or a
 folder ("send me the site"), arrive as one zip the tool makes, with nothing to approve.
 Ask for a name ("send it as october-report") and the zip is called that.
-Projects and one-off tasks both have it. The size limit is the channel's, and applies to
-the zip: 50 MB on Telegram.
+Projects and one-off tasks both have it. A file or zip over the channel's limit (50 MB
+on Telegram) arrives as a [download link](web.md#large-files) to the web instead: it
+works once, signed in, for 24 hours.
+
+**Big files the other way** go through the web: a project's page uploads up to 2 GB
+into its `inbox/`, and downloads any folder as a zip. A codebase goes through
+[git](#a-project-on-a-git-repository).
 
 **Ask for results as files** when you will want to keep them ("write it to
 `reports/…`"). A file in the project folder outlives the chat, and `/get` brings it back

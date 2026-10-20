@@ -357,6 +357,8 @@ The [web interface](web.md).
 | `session_hours` | int | `24` | How long a sign-in lasts. |
 | `public` | boolean | `false` | [Public mode](web.md#public-mode): behind a reverse proxy with HTTPS, every sign-in needs an authenticator code, the cookie is always `Secure`, HSTS is sent. `argus doctor` fails without an `https://` `public_url`. |
 | `idle_minutes` | int | `30` | In public mode, how long an unused session lasts (5 to 1440). |
+| `max_upload_mb` | int | `2048` | The largest file a project's page [uploads](web.md#large-files) into its `inbox/`. |
+| `download_link_hours` | int | `24` | How long the link for a file too big for a chat stays valid (1 to 168). |
 
 ## `health`
 

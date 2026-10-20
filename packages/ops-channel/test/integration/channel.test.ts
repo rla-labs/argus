@@ -6,7 +6,7 @@
  * the package is that a real adapter is thin enough to be exercised this way.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -588,6 +588,28 @@ describe('attachments', () => {
     const row = booted.store.inbound.listByStatus('done').at(-1)
     expect(row?.payload).toContain('data.csv')
     expect(row?.payload).toContain(inbox)
+  }, 40_000)
+
+  it('never overwrites a file in the inbox, and never writes through an inbox the agent made a link', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    const cwd = join(booted.dataDir, 'projects', 'alpha')
+    await booted.channel.handleIncoming(message('/p alpha'))
+    const attach = (name: string, text: string) => ({ attachments: [{ kind: 'file' as const, name, bytes: new TextEncoder().encode(text) }] })
+    await booted.channel.handleIncoming(message('one', attach('data.csv', 'first')))
+    await waitIdle(booted)
+    await booted.channel.handleIncoming(message('two', attach('data.csv', 'second')))
+    await waitIdle(booted)
+    expect(readFileSync(join(cwd, 'inbox', 'data.csv'), 'utf8')).toBe('first')
+    expect(readFileSync(join(cwd, 'inbox', 'data (2).csv'), 'utf8')).toBe('second')
+
+    // The agent turns its inbox into a link to the configuration.
+    rmSync(join(cwd, 'inbox'), { recursive: true })
+    const config = join(booted.dataDir, 'config', 'projects')
+    symlinkSync(config, join(cwd, 'inbox'))
+    await booted.channel.handleIncoming(message('three', attach('evil.yaml', 'id: evil')))
+    await waitIdle(booted)
+    expect(existsSync(join(config, 'evil.yaml'))).toBe(false)
+    expect(booted.store.inbound.listByStatus('done').at(-1)?.payload).toContain('not saved: the inbox is not a folder')
   }, 40_000)
 
   it('keeps the original text alongside the attachment', async () => {

@@ -5,6 +5,7 @@ import type { VNode } from 'preact'
 import { useState } from 'preact/hooks'
 import { clock, money, since, t } from '../i18n.js'
 import { CommandText, Field, useData, type PageProps } from '../ui.js'
+import { upload } from '../api.js'
 
 interface ProjectRow {
   id: string
@@ -308,6 +309,7 @@ function Files({ id, version, run }: { id: string; version: number; run: (line: 
   const [folder, setFolder] = useState('')
   const [shown, setShown] = useState('')
   const [path, setPath] = useState('')
+  const [sent, setSent] = useState('')
   return html`<section class="hud">
     <h2>${t('projects.files')}</h2>
     <form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); setShown(folder.trim()) }}>
@@ -318,6 +320,20 @@ function Files({ id, version, run }: { id: string; version: number; run: (line: 
     <form class="inline" onSubmit=${(event: Event) => { event.preventDefault(); if (path.trim().length > 0) run(`/get ${id} ${path.trim()}`) }}>
       <${Field} id="fl-path" label=${t('projects.path')} value=${path} onInput=${setPath} placeholder="reports/summary.md" grow="1 1 260px" />
       <button class="btn ghost" type="submit">${t('projects.download')}</button>
+      <a class="btn ghost" href=${`/api/projects/${encodeURIComponent(id)}/zip?path=${encodeURIComponent(shown || '.')}`} download>${t('projects.zip', { folder: shown || '/' })}</a>
     </form>
+    <div class="inline">
+      <label class="btn ghost" for="fl-upload">${t('projects.upload')}</label>
+      <input id="fl-upload" type="file" class="sr" onChange=${async (event: Event) => {
+        const input = event.target as HTMLInputElement
+        const file = input.files?.[0]
+        if (file === undefined) return
+        setSent(t('projects.uploading', { name: file.name, pct: '0' }))
+        const outcome = await upload(id, file, (fraction) => setSent(t('projects.uploading', { name: file.name, pct: String(Math.round(fraction * 100)) })))
+        setSent(outcome.ok ? t('projects.uploaded', { path: outcome.path ?? '' }) : t('projects.uploadFailed', { error: outcome.error ?? '' }))
+        input.value = ''
+      }} />
+      ${sent.length === 0 ? null : html`<span class="muted mono" aria-live="polite">${sent}</span>`}
+    </div>
   </section>`
 }

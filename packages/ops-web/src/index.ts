@@ -10,6 +10,7 @@
  *
  * @module @argus-agent/web
  */
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DoctorFinding } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
@@ -19,12 +20,14 @@ import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
 import { overview, projectDetail, projectList, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
+import { DownloadLinks } from './files.js'
 import { SETUP_TTL_MS, SetupGate } from './setup.js'
 import { WebChannelAdapter } from './web-channel.js'
 
 export * from './auth.js'
 export * from './config.js'
 export * from './data.js'
+export * from './files.js'
 export * from './server.js'
 export * from './setup.js'
 export * from './totp.js'
@@ -64,6 +67,16 @@ export interface OpsWeb {
   readonly port: number | undefined
   /** `argus doctor`: in public mode, HTTPS and the admin's second factor. */
   doctor(): DoctorFinding[]
+  /**
+   * A one-time link to download a file too big for a chat. It needs a web session,
+   * works once and expires after `web.download_link_hours`.
+   *
+   * @param path the file. The caller has checked it is the agent's to send.
+   * @param name the name it is saved as.
+   * @param take move the file to the web's own folder (one made for this, such as a zip).
+   * @returns the link, or `undefined` when the web is not serving.
+   */
+  downloadLink(path: string, name: string, take?: boolean): string | undefined
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -135,10 +148,16 @@ export async function apply(ctx: Context): Promise<void> {
   // ── login ────────────────────────────────────────────────────────────────
   const auth = new WebAuth(ctx.opsStore, config.session_hours * 3_600_000, () => Date.now(), config.public ? config.idle_minutes * 60_000 : 0)
   const https = config.public_url.startsWith('https://')
+  const links = new DownloadLinks(join(pathsOf(ctx.opsRawConfig).stateDir, 'web-downloads'), config.download_link_hours * 3_600_000)
+  ctx.effect(() => {
+    const timer = setInterval(() => links.expire(), 3_600_000)
+    return () => clearInterval(timer)
+  })
   const web: { -readonly [K in keyof OpsWeb]: OpsWeb[K] } = {
     loginLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId)}`,
     inviteLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId, INVITE_TTL_MS)}`,
     port: undefined,
+    downloadLink: (path, name, take) => (web.port === undefined ? undefined : `${config.public_url}/f/${links.create(path, name, take)}`),
     doctor: () => publicDoctor(config.public, https, () => {
       const admin = ctx.opsStore.users.admin()
       return admin === undefined || auth.hasTotp(admin.id)
@@ -272,6 +291,16 @@ export async function apply(ctx: Context): Promise<void> {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
+      projectDir: (id) => ctx.opsProjects.configOf(id)?.cwd,
+      maxUploadBytes: config.max_upload_mb * 1024 * 1024,
+      confineReadOnly: (cwd) => async (argv) => {
+        const sandbox = ctx.get('sandbox' as never) as unknown as { confine(argv: readonly string[], policy: { mode: 'read-only'; workspaceRoot: string }): Promise<{ argv: readonly string[] }> } | undefined
+        if (sandbox === undefined) throw new Error('the command sandbox is not available')
+        return (await sandbox.confine(argv, { mode: 'read-only', workspaceRoot: cwd })).argv
+      },
+      links,
+      uploaded: (session, projectId, path, bytes) =>
+        ctx.opsStore.audit.record({ actor: session.userId, action: 'web.upload', target: projectId, details: { path, bytes } }, Date.now()),
       log: (message) => logger.warn(message),
     })
     web.port = server.port

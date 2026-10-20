@@ -257,5 +257,10 @@
   "projects.gitUrl": "URL https",
   "projects.gitToken": "Token pentru {remote}",
   "projects.gitForget": "Uită tokenul",
-  "projects.gitRemove": "Șterge remote-ul"
+  "projects.gitRemove": "Șterge remote-ul",
+  "projects.zip": "Descarcă {folder} ca zip",
+  "projects.upload": "Încarcă în inbox/",
+  "projects.uploading": "Se încarcă {name}: {pct}%",
+  "projects.uploaded": "Salvat ca {path}. Spune-i proiectului unde e.",
+  "projects.uploadFailed": "Neîncărcat: {error}"
 }

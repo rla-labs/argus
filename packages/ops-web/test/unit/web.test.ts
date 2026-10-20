@@ -1,10 +1,10 @@
 // == ARGUS AGENT PROJECT ==
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { OpsStore } from '@argus-agent/store'
-import { ADMIN_LINK_REQUEST, base32, codeAt, hashPassword, matchStep, publicDoctor, SETUP_LINK_FILE, SETUP_TTL_MS, SetupGate, stepAt, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
+import { ADMIN_LINK_REQUEST, DownloadLinks, base32, codeAt, hashPassword, matchStep, publicDoctor, SETUP_LINK_FILE, SETUP_TTL_MS, SetupGate, stepAt, verifyPassword, WebAuth, WebChannelAdapter, webOf } from '@argus-agent/web'
 
 function storeWith(): OpsStore {
   const store = new OpsStore({ path: ':memory:' })
@@ -400,5 +400,38 @@ describe('SetupGate', () => {
     // The next start removes the spent link.
     expect(gate.refresh()).toBeUndefined()
     expect(existsSync(join(dir, SETUP_LINK_FILE))).toBe(false)
+  })
+})
+
+describe('download links', () => {
+  it('work once, expire, and remove a file made for them', () => {
+    const root = mkdtempSync(join(tmpdir(), 'links-'))
+    let now = 1_000
+    const links = new DownloadLinks(join(root, 'downloads'), 60_000, () => now)
+    writeFileSync(join(root, 'a.txt'), 'a')
+    writeFileSync(join(root, 'made.zip'), 'zip')
+    const kept = links.create(join(root, 'a.txt'), 'a.txt')
+    const made = links.create(join(root, 'made.zip'), 'made.zip', true)
+    expect(existsSync(join(root, 'made.zip'))).toBe(false)
+    expect(links.take(kept)?.name).toBe('a.txt')
+    expect(links.take(kept)).toBeUndefined()
+    expect(existsSync(join(root, 'a.txt'))).toBe(true)
+    now += 60_001
+    links.expire()
+    expect(links.take(made)).toBeUndefined()
+    expect(existsSync(join(root, 'downloads', `${made}.zip`))).toBe(false)
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('serve nothing that was swapped for a link after it was made', () => {
+    const root = mkdtempSync(join(tmpdir(), 'links-'))
+    const links = new DownloadLinks(join(root, 'downloads'), 60_000)
+    writeFileSync(join(root, 'report.pdf'), 'report')
+    writeFileSync(join(root, 'secret'), 'secret')
+    const token = links.create(join(root, 'report.pdf'), 'report.pdf')
+    rmSync(join(root, 'report.pdf'))
+    symlinkSync(join(root, 'secret'), join(root, 'report.pdf'))
+    expect(links.take(token)).toBeUndefined()
+    rmSync(root, { recursive: true, force: true })
   })
 })

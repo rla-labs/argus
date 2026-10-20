@@ -9,9 +9,9 @@
  */
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   addressesEqual,
@@ -85,6 +85,11 @@ export interface ChannelOptions {
    * is a value the plugin that offered the button owns.
    */
   readonly onButtonAnswer?: (answer: ButtonAnswer) => void
+  /**
+   * A one-time web link for a file too big for a chat (`ctx.opsWeb.downloadLink`), or
+   * `undefined` when the web is not serving.
+   */
+  readonly downloadLink?: (path: string, name: string, take: boolean) => string | undefined
 }
 
 /** What the orchestrator receives from a free-text message. */
@@ -534,6 +539,12 @@ export class OpsChannel {
         ? join(this.options.scratchDir, 'inbox')
         : join(this.projectCwdOf(projectId), 'inbox')
     mkdirSync(directory, { recursive: true })
+    // Argus writes here with its own rights, in a folder the agent controls: an inbox
+    // turned into a link (to the data directory, say) is not written through.
+    const root = dirname(directory)
+    if (lstatSync(directory).isSymbolicLink() || !isInside(root, directory)) {
+      return attachments.map((attachment) => `${attachment.name} (not saved: the inbox is not a folder)`)
+    }
 
     const saved: string[] = []
     for (const attachment of attachments) {
@@ -543,9 +554,24 @@ export class OpsChannel {
         saved.push(attachment.fileId ?? attachment.name)
         continue
       }
-      const path = join(directory, safeName(attachment.name))
-      writeFileSync(path, attachment.bytes)
-      saved.push(path)
+      // A fresh file, never through a link, never over another: `name (2).ext` if taken.
+      const name = safeName(attachment.name)
+      const stem = name.slice(0, name.length - extname(name).length)
+      for (let n = 1; ; n += 1) {
+        const path = join(directory, n === 1 ? name : `${stem} (${n})${extname(name)}`)
+        try {
+          const fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644)
+          try {
+            writeSync(fd, attachment.bytes)
+          } finally {
+            closeSync(fd)
+          }
+          saved.push(path)
+          break
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || n > 100) throw error
+        }
+      }
     }
     return saved
   }
@@ -908,11 +934,15 @@ export class OpsChannel {
     if (adapter === undefined) return `The ${address.channel} channel is not connected.`
     const subject: OutputSubject = owner.kind === 'project' ? { kind: 'project', projectId: owner.projectId } : { kind: 'adhoc' }
 
-    const send = async (full: string): Promise<string> => {
+    const send = async (full: string, made = false): Promise<string> => {
       const name = basename(full)
       const size = statSync(full).size
       if (size > adapter.limits.maxFileBytes) {
-        return `${name} is ${megabytes(size)}; ${address.channel} sends at most ${megabytes(adapter.limits.maxFileBytes)}. Send fewer files, or split it.`
+        // Too big for the chat: a link to the web, which needs a session, works once and expires.
+        const link = this.options.downloadLink?.(full, name, made)
+        if (link === undefined) return `${name} is ${megabytes(size)}; ${address.channel} sends at most ${megabytes(adapter.limits.maxFileBytes)}. Send fewer files, or split it.`
+        await adapter.send(address, { text: `${prefixFor(subject)}${caption?.trim() || name} (${megabytes(size)}), too big to send here. Download it once, signed in to the web: ${link}` })
+        return `${name} is ${megabytes(size)}, more than ${address.channel} sends, so the person got a download link to it instead.`
       }
       await adapter.send(address, { text: `${prefixFor(subject)}${caption?.trim() || name}`, files: [{ name, path: full }] })
       return `Sent ${name} (${megabytes(size)}).`
@@ -930,7 +960,7 @@ export class OpsChannel {
     try {
       const members = list.map((path) => `./${relative(resolve(root), resolve(root, path)) || '.'}`)
       await execFileAsync('zip', ['-r', '-q', '-y', archive, ...members], { cwd: root })
-      return await send(archive)
+      return await send(archive, true)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'The zip command is not installed on this machine, so several files cannot be sent at once.'
       return `Could not make the archive: ${error instanceof Error ? error.message : String(error)}`

@@ -257,5 +257,10 @@
   "projects.gitUrl": "https URL",
   "projects.gitToken": "Token for {remote}",
   "projects.gitForget": "Forget token",
-  "projects.gitRemove": "Remove remote"
+  "projects.gitRemove": "Remove remote",
+  "projects.zip": "Download {folder} as a zip",
+  "projects.upload": "Upload to inbox/",
+  "projects.uploading": "Uploading {name}: {pct}%",
+  "projects.uploaded": "Saved as {path}. Tell the project where it is.",
+  "projects.uploadFailed": "Not uploaded: {error}"
 }

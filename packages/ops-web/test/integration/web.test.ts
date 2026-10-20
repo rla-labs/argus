@@ -5,7 +5,8 @@
  * commands run with the user's role, the chat is one of the user's channels, and a
  * question another channel asked can be answered from the web.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -35,7 +36,7 @@ interface Booted {
   readonly dataDir: string
 }
 
-async function bootWeb(options: { noAdmin?: boolean; public?: boolean } = {}): Promise<Booted> {
+async function bootWeb(options: { noAdmin?: boolean; public?: boolean; maxUploadMb?: number; sandbox?: boolean } = {}): Promise<Booted> {
   const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-'))
   dirs.push(dataDir)
   mkdirSync(join(dataDir, 'projects', 'alpha'), { recursive: true })
@@ -60,6 +61,7 @@ async function bootWeb(options: { noAdmin?: boolean; public?: boolean } = {}): P
           : `access:\n  allowed_users:\n    - { channel: telegram, userId: '42' }\n    - { channel: console, userId: user-1 }\n  admin: telegram:42\n`) +
         `channel:\n  default_address: console:default-chat\n` +
         `web:\n  port: 0\n` +
+        (options.maxUploadMb === undefined ? '' : `  max_upload_mb: ${options.maxUploadMb}\n`) +
         (options.public === true ? `  public: true\n  public_url: https://argus.example\n` : ''),
     },
     replaceEntries: [
@@ -78,6 +80,7 @@ async function bootWeb(options: { noAdmin?: boolean; public?: boolean } = {}): P
       { id: 'ops-scheduler', name: '@argus-agent/scheduler' },
       { id: 'ops-web', name: '@argus-agent/web' },
       { id: 'ops-config', name: '@argus-agent/argus-agent/loader-row' },
+      ...(options.sandbox === true ? [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }] : []),
     ],
   })
   boots.push(boot)
@@ -465,5 +468,88 @@ describe('the web interface', () => {
     expect((await json('/api/schedules'))['schedules']).toEqual([expect.objectContaining({ cron: '0 9 * * 1-5', projectId: 'alpha', prompt: 'check the build', enabled: true })])
     // A run id that is no running task falls through to a project, and none is that.
     expect((await run('/stop not-a-run')).text).toContain('not running')
+  }, 60_000)
+})
+
+describe('files through the web', () => {
+  const alpha = (booted: Booted, ...path: string[]): string => join(booted.dataDir, 'projects', 'alpha', ...path)
+  const put = (booted: Booted, cookie: string, name: string, body: Buffer | string, extra: Record<string, string> = {}) =>
+    fetch(`${booted.base}/api/projects/alpha/upload?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { cookie, 'x-argus': '1', 'content-type': 'application/octet-stream', ...extra }, body })
+
+  it('streams an upload into the project\'s inbox, never over a file and never through a link', async () => {
+    const booted = await bootWeb({ maxUploadMb: 1 })
+    const cookie = await signIn(booted)
+    const first = await put(booted, cookie, 'data.csv', 'a,b\n1,2\n')
+    expect(first.status).toBe(201)
+    expect(await first.json()).toEqual({ path: 'inbox/data.csv', bytes: 8 })
+    expect(readFileSync(alpha(booted, 'inbox', 'data.csv'), 'utf8')).toBe('a,b\n1,2\n')
+    expect(await (await put(booted, cookie, '../../evil name?.csv', 'x')).json()).toEqual({ path: 'inbox/evil name_.csv', bytes: 1 })
+    expect(await (await put(booted, cookie, 'data.csv', 'second')).json()).toEqual({ path: 'inbox/data (2).csv', bytes: 6 })
+    expect((await put(booted, '', 'x.txt', 'x')).status).toBe(401)
+    expect((await fetch(`${booted.base}/api/projects/alpha/upload?name=x`, { method: 'POST', headers: { cookie }, body: 'x' })).status).toBe(403)
+    expect((await fetch(`${booted.base}/api/projects/nope/upload?name=x`, { method: 'POST', headers: { cookie, 'x-argus': '1' }, body: 'x' })).status).toBe(404)
+    // Over the limit: refused before anything is written.
+    const big = await put(booted, cookie, 'big.bin', Buffer.alloc(2 * 1024 * 1024))
+    expect(big.status).toBe(413)
+    expect(readdirSync(alpha(booted, 'inbox')).sort()).toEqual(['data (2).csv', 'data.csv', 'evil name_.csv'])
+    // An inbox the agent made a link to the configuration is not written through.
+    rmSync(alpha(booted, 'inbox'), { recursive: true })
+    symlinkSync(join(booted.dataDir, 'config'), alpha(booted, 'inbox'))
+    expect((await put(booted, cookie, 'ops.yaml', 'evil: true')).status).toBe(409)
+    expect(existsSync(join(booted.dataDir, 'config', 'ops.yaml'))).toBe(false)
+    expect(booted.store.audit.byAction('web.upload')).toHaveLength(3)
+  }, 60_000)
+
+  it('zips a project folder confined: skipped folders left out, a link kept a link', async () => {
+    const booted = await bootWeb({ sandbox: true })
+    const cookie = await signIn(booted)
+    mkdirSync(alpha(booted, 'site', 'node_modules', 'x'), { recursive: true })
+    writeFileSync(alpha(booted, 'site', 'index.html'), '<html>')
+    writeFileSync(alpha(booted, 'site', 'node_modules', 'x', 'big.js'), 'module')
+    writeFileSync(join(booted.dataDir, 'secret.txt'), 'THE-SECRET-CONTENT')
+    symlinkSync(join(booted.dataDir, 'secret.txt'), alpha(booted, 'site', 'secret.txt'))
+    const response = await fetch(`${booted.base}/api/projects/alpha/zip?path=site`, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-disposition')).toContain('alpha-site.zip')
+    const zip = Buffer.from(await response.arrayBuffer())
+    const file = join(booted.dataDir, 'out.zip')
+    writeFileSync(file, zip)
+    const names = execFileSync('unzip', ['-Z1', file], { encoding: 'utf8' }).trim().split('\n').sort()
+    expect(names).toEqual(['site/', 'site/index.html', 'site/secret.txt'])
+    expect(zip.toString('latin1')).not.toContain('THE-SECRET-CONTENT')
+    expect((await fetch(`${booted.base}/api/projects/alpha/zip?path=../..`, { headers: { cookie } })).status).toBe(400)
+    expect((await fetch(`${booted.base}/api/projects/alpha/zip?path=nope`, { headers: { cookie } })).status).toBe(404)
+    expect((await fetch(`${booted.base}/api/projects/alpha/zip`, {})).status).toBe(401)
+  }, 60_000)
+
+  it('gives a file too big for the chat as a link that needs a session, works once and keeps nothing behind', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const small = new ConsoleChannelAdapter({ name: 'console', limits: { maxTextLength: 4096, maxFileBytes: 10 } })
+    const unregister = booted.channel.register(small)
+    mkdirSync(alpha(booted, 'out'), { recursive: true })
+    writeFileSync(alpha(booted, 'out', 'video.mp4'), 'a large video file')
+    const said = await booted.channel.sendFile({ kind: 'project', projectId: 'alpha' }, 'out/video.mp4')
+    expect(said).toContain('the person got a download link to it instead')
+    // The link names web.public_url, whose port here is the configured 0.
+    const local = (text: string | undefined): string => `${booted.base}${/\/f\/[\w-]+/.exec(text ?? '')?.[0] ?? '/none'}`
+    const link = local(small.sent.at(-1)?.message.text)
+    expect(link).not.toContain('/none')
+    // Signed out: refused, and the link is not used up.
+    expect((await fetch(link)).status).toBe(401)
+    const got = await fetch(link, { headers: { cookie } })
+    expect(got.status).toBe(200)
+    expect(await got.text()).toBe('a large video file')
+    expect((await fetch(link, { headers: { cookie } })).status).toBe(404)
+
+    // A zip made for the link is the web's, and goes once it is taken.
+    writeFileSync(alpha(booted, 'out', 'b.txt'), 'more than ten bytes here')
+    await booted.channel.sendFile({ kind: 'project', projectId: 'alpha' }, ['out'])
+    const zipLink = local(small.sent.at(-1)?.message.text)
+    const downloads = join(booted.dataDir, 'state', 'web-downloads')
+    expect(readdirSync(downloads)).toHaveLength(1)
+    expect((await fetch(zipLink, { headers: { cookie } })).status).toBe(200)
+    await waitFor(() => readdirSync(downloads).length === 0, { timeoutMs: 5_000, label: 'the zip is removed' })
+    unregister()
   }, 60_000)
 })

@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import type { WebAuth, Session } from './auth.js'
 import type { SetupGate } from './setup.js'
 import type { WebChannelAdapter } from './web-channel.js'
+import { FileRefusal, receiveUpload, streamZip, type DownloadLinks } from './files.js'
 
 /** The session cookie's name. */
 export const COOKIE = 'argus_session'
@@ -71,6 +72,16 @@ export interface ServerDeps {
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
   /** Continue or stop a run the loop checker found in a loop. */
   readonly answerCheckpoint: (runId: string, value: string, session: Session) => boolean
+  /** A project's folder, or `undefined` when there is no such project. */
+  readonly projectDir: (id: string) => string | undefined
+  /** The largest upload, in bytes. */
+  readonly maxUploadBytes: number
+  /** The command sandbox, read-only on a project's folder, for its zip. */
+  readonly confineReadOnly: (cwd: string) => (argv: readonly string[]) => Promise<readonly string[]>
+  /** The one-time download links. */
+  readonly links: DownloadLinks
+  /** Record an upload. */
+  readonly uploaded: (session: Session, projectId: string, path: string, bytes: number) => void
   /** Subscribe to "something changed"; returns the unsubscribe. */
   readonly onChange: (listener: (topic: string) => void) => () => void
   readonly log: (message: string) => void
@@ -236,6 +247,24 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     // ── a session from here on ───────────────────────────────────────────
     const sessionId = cookieOf(request)
     const session = deps.auth.session(sessionId)
+    const link = /^\/f\/([A-Za-z0-9_-]{20,})$/.exec(path)
+    if (method === 'GET' && link !== null) {
+      // A link is used only by someone signed in, and only once; opening it signed out
+      // does not use it up.
+      if (session === undefined) {
+        response.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(messagePage('Sign in first, in this browser, then open the link again. <a href="/" style="color:#7fd4ff">Sign in</a>.'))
+        return
+      }
+      const file = deps.links.take(link[1] as string)
+      if (file === undefined) {
+        response.writeHead(404, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(messagePage('This download link was used already, or it expired. Ask for the file again.'))
+        return
+      }
+      deps.links.serve(response, file)
+      return
+    }
     if (session === undefined) return send(response, 401, { error: 'not signed in' })
     if (method === 'POST' && request.headers['x-argus'] !== '1') return send(response, 403, { error: 'missing x-argus header' })
     const hasTotp = deps.auth.hasTotp(session.userId)
@@ -281,6 +310,35 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     if (method === 'GET' && path === '/api/schedules') return send(response, 200, { schedules: deps.schedules() })
     if (method === 'GET' && path === '/api/runs') return send(response, 200, deps.runs())
     if (method === 'GET' && path === '/api/templates') return send(response, 200, { templates: deps.templates() })
+    const upload = /^\/api\/projects\/([^/]+)\/upload$/.exec(path)
+    if (method === 'POST' && upload !== null) {
+      const id = decodeURIComponent(upload[1] as string)
+      const cwd = deps.projectDir(id)
+      if (cwd === undefined) return send(response, 404, { error: 'no such project' })
+      const name = new URL(request.url ?? '/', 'http://x').searchParams.get('name') ?? 'upload'
+      try {
+        const saved = await receiveUpload(request, cwd, name, deps.maxUploadBytes)
+        deps.uploaded(session, id, saved.path, saved.bytes)
+        return send(response, 201, saved)
+      } catch (error) {
+        if (error instanceof FileRefusal) return send(response, error.status, { error: error.message })
+        throw error
+      }
+    }
+    const zip = /^\/api\/projects\/([^/]+)\/zip$/.exec(path)
+    if (method === 'GET' && zip !== null) {
+      const id = decodeURIComponent(zip[1] as string)
+      const cwd = deps.projectDir(id)
+      if (cwd === undefined) return send(response, 404, { error: 'no such project' })
+      const folder = new URL(request.url ?? '/', 'http://x').searchParams.get('path') ?? '.'
+      try {
+        await streamZip(response, cwd, folder, deps.confineReadOnly(cwd), `${id}${folder === '.' ? '' : `-${folder.replace(/[^\w.-]+/g, '-')}`}.zip`)
+        return
+      } catch (error) {
+        if (error instanceof FileRefusal) return send(response, error.status, { error: error.message })
+        throw error
+      }
+    }
     const projectPath = /^\/api\/projects\/([^/]+)$/.exec(path)
     if (method === 'GET' && projectPath !== null) {
       const project = deps.project(decodeURIComponent(projectPath[1] as string))
