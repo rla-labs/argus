@@ -509,7 +509,7 @@ describe('files through the web', () => {
     writeFileSync(join(booted.dataDir, 'secret.txt'), 'THE-SECRET-CONTENT')
     symlinkSync(join(booted.dataDir, 'secret.txt'), alpha(booted, 'site', 'secret.txt'))
     const response = await fetch(`${booted.base}/api/projects/alpha/zip?path=site`, { headers: { cookie } })
-    expect(response.status).toBe(200)
+    expect(response.status, response.status === 200 ? '' : await response.clone().text()).toBe(200)
     expect(response.headers.get('content-disposition')).toContain('alpha-site.zip')
     const zip = Buffer.from(await response.arrayBuffer())
     const file = join(booted.dataDir, 'out.zip')

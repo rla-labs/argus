@@ -127,21 +127,31 @@ export async function streamZip(
   const excluded = ZIP_SKIPPED.flatMap((name) => [`${name}/*`, `*/${name}/*`])
   const argv = await confine(['zip', '-r', '-q', '-y', '-', member, '-x', ...excluded])
   const child = spawn(argv[0] as string, argv.slice(1), { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-  let started = false
-  child.stdout.once('data', () => {
-    started = true
+  let errors = ''
+  child.stderr.on('data', (chunk: Buffer) => {
+    errors = `${errors}${chunk.toString()}`.slice(-2000)
   })
-  response.writeHead(200, {
-    'content-type': 'application/zip',
-    'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    'cache-control': 'no-store',
+  // The answer starts with the archive's first bytes: a zip that fails before any is a
+  // 500 with its reason, never an empty "200".
+  child.stdout.once('data', (first: Buffer) => {
+    response.writeHead(200, {
+      'content-type': 'application/zip',
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      'cache-control': 'no-store',
+    })
+    response.write(first)
+    child.stdout.pipe(response)
   })
-  child.stdout.pipe(response)
-  await new Promise<void>((done) => child.on('close', (code) => {
-    // A failure after the first byte can only cut the download; the browser shows it as failed.
-    if (code !== 0 && !started) response.end()
-    done()
-  }))
+  const code = await new Promise<number | null>((done) => {
+    child.on('error', (error) => {
+      errors = error.message
+      done(null)
+    })
+    child.on('close', done)
+  })
+  if (!response.headersSent) throw new FileRefusal(500, `the zip could not be made: ${errors.trim() || `zip exited ${code}`}`)
+  // A failure after the first byte can only cut the download; the browser shows it as failed.
+  if (code !== 0) response.destroy()
 }
 
 /** A file waiting at a one-time link. */
