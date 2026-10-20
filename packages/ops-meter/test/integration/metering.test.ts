@@ -20,6 +20,7 @@ import {
   userMessage,
   type BootOpsOptions,
   type OpsBoot,
+  waitFor,
 } from '@argus-agent/testkit'
 import type { OpsStore } from '@argus-agent/store'
 import type { OpsProjects } from '@argus-agent/projects'
@@ -176,6 +177,22 @@ describe('metering a real turn', () => {
     expect(spending.dayTotals.inputTokens).toBe(1000)
     expect(spending.dayTotals.outputTokens).toBe(500)
     expect(spending.dayTotals.requests).toBe(1)
+  }, 30_000)
+
+  it('charges a DeepSeek web search an upper bound, which dsh does not report', async () => {
+    const booted = await bootMeter({ projects: { site: {} }, pricing: `${PRICING}  deepseek/deepseek-v4-flash: { input: 1, cached: 1, output: 1 }\n` })
+    const agent = await booted.projects.ensureAgent('site')
+    // What dsh-web-search-deepseek logs for one search: its request, never its usage.
+    await (agent as unknown as { session: { append(type: string, data: unknown): Promise<unknown> } }).session.append('web/deepseek-search-llm-request', {
+      endpoint: 'https://api.deepseek.com/anthropic/v1/messages',
+      apiVersion: '2023-06-01',
+      body: { model: 'deepseek-v4-flash', max_tokens: 4096, messages: [], tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }] },
+    })
+    // 5 searches × 16,000 input tokens and 4,096 output tokens, at 1 USD per million.
+    await waitFor(() => booted.meter.spending('project:site').dayMicros > 0, { timeoutMs: 5_000, label: 'the search is charged' })
+    expect(booted.meter.spending('project:site').dayMicros).toBe(84_096)
+    await booted.meter.flush()
+    expect(booted.store.usage.eventsBetween(0, Number.MAX_SAFE_INTEGER)[0]).toMatchObject({ provider: 'deepseek', model: 'deepseek-v4-flash', input_tokens: 80_000, output_tokens: 4096 })
   }, 30_000)
 
   it('records the event durably', async () => {

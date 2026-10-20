@@ -6,6 +6,18 @@ one) and a few lines of **instructions**.
 The admin installs it once, from a git repository, and it is kept outside every
 project, where no agent can change it.
 
+## The first-party ones
+
+| Extension | What a project gets | Install |
+|---|---|---|
+| **office** | `officecli` ([OfficeCLI](https://github.com/iOfficeAI/OfficeCLI) 1.0.158): create, read, check and edit `.docx`, `.xlsx` and `.pptx`, existing documents included; its skill. About 35 MB. No screenshots or PDF yet: they need a browser. | `/ext install https://github.com/rla-labs/argus-extensions-office` |
+| **media** | `ffmpeg` and `ffprobe` 7.0.2 (static, GPL): cut, join, convert, compress, extract audio, thumbnails, GIFs, subtitles; a skill of recipes, with long renders in the background. About 160 MB. | `/ext install https://github.com/rla-labs/argus-extensions-media` |
+
+Each downloads its program at install from its publisher, pinned to one version and
+checked against a sha-256 the extension records, so what runs is exactly what was
+reviewed. Then `/ext enable <project> office`; the button it offers (`officecli *`,
+`ffprobe *`) lets the program run without asking.
+
 
 ## Installing one
 

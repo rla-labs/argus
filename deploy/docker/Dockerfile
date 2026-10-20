@@ -111,6 +111,9 @@ RUN groupadd --gid "$OPS_GID" ops \
 ENV DSH_HOME=/data/dsh-home
 ENV ARGUS_AGENT_CONFIG=/data/config/ops.yaml
 ENV NODE_ENV=production
+# dsh's telemetry sends a session only after explicit feedback, which Argus never
+# gives; off all the same, so nothing leaves the server by that path.
+ENV DSH_TELEMETRY_DISABLED=1
 ENV NODE_OPTIONS="--enable-source-maps"
 # The web interface listens on every interface of the CONTAINER's own network, so
 # compose can publish it; compose publishes it on the host's loopback only.

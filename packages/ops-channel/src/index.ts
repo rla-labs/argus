@@ -243,6 +243,29 @@ export function apply(ctx: Context): void {
     ),
   )
 
+  // ── present ──────────────────────────────────────────────────────────────
+  // dsh's `present` declares a file a deliverable for "the user", who in Argus is in a
+  // chat: the files go there, through send_file's checks (inside the folder, the
+  // channel's size, a link for a larger one).
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'tool/call') return
+    const data = event.data as { name?: string; arguments?: string }
+    if (data.name !== 'present') return
+    const owner = ctx.opsProjects.ownerOf(session.id as string)
+    if (owner === undefined || owner.kind === 'orchestrator') return
+    let files: Array<{ path?: unknown; description?: unknown }> = []
+    try {
+      const parsed = JSON.parse(data.arguments ?? '{}') as { files?: unknown }
+      if (Array.isArray(parsed.files)) files = parsed.files as typeof files
+    } catch {
+      return
+    }
+    for (const file of files) {
+      if (typeof file.path !== 'string') continue
+      fire(service.sendFile(owner, file.path, typeof file.description === 'string' ? file.description : undefined).then(() => undefined))
+    }
+  })
+
   // ── progress ─────────────────────────────────────────────────────────────
   // Driven from the meter's usage event rather than a timer: a progress update is
   // only interesting when something actually happened.

@@ -20,7 +20,8 @@
     "spikes": "vitest run --project spikes --reporter=verbose",
     "lint:shell": "bash scripts/lint-shell.sh",
     "test:native-vps": "bash scripts/test-native-vps.sh",
-    "test:docker-sandbox": "bash scripts/test-docker-sandbox.sh"
+    "test:docker-sandbox": "bash scripts/test-docker-sandbox.sh",
+    "test:docker-extensions": "bash scripts/test-docker-extensions.sh"
   },
   "devDependencies": {
     "@types/node": "22.9.0",

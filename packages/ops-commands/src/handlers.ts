@@ -1762,6 +1762,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         rows.push(`${'other'.padEnd(7)} ${(tools.other + from('tools.other')).padEnd(width)} any tool not listed above`)
         const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}${from('tools.web_hosts')}` : ''
+        // dsh searches only through DeepSeek: without its key, every web_search fails.
+        const deepseek = options.keys?.()?.keyStatus().find((entry) => entry.provider === 'deepseek')
+        const search = tools.web !== 'off' && deepseek !== undefined && !deepseek.configured ? '\nweb_search needs a DeepSeek key, which is not set (/key deepseek <key>); without it every search fails. Each search is charged as a DeepSeek request.' : ''
         const commands = config.approvals.auto_allow.length > 0 ? `\nCommands unasked: ${config.approvals.auto_allow.join(', ')}${from('approvals.auto_allow')}` : ''
         const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
@@ -1778,7 +1781,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${loopCheck}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${search}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
         )
       },

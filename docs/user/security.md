@@ -37,9 +37,15 @@ token.
         ├──▶ api.telegram.org          long polling: OUTBOUND only
         ├──▶ <provider> API            the model
         ├──▶ registry                  the image pull, at install/upgrade
+        ├──▶ your git hosts            a project's remotes, by Argus, with their tokens
         └──▶ what you add              an MCP server's URL, the npm registry when `npx`
-                                       fetches one, the sites a project fetches
+                                       fetches one, an extension's download at install,
+                                       the sites a project fetches
 ```
+
+Nothing else leaves the server: dsh's own telemetry, which would send a session only
+after explicit feedback, is switched off as well (`DSH_TELEMETRY_DISABLED=1`, in the
+image and the systemd unit).
 
 | Surface | Exposed? | Why |
 |---|---|---|
@@ -120,9 +126,9 @@ TELEGRAM_BOT_TOKEN=123456789:AAH…
 - Telegram keeps a message on its servers until it is deleted, and chats with bots
   are not end-to-end encrypted. Deleting at once shortens that window; it does not
   close it. If that matters, set the key in `.env` on the server instead.
-- **Not a boundary against the agents.** Their commands run as the same user, so a
-  command could read the credentials file, just as it could read the environment.
-  The approvals on shell commands are what stand in the way.
+- **Out of the agents' reach.** Their commands run in the [command sandbox](#sandbox):
+  the credentials file is outside what they may read, and the keys are not in their
+  environment.
 
 ### Secrets a project needs
 
@@ -138,9 +144,8 @@ server's `.env`, and is filled in only when the project's agent starts that serv
 | Only the server's process is given it | dsh starts a local server with a scrubbed environment plus its `env`. A value saved with `/key` reaches no other process; one set in `.env` is in the service's environment, like the provider keys. |
 | Never logged | The log and the audit keep the name, never the value. |
 
-The same limit as for the provider keys applies: the agent's commands run as the same
-user as the credentials store, so a command could read it. The approvals on shell
-commands are what stand in the way.
+As for the provider keys, the agent's commands cannot read the credentials store: the
+[command sandbox](#sandbox) keeps it out of their reach.
 
 **A git token is the exception: no process of the project ever gets it.** It is kept per
 project and per remote under a name `/key` and `${NAME}` refuse (`ARGUS_GIT_…`), and only

@@ -54,6 +54,9 @@ Environment=ARGUS_AGENT_CONFIG=@CONFIG_FILE@
 Environment=ARGUS_AGENT_DATA_DIR=@DATA_DIR@
 Environment=NODE_ENV=production
 Environment=NODE_OPTIONS=--enable-source-maps
+# dsh's telemetry sends a session only after explicit feedback, which Argus never
+# gives; off all the same, so nothing leaves the server by that path.
+Environment=DSH_TELEMETRY_DISABLED=1
 # The service account's HOME. pnpm and dsh both write under it.
 Environment=HOME=@SERVICE_HOME@
 

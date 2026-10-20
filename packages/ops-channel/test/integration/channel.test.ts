@@ -745,6 +745,21 @@ describe('delivery', () => {
     expect(booted.adapter.sent.filter((entry) => (entry.message.files?.length ?? 0) > 0)).toHaveLength(0)
   }, 40_000)
 
+  it('sends the files an agent presents to the chat, through send_file\'s checks', async () => {
+    const booted = await bootChannel({ projects: { alpha: {} } })
+    const cwd = booted.projects.configOf('alpha')!.cwd
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(cwd, 'report.docx'), 'a document')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const present = (files: unknown) => (agent as unknown as { session: { append(type: string, data: unknown): Promise<unknown> } }).session.append('tool/call', { name: 'present', arguments: JSON.stringify({ files }), callId: 'c1' })
+    await present([{ path: 'report.docx', description: 'The weekly report' }, { path: '../../ops.sqlite' }])
+    await waitFor(() => booted.adapter.sent.some((entry) => (entry.message.files?.length ?? 0) > 0), { timeoutMs: 5_000, label: 'the presented file is sent' })
+    const sent = booted.adapter.sent.filter((entry) => (entry.message.files?.length ?? 0) > 0)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.message.text).toBe('[alpha] The weekly report')
+    expect(sent[0]?.message.files?.[0]?.name).toBe('report.docx')
+  }, 40_000)
+
   it('send_file sends from a task\'s own folder', async () => {
     const booted = await bootChannel()
     const dir = booted.projects.taskDirOf('task-1')

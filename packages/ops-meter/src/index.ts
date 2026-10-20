@@ -37,6 +37,11 @@ export const name = 'ops-meter'
 /** The services this plugin requires. */
 export const inject = ['opsRawConfig', 'opsConfigRegistry', 'opsStore', 'opsProjects', 'sessions', 'agents']
 
+/** The session event `dsh-web-search-deepseek` logs for each search: its request, not its usage. */
+const SEARCH_REQUEST = 'web/deepseek-search-llm-request'
+/** Input tokens a search is charged for each search it may run: the results it reads, generously. */
+const SEARCH_INPUT_PER_USE = 16_000
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The Argus Agent metering service. */
@@ -206,6 +211,7 @@ export function apply(ctx: Context): void {
   // transient, and the log event is what the reconciliation compares against.
   ctx.on('session/event', (session, event) => {
     if (meter.isStopped) return
+    if ((event.type as string) === SEARCH_REQUEST) return recordSearch(session.id as string, (event as { data?: unknown }).data)
     if (event.type !== 'assistant/message') return
     const data = event.data as { usage?: { inputTokens: number; outputTokens: number; cacheReadTokens?: number } }
     if (data.usage === undefined) return
@@ -239,6 +245,32 @@ export function apply(ctx: Context): void {
       ctx.logger('ops-meter').warn('could not record usage: %s', (error as Error).message)
     }
   })
+
+  /**
+   * A web search through DeepSeek is a full Messages request whose usage dsh never
+   * reports: only the request is logged. It is charged an upper bound, at the search
+   * model's price: every output token it may produce, and {@link SEARCH_INPUT_PER_USE}
+   * input tokens per search it may run, for the results it reads.
+   */
+  function recordSearch(sessionId: string, data: unknown): void {
+    const body = (data as { body?: { model?: unknown; max_tokens?: unknown; tools?: Array<{ max_uses?: unknown }> } } | undefined)?.body
+    const owner = ctx.opsProjects.ownerOf(sessionId)
+    if (owner === undefined || typeof body?.model !== 'string') return
+    const uses = typeof body.tools?.[0]?.max_uses === 'number' ? body.tools[0].max_uses : 1
+    try {
+      meter.record({
+        sessionId,
+        rootSessionId: ctx.opsProjects.rootSessionOf(sessionId),
+        owner,
+        model: { provider: 'deepseek', model: body.model },
+        usage: { inputTokens: SEARCH_INPUT_PER_USE * uses, outputTokens: typeof body.max_tokens === 'number' ? body.max_tokens : 4096 },
+        runId: ctx.opsProjects.runOf(sessionId),
+        ts: Date.now(),
+      })
+    } catch (error) {
+      ctx.logger('ops-meter').warn('could not record a web search: %s', (error as Error).message)
+    }
+  }
 
   ctx.on('ops/agent-idle', ({ runId }) => {
     if (runId !== undefined) meter.forgetRun(runId)

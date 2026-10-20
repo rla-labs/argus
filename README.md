@@ -115,6 +115,7 @@ pnpm install
 pnpm build && pnpm typecheck && pnpm lint && pnpm test
 pnpm test:native-vps      # the native install in a throwaway Ubuntu container
 pnpm test:docker-sandbox  # what a project's shell can reach, in the real image
+pnpm test:docker-extensions  # the first-party extensions, installed and run in the real image
 ```
 
 `packages/` holds one plugin per folder plus the `argus-agent` bundle. `deploy/` holds

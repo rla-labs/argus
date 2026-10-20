@@ -517,7 +517,7 @@ Each group takes one of four values:
 | `read` | `read`, `read_image`, `glob`, `grep`, and the MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) | `allow` |
 | `write` | `write`, `edit` | `ask` |
 | `shell` | `bash`, `pwsh`, `run_code` | `ask` |
-| `web` | `web_fetch`, `web_search` | `ask` |
+| `web` | `web_fetch`, `web_search` (a search needs a DeepSeek key, and is charged as a DeepSeek request) | `ask` |
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
@@ -536,7 +536,8 @@ that resolves to one, and a redirect cannot leave the site. So `web: allow` is s
 reading the public web.
 
 The bookkeeping tools (the agent's todo list, goals, background jobs, skills,
-`present`) and `send_file` are always allowed. A misspelt group is refused when the
+`present`) and `send_file` are always allowed; a file the agent `present`s is sent to the
+chat as `send_file` sends it. A misspelt group is refused when the
 project loads. A one-off task (`/task`) has no file: it reads, searches the web, and
 nothing else; what would ask is refused while `approvals_adhoc` is `deny`.
 

@@ -4,7 +4,9 @@
 # End-to-end test of the NATIVE install on a fresh "VPS": an Ubuntu container with systemd
 # as PID 1, where install-native.sh runs exactly as an operator would run it as root.
 #
-#   pnpm test:native-vps               a Telegram install: health, smoke, backup, kill -9
+#   pnpm test:native-vps               a Telegram install: health, smoke, backup, the
+#                                      first-party extensions next to this repository
+#                                      (installed and run confined), kill -9
 #   pnpm test:native-vps --web-only    no Telegram: the setup link creates the admin, the
 #                                      web chat answers, `argus setup-link --admin` works
 #   pnpm test:native-vps --upgrade [v] install v (default v0.4.0), then upgrade to
@@ -149,6 +151,21 @@ check "health names the rejected bot token" grep -q 'failed to start: .*401' <<<
 check "smoke-native.sh passes" vps bash -c 'bash /opt/argus-agent/deploy/native/smoke-native.sh --quiet >/dev/null 2>&1'
 
 check "backup-native.sh works without sqlite3" vps bash -c '! command -v sqlite3 >/dev/null && bash /opt/argus-agent/deploy/native/backup-native.sh >/dev/null 2>&1'
+
+# The first-party extensions next to this repository, as the service's user installs
+# and runs them: confined, under the native install's Landlock.
+for ext in "${REPO}/../argus-extensions-office" "${REPO}/../argus-extensions-media"; do
+  [ -d "${ext}/.git" ] || continue
+  vps mkdir -p /srv/ext-src
+  docker cp "${ext}" "${NAME}:/srv/ext-src/$(basename "${ext}")"
+done
+if vps test -d /srv/ext-src; then
+  vps chown -R ops:ops /srv/ext-src
+  docker cp "${REPO}/scripts/extension-check.mjs" "${NAME}:/tmp/extension-check.mjs"
+  extensions="$(vps su -s /bin/bash ops -c 'node /tmp/extension-check.mjs /opt/argus-agent /srv/argus-agent/data /srv/ext-src' 2>&1 || true)"
+  printf '%s\n' "${extensions}" | grep -E '^ +(ok|err) ' || true
+  check "the first-party extensions install and run" grep -q 'extension check: PASSED' <<<"${extensions}"
+fi
 
 old="$(vps systemctl show -p MainPID --value argus-agent)"
 vps kill -9 "${old}"
