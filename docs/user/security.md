@@ -188,6 +188,7 @@ data:
 | Nothing is installed without the sandbox | No Landlock, no install. |
 | Its folder is read-only and outside every project | No agent can change it. |
 | Its MCP server runs in the command sandbox: the system and its folder to read, the project's folder to work in | It cannot read the database, the keys, the conversations or another project. Without the sandbox it does not start. It has the network. |
+| Its programs (`bin`) run as the project's own commands | Confined to the project's folder, with the project's approvals. Only the programs it names are on the `PATH`, and only in a project that enabled it: another project cannot run them by their path. Its `env` cannot hold a secret or change `PATH`. |
 | A project gets it only when the admin enables it there | Every other project, `/task` and the front desk never see it. |
 
 ## Skills

@@ -50,13 +50,13 @@ describe('an extension enabled in a project', () => {
     const notes: UsableExtension = {
       name: 'notes',
       dir: '/data/extensions/notes/1.0.0-abc',
-      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', timeout_s: 60 } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.' },
+      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', timeout_s: 60 } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.', bin: [], env: {}, rules: [] },
     }
     const parse = (own: Record<string, unknown>) =>
       parseProjectConfig({ id: 'site', cwd: '/data/projects/site', provider: 'p', model: 'm', ...own }, { sourcePath: 's', projectsRoot: '/data/projects', extensions: new Map([['notes', notes]]) })
     const config = parse({ extensions: ['notes', 'gone'] })
     expect(config.mcp['probe']).toMatchObject({ command: 'node', args: ['/data/extensions/notes/1.0.0-abc/p.mjs'], env: { PROBE_KEY: '${PROBE_KEY}' }, access: 'allow', extension: { name: 'notes', dir: notes.dir } })
-    expect(config.extensions).toEqual([{ name: 'notes', dir: notes.dir, skills: [`${notes.dir}/skills/a`], instructions: 'Be neat.' }])
+    expect(config.extensions).toEqual([{ name: 'notes', dir: notes.dir, skills: [`${notes.dir}/skills/a`], instructions: 'Be neat.', binDir: null, env: {} }])
     expect(config.extensionsMissing).toEqual(['gone'])
     expect(parse({ extensions: ['notes'], mcp: { probe: { access: 'ask' } } }).mcp['probe']?.access).toBe('ask')
     expect(() => parse({ extensions: ['notes'], mcp: { probe: { command: 'sh' } } })).toThrow(/comes from the extension notes: only its access and timeout_s/)
@@ -115,5 +115,44 @@ describe('an extension enabled in a project', () => {
     const agent = await projects.ensureAgent('site')
     const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): unknown } } }).ctx
     expect(ctx.tools.get('mcp__probe__probe', scopeOf(ctx as never))).toBeUndefined()
+  }, 60_000)
+
+  it.skipIf(!landlock)('puts its programs on the shell PATH of a project that enables it, with its variables, and nowhere else', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-bin-'))
+    const repo = mkdtempSync(join(tmpdir(), 'ext-tools-'))
+    mkdirSync(join(repo, 'bin'))
+    writeFileSync(join(repo, 'bin', 'hello'), '#!/bin/sh\necho "hello from $TOOLS_MODE"\necho made > made-by-hello.txt\n', { mode: 0o755 })
+    writeFileSync(join(repo, 'bin', 'helper'), '#!/bin/sh\necho not named\n', { mode: 0o755 })
+    writeFileSync(join(repo, 'extension.yaml'), 'name: tools\nversion: 1.0.0\nsummary: A tool\nbin: [bin/hello]\nenv: {TOOLS_MODE: quiet}\nrules: ["hello *"]\n')
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env })
+    const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+    const installed = await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+    expect(extensions.verify()).toEqual([])
+
+    const { projects, ctx } = await bootProjects({
+      dataDir,
+      projects: { site: { extensions: ['tools'] }, other: {} },
+      entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }],
+    })
+    const sandbox = (ctx as unknown as { sandbox: ArgusSandbox }).sandbox
+    const shell = async (id: string, command: string) => {
+      const cwd = projects.configOf(id)!.cwd
+      mkdirSync(cwd, { recursive: true })
+      const { argv } = await sandbox.confine(['sh', '-c', command], { mode: 'workspace-write', workspaceRoot: cwd })
+      try {
+        return execFileSync(argv[0] as string, argv.slice(1), { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+      } catch (error) {
+        return `failed: ${(error as { stderr?: string }).stderr ?? ''}`
+      }
+    }
+    expect(await shell('site', 'hello')).toBe('hello from quiet\n')
+    expect(readFileSync(join(projects.configOf('site')!.cwd, 'made-by-hello.txt'), 'utf8')).toBe('made\n')
+    // Only the programs it names.
+    expect(await shell('site', 'helper')).toMatch(/failed: .*not found/)
+    // Not in a project that did not enable it, not even by its path.
+    expect(await shell('other', 'hello')).toMatch(/failed: .*not found/)
+    expect(await shell('other', `${join(dataDir, 'extensions', installed.path, 'bin', 'hello')}`)).toMatch(/failed: .*Permission denied/)
+    expect(await shell('other', 'echo "[$TOOLS_MODE]"')).toBe('[]\n')
   }, 60_000)
 })

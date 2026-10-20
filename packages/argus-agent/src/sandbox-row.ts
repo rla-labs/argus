@@ -63,8 +63,33 @@ const RUNNER_FAILURE_RULES = [
   },
 ]
 
+/**
+ * What a workspace's commands get beyond the defaults: the folders of the extensions
+ * its project enabled (read and run), their programs on PATH, their variables.
+ */
+export interface WorkspaceExtras {
+  readonly reads: readonly string[]
+  readonly path: readonly string[]
+  readonly env: Readonly<Record<string, string>>
+}
+
 /** `ctx.sandbox`, with read confinement. */
 export default class ArgusSandbox extends SandboxProvider {
+  private extrasOf: ((workspaceRoot: string) => WorkspaceExtras | undefined) | undefined
+
+  /**
+   * Who says what a workspace's commands get beyond the defaults: `ops-projects`, from
+   * the project's enabled extensions.
+   *
+   * @returns the undo.
+   */
+  setWorkspaceExtras(extras: (workspaceRoot: string) => WorkspaceExtras | undefined): () => void {
+    this.extrasOf = extras
+    return () => {
+      if (this.extrasOf === extras) this.extrasOf = undefined
+    }
+  }
+
   private readonly launcher = launcherPath()
   private verdict: LandlockEnforcement | undefined
   private readonly node = dirname(dirname(process.execPath))
@@ -102,8 +127,12 @@ export default class ArgusSandbox extends SandboxProvider {
     // and another project's command cannot read them.
     const own = join(tmpdir(), 'argus-sandbox', createHash('sha256').update(resolved.workspaceRoot).digest('hex').slice(0, 16))
     mkdirSync(own, { recursive: true, mode: 0o700 })
+    const extras = this.extrasOf?.(resolved.workspaceRoot)
+    // An extension's programs go before the inherited PATH, which only the shell knows.
+    const path = extras === undefined || extras.path.length === 0 ? [] : [`ARGUS_EXTENSION_PATH=${extras.path.join(':')}`, 'sh', '-c', 'export PATH="$ARGUS_EXTENSION_PATH:$PATH"; exec "$@"', 'argus']
+    const env = Object.entries(extras?.env ?? {}).map(([key, value]) => `${key}=${value}`)
     return {
-      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, reads)), '--', 'env', `HOME=${own}`, `TMPDIR=${own}`, ...argv],
+      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, [...reads, ...(extras?.reads ?? [])])), '--', 'env', `HOME=${own}`, `TMPDIR=${own}`, ...env, ...path, ...argv],
       enforcement,
       denialSignatures: DENIAL_SIGNATURES,
       runnerFailureRules: RUNNER_FAILURE_RULES,

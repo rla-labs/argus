@@ -13,7 +13,7 @@
  */
 import { execFile, spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { parse as parseYaml, stringify as toYaml } from 'yaml'
@@ -53,7 +53,19 @@ export interface ExtensionManifest {
   readonly requires: { readonly secrets: readonly string[]; readonly network: boolean }
   /** Added to the instructions of a project that enables it. */
   readonly instructions: string
+  /** Programs inside the extension a project that enables it runs from its shell, by name. */
+  readonly bin: readonly string[]
+  /** Variables set for the commands of a project that enables it; never a secret. */
+  readonly env: Readonly<Record<string, string>>
+  /** Approval rules offered when a project enables it (`officecli *`); never applied by themselves. */
+  readonly rules: readonly string[]
 }
+
+/** The folder of an installed extension that a project's PATH gets: links to its `bin`. */
+export const BIN_DIR = '.argus-bin'
+
+/** A variable name that would carry a secret: an extension's `env` may not set one. */
+const SECRET_LIKE = /KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH/i
 
 /** An installed extension, as `lock.yaml` records it. */
 export interface ExtensionLock {
@@ -125,7 +137,7 @@ export function parseSource(text: string): { ok: true; source: string; ref: stri
 export function parseManifest(raw: unknown): ExtensionManifest {
   const problems: string[] = []
   const doc = isMapping(raw) ? raw : (problems.push('extension.yaml must be a mapping'), {} as Record<string, unknown>)
-  const known = ['name', 'version', 'summary', 'install', 'skills', 'mcp', 'requires', 'instructions']
+  const known = ['name', 'version', 'summary', 'install', 'skills', 'mcp', 'requires', 'instructions', 'bin', 'env', 'rules']
   for (const key of Object.keys(doc)) if (!known.includes(key)) problems.push(`${key}: not an extension key; use ${known.join(', ')}`)
   const text = (key: string, pattern: RegExp, what: string): string => {
     const value = doc[key]
@@ -188,11 +200,37 @@ export function parseManifest(raw: unknown): ExtensionManifest {
   }
   const network = needs['network'] ?? false
   if (typeof network !== 'boolean') problems.push('requires.network: true or false')
+  const bin = strings(doc['bin'], 'bin')
+  for (const path of bin) {
+    if (isAbsolute(path) || normalize(path).split(sep).includes('..')) problems.push(`bin: ${path} must be a file inside the extension`)
+  }
+  const env = doc['env'] ?? {}
+  if (!isMapping(env) || Object.values(env).some((value) => typeof value !== 'string')) problems.push('env: names to strings')
+  for (const name of Object.keys(isMapping(env) ? env : {})) {
+    if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(name)) problems.push(`env: ${name} is not a NAME_LIKE_THIS`)
+    else if (SECRET_LIKE.test(name) || ['PATH', 'HOME', 'TMPDIR', 'LD_PRELOAD', 'LD_LIBRARY_PATH'].includes(name)) problems.push(`env: ${name} cannot be set by an extension (a secret goes in requires.secrets; PATH comes from bin)`)
+  }
+  const rules = strings(doc['rules'], 'rules')
+  for (const rule of rules) {
+    if (!/^[\w./:=@+-]+( [\w./:=@+-]+)*( \*)?$/.test(rule) || rule.length > 120) problems.push(`rules: "${rule}" is not a command rule ("officecli *")`)
+  }
   const instructions = doc['instructions'] ?? ''
   if (typeof instructions !== 'string') problems.push('instructions: text')
   else if (Buffer.byteLength(instructions) > INSTRUCTIONS_MAX_BYTES) problems.push(`instructions: at most ${INSTRUCTIONS_MAX_BYTES / 1024} KB`)
   if (problems.length > 0) throw new OpsError('EXTENSION_INVALID', `extension.yaml is not valid:\n${problems.map((line) => `  - ${line}`).join('\n')}`)
-  return { name, version, summary, install, skills, mcp, requires: { secrets, network: network as boolean }, instructions: (instructions as string).trim() }
+  return {
+    name,
+    version,
+    summary,
+    install,
+    skills,
+    mcp,
+    requires: { secrets, network: network as boolean },
+    instructions: (instructions as string).trim(),
+    bin,
+    env: (isMapping(env) ? env : {}) as Record<string, string>,
+    rules,
+  }
 }
 
 /**
@@ -360,6 +398,19 @@ export class Extensions {
       for (const line of manifest.install) await this.runConfined(line, dir, deadline)
       const missing = manifest.skills.filter((path) => !existsSync(join(dir, path, 'SKILL.md')))
       if (missing.length > 0) throw new OpsError('EXTENSION_INSTALL_FAILED', `No SKILL.md in ${missing.join(', ')}.`)
+      // A program it names must be a plain executable file of its own, not a link out.
+      const programs = manifest.bin.filter((path) => {
+        const full = join(dir, path)
+        return !existsSync(full) || lstatSync(full).isSymbolicLink() || !lstatSync(full).isFile() || (lstatSync(full).mode & 0o111) === 0
+      })
+      if (programs.length > 0) throw new OpsError('EXTENSION_INSTALL_FAILED', `Not an executable file of the extension: ${programs.join(', ')}.`)
+      const names = manifest.bin.map((path) => path.split('/').pop() as string)
+      if (new Set(names).size !== names.length) throw new OpsError('EXTENSION_INSTALL_FAILED', `Two programs in bin have the same name: ${manifest.bin.join(', ')}.`)
+      // The folder a project's PATH gets: a link per program it names, and nothing else.
+      if (manifest.bin.length > 0) {
+        mkdirSync(join(dir, BIN_DIR))
+        for (const path of manifest.bin) symlinkSync(join('..', path), join(dir, BIN_DIR, path.split('/').pop() as string))
+      }
       const path = join(manifest.name, `${manifest.version}-${staged.commit.slice(0, 7)}`)
       const target = join(this.dir, path)
       if (existsSync(target)) throw new OpsError('EXTENSION_INSTALL_FAILED', `${manifest.name} ${manifest.version} at ${staged.commit.slice(0, 7)} is already installed.`)

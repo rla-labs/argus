@@ -14,7 +14,7 @@ import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
 import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 import type { ProjectTemplate } from './templates.js'
-import { EXTENSION_NAME, type UsableExtension } from './extensions.js'
+import { BIN_DIR, EXTENSION_NAME, type UsableExtension } from './extensions.js'
 import { parseGitBlock, type GitRemote } from './git-remotes.js'
 
 /**
@@ -112,6 +112,10 @@ export interface ProjectExtension {
   /** Its skill folders, absolute. */
   readonly skills: readonly string[]
   readonly instructions: string
+  /** The folder of its programs, for the project's PATH, or null when it brings none. */
+  readonly binDir: string | null
+  /** Variables for the project's commands, `${EXTENSION_DIR}` filled in. */
+  readonly env: Readonly<Record<string, string>>
 }
 
 /** One group's access, with its default. */
@@ -441,7 +445,14 @@ export function parseProjectConfig(
         }
         const { dir, manifest } = extension
         const at = (text: string): string => text.replaceAll('${EXTENSION_DIR}', dir)
-        enabled.push({ name, dir, skills: manifest.skills.map((path) => join(dir, path)), instructions: manifest.instructions })
+        enabled.push({
+          name,
+          dir,
+          skills: manifest.skills.map((path) => join(dir, path)),
+          instructions: manifest.instructions,
+          binDir: manifest.bin.length > 0 ? join(dir, BIN_DIR) : null,
+          env: Object.fromEntries(Object.entries(manifest.env).map(([key, value]) => [key, at(value)])),
+        })
         for (const [server, spec] of Object.entries(manifest.mcp)) {
           const mine = ownMcp[server]
           if (brought.has(server)) issues.push({ path: `mcp.${server}`, message: `both ${brought.get(server)!.name} and ${name} bring a server named ${server}` })

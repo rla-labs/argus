@@ -1705,6 +1705,23 @@ describe('/ext', () => {
     expect(await run(booted, '/ext')).toContain('No extension is installed')
   }, 60_000)
 
+  it('shows the variables and rules it brings, and offers its rules at enable without applying them', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const repo = extensionRepo('name: tools\nversion: 1.0.0\nsummary: Tools\nenv: {TOOLS_MODE: quiet}\nrules: ["hello *"]\n')
+    const asked = await booted.commands.runCommand(`/ext install ${repo.path}`, contextFor())
+    expect(asked.text).toContain('Sets for a project\'s commands: TOOLS_MODE=quiet')
+    expect(asked.text).toContain('Offers, at enable, the rules: hello * (applied only if you press them)')
+    await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())
+    const enabled = await booted.commands.runCommand('/ext enable alpha tools', contextFor())
+    expect(enabled.text).toContain('tools suggests letting these run unasked in alpha: hello *')
+    expect(enabled.buttons).toEqual([{ label: 'Allow “hello *” in alpha', command: '/rule alpha hello *' }])
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual([])
+    expect(await run(booted, '/rule alpha hello *')).toContain('hello *')
+    expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['hello *'])
+    const remove = await booted.commands.runCommand('/ext remove tools', contextFor())
+    await booted.commands.confirm(remove.confirm?.token as string, true, contextFor())
+  }, 60_000)
+
   it('runs nothing unconfined: without the command sandbox an install with commands is refused', async () => {
     const booted = await bootCommands()
     const repo = extensionRepo(`${manifest}install: ["npm ci"]\n`)

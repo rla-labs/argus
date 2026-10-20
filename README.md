@@ -45,8 +45,9 @@ shows its commits and asks first. The web uploads files of up to 2 GB into a pro
 downloads any folder as a zip, and turns a file too big for the chat into a one-time
 link.
 
-**Extensions.** MCP servers and skills installed from git, pinned, and enabled per
-project.
+**Extensions.** MCP servers, command-line programs and skills installed from git,
+pinned, and enabled per project. A program runs in the project's shell, confined like
+any other command.
 
 ## Quick start
 

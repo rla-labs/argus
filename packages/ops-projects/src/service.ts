@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { hiddenTools, taskToolPolicy, type DoctorFinding, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
@@ -140,6 +140,33 @@ export class OpsProjects {
       },
     )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
+  }
+
+  // ── extensions in the project's shell ────────────────────────────────────
+
+  /**
+   * What a workspace's commands get from the extensions its project enabled: their
+   * folders to read and run from, their programs on PATH, their variables. The command
+   * sandbox asks for every confined command.
+   *
+   * @param workspaceRoot the command's workspace, canonical.
+   * @returns the extras, or `undefined` for a folder that is no project's or one with none.
+   */
+  workspaceExtras(workspaceRoot: string): { reads: string[]; path: string[]; env: Record<string, string> } | undefined {
+    const config = [...this.configs.values()].find((candidate) => {
+      try {
+        return realpathSync(candidate.cwd) === workspaceRoot
+      } catch {
+        return candidate.cwd === workspaceRoot
+      }
+    })
+    const used = config?.extensions.filter((extension) => extension.binDir !== null || Object.keys(extension.env).length > 0) ?? []
+    if (used.length === 0) return undefined
+    return {
+      reads: used.map((extension) => extension.dir),
+      path: used.flatMap((extension) => (extension.binDir === null ? [] : [extension.binDir])),
+      env: Object.assign({}, ...used.map((extension) => extension.env)) as Record<string, string>,
+    }
   }
 
   // ── git remotes ──────────────────────────────────────────────────────────

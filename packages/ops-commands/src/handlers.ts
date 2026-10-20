@@ -1904,7 +1904,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             for (const server of servers) doc.deleteIn(['mcp', server])
           })
           if (written !== undefined) return errorResult(`Not changed. ${written}`)
-          return result(`${argument} ${action === 'enable' ? 'uses' : 'no longer uses'} ${name}. Its agent ${action === 'enable' ? 'gets' : 'loses'} the tools, skills and instructions from its next conversation (/reset ${argument} to start one now). /tools ${argument} shows its tools.`)
+          const said = `${argument} ${action === 'enable' ? 'uses' : 'no longer uses'} ${name}. Its agent ${action === 'enable' ? 'gets' : 'loses'} the tools, skills and instructions from its next conversation (/reset ${argument} to start one now). /tools ${argument} shows its tools.`
+          // Its rules are offered, never applied: a press is the admin's /rule.
+          const rules = action === 'enable' ? (extensions.usable().get(name)?.manifest.rules ?? []) : []
+          return rules.length === 0
+            ? result(said)
+            : { ...result(`${said}\n${name} suggests letting these run unasked in ${argument}: ${rules.join(', ')}.`), buttons: rules.map((rule) => ({ label: `Allow “${rule}” in ${argument}`, command: `/rule ${argument} ${rule}` })) }
         }
         if (argument === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs ${action === 'install' ? 'a git URL or a path' : 'an extension\'s name'}.`)
         try {
@@ -2624,6 +2629,9 @@ function describeParts(manifest: ExtensionManifest): string[] {
     ...(manifest.skills.length > 0 ? [`skills: ${manifest.skills.join(', ')}`] : []),
     ...(manifest.requires.secrets.length > 0 ? [`secrets: ${manifest.requires.secrets.join(', ')}`] : []),
     ...(manifest.requires.network ? ['needs the network'] : []),
+    ...(manifest.bin.length > 0 ? [`programs in the project's shell: ${manifest.bin.map((path) => path.split('/').pop()).join(', ')}`] : []),
+    ...Object.entries(manifest.env).map(([key, value]) => `sets ${key}=${value}`),
+    ...(manifest.rules.length > 0 ? [`offers the rules: ${manifest.rules.join(', ')}`] : []),
   ]
 }
 
@@ -2643,6 +2651,9 @@ function describeStaged(staged: StagedExtension): string {
   const servers = Object.entries(manifest.mcp)
   lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}`).join('\n')}`)
   lines.push(`Skills: ${manifest.skills.length === 0 ? 'none' : manifest.skills.join(', ')}`)
+  if (manifest.bin.length > 0) lines.push(`Programs a project's shell can run (confined, with the usual approvals): ${manifest.bin.map((path) => `${path.split('/').pop()} (${path})`).join(', ')}`)
+  if (Object.keys(manifest.env).length > 0) lines.push(`Sets for a project's commands: ${Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`).join(', ')}`)
+  if (manifest.rules.length > 0) lines.push(`Offers, at enable, the rules: ${manifest.rules.join(', ')} (applied only if you press them)`)
   lines.push(`Secrets it reads: ${manifest.requires.secrets.length === 0 ? 'none' : manifest.requires.secrets.join(', ')}`)
   lines.push(`Network: ${manifest.requires.network ? 'yes' : 'not needed'}`)
   if (manifest.install.length > 0) lines.push(`Runs now, in the sandbox (only its own folder, with the network):\n${manifest.install.map((line) => `  ${line}`).join('\n')}`)

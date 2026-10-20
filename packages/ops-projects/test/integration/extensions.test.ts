@@ -120,6 +120,30 @@ describe('extensions', () => {
       message = (error as Error).message
     }
     for (const problem of ['extra: not an extension key', 'name: lowercase', 'mcp.o.url: not a server key', 'mcp.o.command: the program']) expect(message).toContain(problem)
+    try {
+      parseManifest({ name: 'tools', version: '1', summary: 's', bin: ['../outside', '/abs'], env: { API_TOKEN: 'x', PATH: '/evil', lower: 'x' }, rules: ['rm -rf / ; x', 'ok *'] })
+      message = ''
+    } catch (error) {
+      message = (error as Error).message
+    }
+    for (const problem of ['bin: ../outside must be a file inside', 'bin: /abs must be a file inside', 'env: API_TOKEN cannot be set', 'env: PATH cannot be set', 'env: lower is not a NAME_LIKE_THIS', 'rules: "rm -rf / ; x" is not a command rule']) expect(message).toContain(problem)
+    expect(message).not.toContain('"ok *"')
+  })
+
+  it('installs only programs that are its own executable files, linked from .argus-bin', async () => {
+    const plain = store()
+    const notExecutable = repository(`${MANIFEST}\nbin: [tool.sh]\n`)
+    notExecutable.commit({ 'tool.sh': '#!/bin/sh\necho x\n' })
+    await expect(plain.install((await plain.fetch(notExecutable.path, null)).id, 'admin')).rejects.toMatchObject({ message: expect.stringContaining('Not an executable file of the extension: tool.sh') })
+    const missing = store()
+    await expect(missing.install((await missing.fetch(repository(`${MANIFEST}\nbin: [nope]\n`).path, null)).id, 'admin')).rejects.toMatchObject({ message: expect.stringContaining('Not an executable file of the extension: nope') })
+
+    const good = store()
+    const tool = repository(`${MANIFEST}\nbin: [bin/tool.sh]\ninstall: ["mkdir -p bin && printf '#!/bin/sh\\necho x\\n' > bin/tool.sh && chmod +x bin/tool.sh", "mkdir -p skills/office-docs && echo '# s' > skills/office-docs/SKILL.md"]\n`.replace('install: ["echo built > built.txt"]\n', ''))
+    const entry = await good.install((await good.fetch(tool.path, null)).id, 'admin')
+    const link = join(good.dir, entry.path, '.argus-bin', 'tool.sh')
+    expect(execFileSync(link, { encoding: 'utf8' })).toBe('x\n')
+    expect(good.verify()).toEqual([])
   })
 
   it('reads a source and its ref', () => {

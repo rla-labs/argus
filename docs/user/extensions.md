@@ -1,7 +1,8 @@
 # Extensions
 
-An extension adds to what Argus's agents can do: **tools** (an MCP server), **skills**
-(how-tos an agent loads when a task calls for one) and a few lines of **instructions**.
+An extension adds to what Argus's agents can do: **tools** (an MCP server), **programs**
+the agent runs from its shell, **skills** (how-tos an agent loads when a task calls for
+one) and a few lines of **instructions**.
 The admin installs it once, from a git repository, and it is kept outside every
 project, where no agent can change it.
 
@@ -71,6 +72,12 @@ has:
   Without the command sandbox it does not start. Its access is the one you saw at
   install; `/tools <project>` shows it, and `/set <project> mcp.<server>.access ask`
   changes it for that project.
+- **its programs**, by name in the agent's shell (`officecli`, `ffmpeg`): only the ones the
+  extension names, run like any command of the project's (confined to its folder, and
+  asking unless a rule allows them). A project that did not enable the extension cannot
+  run them, not even by their path. Its variables (`env`) are set for those commands.
+  `enable` offers the rules the extension suggests (`officecli *`) as buttons; nothing is
+  allowed unasked until you press one.
 - **its skills**, beside the project's own (`/skill`).
 - **its instructions**, in its prompt after the project's.
 
@@ -116,6 +123,10 @@ mcp:
 requires:
   secrets: []                   # NAMES its server reads; the admin sets them with /key
   network: false                # shown at install
+bin: [bin/officecli]            # programs a project's shell runs by name (files made by install)
+env:                            # set for the project's commands; never a secret
+  OFFICECLI_SKIP_UPDATE: "1"
+rules: ["officecli *"]          # offered as buttons at /ext enable, never applied by themselves
 instructions: |                 # added to a project's instructions while it is enabled
   For .docx, .xlsx and .pptx files, use the office tools; never write them by hand.
 ```
@@ -128,6 +139,9 @@ instructions: |                 # added to a project's instructions while it is 
 | `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run. A skill is read through its parent folder, so keep an extension's skills side by side (`skills/<name>/`). |
 | `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. |
 | `requires.secrets` | `NAMES_LIKE_THIS` |
+| `bin` | Paths inside the repository, each an executable file once `install` has run (not a link); their names must differ. A project gets them, and only them, on its shell's `PATH`. |
+| `env` | `NAMES_LIKE_THIS` to strings; `${EXTENSION_DIR}` is the extension's folder. Not a secret (a name with KEY, TOKEN, SECRET, PASSWORD… is refused; secrets go in `requires.secrets`), and not `PATH`, `HOME`, `TMPDIR` or `LD_*`. |
+| `rules` | Command rules (`officecli *`: plain words, optionally ending in `*`), offered at enable. |
 | `instructions` | Up to 8 KB |
 
 A key that is not in this list is refused, with the others named.

@@ -113,6 +113,14 @@ export function apply(ctx: Context): void {
     void service.disposeAll()
   })
 
+  // ── extensions in the project's shell ────────────────────────────────────
+  // The command sandbox asks, for each confined command, what its workspace's
+  // extensions add: their programs on PATH, their folders to run from, their variables.
+  ctx.inject(['sandbox'], (child) => {
+    const sandbox = child.get('sandbox' as never) as unknown as { setWorkspaceExtras?(extras: (root: string) => ReturnType<OpsProjects['workspaceExtras']>): () => void }
+    if (sandbox.setWorkspaceExtras !== undefined) child.effect(() => sandbox.setWorkspaceExtras!((root) => service.workspaceExtras(root)))
+  })
+
   // ── git tools ────────────────────────────────────────────────────────────
   // Global, like send_file; the project comes from the calling agent (rule 6), never
   // from an argument. Argus does the remote work: the agent never holds the token.
