@@ -26,23 +26,17 @@ export const PROJECT_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,40}$/
 
 /** Per-run limits. */
 export interface ProjectLimits {
-  /** Steps between checkpoints; 0 is none. */
-  readonly max_steps_per_run: number
-  /** Minutes between checkpoints; 0 is none. */
-  readonly max_wallclock_min: number
-  /** Steps one run never passes, whatever is answered at a checkpoint. */
+  /** Steps one run never passes. */
   readonly max_steps_total: number
   readonly max_tokens_per_request: number
   readonly max_subagent_depth: number
   readonly loop_repeat_threshold: number
   /** Steps in a row with no new result and no file changed before the run stops as stalled; 0 is off. */
   readonly stall_steps: number
-  /** Whether a judge model decides at a checkpoint before a person is asked. */
-  readonly judge: boolean
-  /** Steps one judge extension may grant; 0 is the checkpoint's own interval. */
-  readonly judge_extend_steps: number
-  /** How many times the judge may extend one run. */
-  readonly judge_max_extensions: number
+  /** Steps between two loop checks by the `judge.model`; 0 is none. */
+  readonly loop_check_steps: number
+  /** What a loop the checker found does: stop the run, tell the person, or ask them. */
+  readonly on_loop: 'stop' | 'notify' | 'ask'
 }
 
 /** A project's budget. */
@@ -209,16 +203,13 @@ export const projectConfigSchema = z.object({
   preset: z.string().description('The dsh agent preset mounted into this project scope'),
   limits: z
     .object({
-      max_steps_per_run: z.number().min(0).default(60),
-      max_wallclock_min: z.number().min(0).default(45),
       max_steps_total: z.number().min(1).default(1000),
       max_tokens_per_request: z.number().default(8000),
       max_subagent_depth: z.number().default(1),
       loop_repeat_threshold: z.number().default(5),
       stall_steps: z.number().min(0).default(25),
-      judge: z.boolean().default(false),
-      judge_extend_steps: z.number().min(0).default(0),
-      judge_max_extensions: z.number().min(0).default(2),
+      loop_check_steps: z.number().min(0).default(0),
+      on_loop: z.union([z.const('stop'), z.const('notify'), z.const('ask')]).default('stop'),
     })
     .default({}),
   budget: z

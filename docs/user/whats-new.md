@@ -3,6 +3,22 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.6.2
+
+**Long runs are not interrupted.** A run is no longer paused every 60 steps or 45
+minutes to ask Continue or Stop. The budget, the step ceiling and the loop checks hold
+it.
+
+- **An optional loop checker** replaces the checkpoint and the judge. With
+  `limits.loop_check_steps` set, a model reads the run every so many steps and says
+  whether it goes in circles. It reads what Argus measured, not what the agent claims.
+- **You choose what a loop does** (`limits.on_loop`): `stop` the run, `notify` you while
+  it goes on, or `ask` you with the checker's reason. A scheduled run is never asked.
+- **The `site` template** checks every 50 steps and notifies, as an example.
+- The loop and no-progress checks in code stay as they were.
+
+[What changes](backup-and-upgrade.md#upgrading-to-062).
+
 ## 0.6.1
 
 **Prices for any provider, without writing them.** A provider you declare under
@@ -107,6 +123,10 @@ Telegram became optional.
   run per loop pattern and a run of 150 steps that is never cut off. The judge was also
   tested against two real models, and both stop an agent that claims progress it did
   not make.
+- **0.6.2's loop checker:** every `on_loop` (stop, notify, ask, and a scheduled run
+  under ask) through the real governor and the chat, and its prompt against two real
+  models: both find the loop in a run that only claims progress, and both let 150 steps
+  of real progress go on.
 - **`web_fetch` never reaches a private address**: the server itself, the private
   network and the cloud metadata service are refused.
 

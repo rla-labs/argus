@@ -17,7 +17,7 @@ function template(name: string, settings: Record<string, unknown>): ProjectTempl
 const devops = template('devops', {
   tools: { read: 'allow', write: 'ask', shell: 'ask', web: 'ask', web_hosts: ['example.com'] },
   approvals: { auto_allow: ['docker ps', 'docker logs *'] },
-  limits: { max_steps_per_run: 80 },
+  limits: { max_steps_total: 80 },
 })
 
 function parse(own: Record<string, unknown>, templates: ProjectTemplate[] = [devops]) {
@@ -33,8 +33,8 @@ describe('a project that follows a template', () => {
     expect(config.template).toBe('devops')
     expect(config.tools).toMatchObject({ read: 'allow', write: 'ask', shell: 'ask', web_hosts: ['example.com'] })
     expect(config.approvals.auto_allow).toEqual(['docker ps', 'docker logs *'])
-    expect(config.limits.max_steps_per_run).toBe(80)
-    expect(config.fromTemplate).toEqual(expect.arrayContaining(['tools.shell', 'tools.web_hosts', 'approvals.auto_allow', 'limits.max_steps_per_run']))
+    expect(config.limits.max_steps_total).toBe(80)
+    expect(config.fromTemplate).toEqual(expect.arrayContaining(['tools.shell', 'tools.web_hosts', 'approvals.auto_allow', 'limits.max_steps_total']))
   })
 
   it('merges maps key by key; a list it sets replaces the template’s, so a rule can be removed', () => {

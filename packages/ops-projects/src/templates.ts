@@ -50,8 +50,9 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       // no database, no other project) and /undo takes a run back. The web still asks, so
       // a page it reads cannot steer the commands it then runs.
       tools: { read: 'allow', write: 'allow', shell: 'allow', web: 'ask' },
-      // Code takes long runs: a person is asked every 100 steps, up to 1000.
-      limits: { max_steps_per_run: 100, max_steps_total: 1000 },
+      // Code takes long runs, up to 1000 steps. Every 50 steps the loop checker (judge.model,
+      // when set) reads the run, and a loop it finds is reported while the run goes on.
+      limits: { max_steps_total: 1000, loop_check_steps: 50, on_loop: 'notify' },
     },
   },
   {
@@ -103,7 +104,7 @@ export const BUILT_IN_TEMPLATES: readonly ProjectTemplate[] = [
       approvals: {
         auto_allow: ['top -b -n 1', 'systemctl status *', 'journalctl *', 'docker ps', 'docker logs *', 'docker stats --no-stream', 'ping -c *', 'ss', 'ip addr', 'apt list *'],
       },
-      limits: { max_steps_per_run: 80, max_steps_total: 300 },
+      limits: { max_steps_total: 300 },
     },
   },
 ]

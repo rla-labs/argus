@@ -336,7 +336,7 @@ export class OpsHealth {
 
   /**
    * Once, at the first start of 0.6 on an existing install: the projects whose own
-   * step, time or loop limits differ from ops.yaml's. Before 0.6 those were read and
+   * step or loop limits differ from ops.yaml's. Before 0.6 those were read and
    * ignored; now they apply, and the operator is told so.
    */
   private limitsNowApply(now: number): Array<{ id: string; limits: string }> {
@@ -350,8 +350,7 @@ export class OpsHealth {
     for (const id of this.options.projects.configuredIds()) {
       const own = this.options.governor.stepLimitsOf(projectOwner(id))
       const parts = [
-        own.maxSteps === global.maxSteps ? undefined : `${own.maxSteps} steps a run`,
-        own.maxWallclockMs === global.maxWallclockMs ? undefined : `${Math.round(own.maxWallclockMs / 60_000)} min a run`,
+        own.maxStepsTotal === global.maxStepsTotal ? undefined : `at most ${own.maxStepsTotal} steps a run`,
         own.loopRepeatThreshold === global.loopRepeatThreshold ? undefined : `a loop after ${own.loopRepeatThreshold} repeats`,
       ].filter((part): part is string => part !== undefined)
       if (parts.length > 0) changed.push({ id, limits: parts.join(', ') })

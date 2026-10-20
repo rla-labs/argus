@@ -36,10 +36,11 @@ preset: null
 # max_subagent_depth has no effect: tools.agents decides whether subagents are used.
 
 limits:
-  # A checkpoint every 60 steps or 45 minutes (0: none); never more than 1000 steps a run.
-  max_steps_per_run: 60
-  max_wallclock_min: 45
+  # Never more than 1000 steps a run; a loop check every 50 steps by judge.model, if set
+  # (0: none), and a loop it finds is told to you while the run goes on (or stop, ask).
   max_steps_total: 1000
+  loop_check_steps: 50
+  on_loop: notify
   max_tokens_per_request: 8000
   max_subagent_depth: 1
   loop_repeat_threshold: 5

@@ -1001,9 +1001,9 @@ export class OpsChannel {
     await this.reply(this.requestAddressFor(runId), stoppedText(subject, reason, detail))
   }
 
-  /** Tell the run's chat that the judge extended it. */
-  async deliverJudged(runId: string, subject: OutputSubject, steps: number, reason: string): Promise<void> {
-    await this.reply(this.requestAddressFor(runId), judgedText(subject, steps, reason))
+  /** Tell the run's chat what the loop checker found. */
+  async deliverJudged(runId: string, subject: OutputSubject, finding: Parameters<typeof judgedText>[1]): Promise<void> {
+    await this.reply(this.requestAddressFor(runId), judgedText(subject, finding))
   }
 
   /** Deliver an interruption notice. */

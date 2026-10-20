@@ -19,8 +19,8 @@ import type {} from '@argus-agent/store'
 import { INTERACTIVE, type ContentBlockLike, type Scope } from '@argus-agent/types'
 import type { OpsGovernor } from './service.js'
 
-/** How long an answer may take beyond the answering project's own run limit. */
-const SLACK_MS = 5 * 60_000
+/** How long the asking project waits for an answer. */
+const ANSWER_WAIT_MS = 45 * 60_000
 
 /** A question waiting for its run to answer. */
 interface Waiting {
@@ -87,7 +87,7 @@ export function registerAskProject(ctx: Context, governor: OpsGovernor): void {
             priority: INTERACTIVE,
           })
           ctx.opsStore.audit.record({ actor: `project:${owner.projectId}`, action: 'project.asked', target, details: { requestId } }, Date.now())
-          const limitMs = config.limits.max_wallclock_min * 60_000 + SLACK_MS
+          const limitMs = ANSWER_WAIT_MS
           try {
             const answer = await new Promise<string>((resolve, reject) => {
               const timer = setTimeout(() => settle(requestId, { error: `no answer within ${Math.round(limitMs / 60_000)} minutes` }), limitMs)

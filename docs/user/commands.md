@@ -260,7 +260,7 @@ What one did: /log site-firma <#>
 ```
 
 The status is `running`, `completed`, `aborted` (`/stop` or `/panic`), `error`,
-`budget_stopped`, `limit_stopped` (stopped at a checkpoint, at the step ceiling, or by the loop and no-progress checks) or `interrupted` (cut off by a
+`budget_stopped`, `limit_stopped` (stopped at the step ceiling, by the loop and no-progress checks, or by the loop checker) or `interrupted` (cut off by a
 restart; the startup report offers to retry it).
 
 ---
@@ -778,7 +778,7 @@ the file stays as it was and the reply says why.
 
 ```
 /set site-firma budget.day_usd 5
-/set site-firma limits.max_steps_per_run 100
+/set site-firma limits.max_steps_total 500
 /set site-firma approvals.mode auto
 /set site-firma approvals.auto_allow [git status, npm test]
 /set site-firma tools.web allow
@@ -794,7 +794,7 @@ the file stays as it was and the reply says why.
 | `model` | `provider/model`; checked for a key and a price, like `/new` |
 | `fallback_model` | The cheaper model a `downgrade` budget switches to |
 | `budget.day_usd`, `budget.month_usd`, `budget.soft_action`, ... | The project's budget |
-| `limits.max_steps_per_run`, `limits.max_wallclock_min`, `limits.max_steps_total`, ... | The per-run limits: the checkpoint (0 is none) and the ceiling |
+| `limits.max_steps_total`, `limits.loop_check_steps`, `limits.on_loop`, ... | The per-run limits: the ceiling, and the loop checker (0 is none; `stop`, `notify` or `ask`) |
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
 | `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
 | `tools.exceptions.<tool>` | One tool's access over its group's, e.g. `tools.exceptions.web_search allow` |
@@ -851,8 +851,8 @@ not moved.
 ## `/defaults [tasks|frontdesk|judge <provider/model>]`
 
 Shows, and changes, the models no project names: the one a `/task` runs on
-(`tasks.model`), the front desk's (`orchestrator.model`) and the judge's (`judge.model`),
-which decides at a checkpoint for the projects with `limits.judge` on.
+(`tasks.model`), the front desk's (`orchestrator.model`) and the loop checker's
+(`judge.model`), which reads the runs of the projects with `limits.loop_check_steps` set.
 
 ```
 /defaults

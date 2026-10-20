@@ -166,10 +166,13 @@ export function apply(ctx: Context): void {
     fire(service.deliverStopped(runId, subjectOf(owner), reason, detail))
   })
 
-  // A judge's stop reaches the chat as the stop notice; its extension needs its own line.
-  ctx.on('ops/judge-verdict', ({ owner, runId, verdict, steps, reason }) => {
-    if (verdict !== 'continue' || steps === undefined || askedByProject(ctx, runId)) return
-    fire(service.deliverJudged(runId, subjectOf(owner), steps, reason))
+  // A loop that stops the run reaches the chat as the stop notice, and one under `ask` as
+  // the question; one under `notify` needs its own line, and so does a checker that keeps
+  // failing (told once, at the third failure in a row).
+  ctx.on('ops/judge-verdict', ({ owner, runId, verdict, reason, onLoop, failures }) => {
+    if (askedByProject(ctx, runId)) return
+    if (verdict === 'loop' && onLoop === 'notify') fire(service.deliverJudged(runId, subjectOf(owner), { loop: true, reason }))
+    else if (failures === 3) fire(service.deliverJudged(runId, subjectOf(owner), { loop: false, failures, reason }))
   })
 
   ctx.on('ops/run-interrupted', ({ owner, runId }) => {

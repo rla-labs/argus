@@ -469,19 +469,17 @@ export class OpsApprovalsBridge {
   }
 
   /**
-   * Decide at a run's checkpoint: a scheduled run stops, an interactive one asks the
-   * person it works for. Registered with the governor as its checkpoint asker.
+   * Ask whether a run the loop checker found in a loop goes on: a scheduled run is not
+   * asked (nobody watches it), an interactive one asks the person it works for.
+   * Registered with the governor as its loop asker.
    *
-   * @param question what the run did by its checkpoint.
+   * @param question what the checker said and the run did.
    * @param signal aborts when the run is stopped while it waits.
-   * @returns continue, or stop with what the stop notice says.
+   * @returns continue, unattended for a scheduled run, or stop with what the stop notice says.
    */
   async checkpoint(question: CheckpointQuestion, signal: AbortSignal): Promise<CheckpointAnswer> {
     const projectId = question.owner.kind === 'project' ? question.owner.projectId : null
-    if (this.isUnattended(question.runId)) {
-      return { kind: 'stop', detail: projectId === null ? 'a scheduled run does not wait for an answer' : `a scheduled run does not wait for an answer; to go on, /p ${projectId}, then "continue"` }
-    }
-    if (question.more === 0) return { kind: 'stop', detail: 'no step is left under its ceiling' }
+    if (this.isUnattended(question.runId)) return { kind: 'unattended' }
     const address = this.addressFor(projectId, question.runId)
     if (address === undefined || !this.options.channel.canReach(address)) return { kind: 'stop', detail: 'nobody can be reached to ask' }
     const timeoutMinutes = this.timeoutMinutesFor(projectId)
@@ -490,19 +488,18 @@ export class OpsApprovalsBridge {
       runId: question.runId,
       reason: question.reason,
       steps: question.steps,
-      more: question.more,
       elapsedMs: this.options.now() - question.startedAt,
       changes: projectId === null ? undefined : await this.options.projects.folderChanges(projectId, question.runId),
       costMicros: question.costMicros,
       timeoutMinutes,
     })
     const questionId = checkpointQuestionId(question.runId, question.steps)
-    const answer = await this.options.channel.ask(address, text, checkpointButtons(question.more), timeoutMinutes * 60_000, questionId)
+    const answer = await this.options.channel.ask(address, text, checkpointButtons(), timeoutMinutes * 60_000, questionId)
     // ponytail: a run stopped while it waited leaves the buttons up until they time out; pressing them then changes nothing.
     if (signal.aborted) return { kind: 'stop', detail: 'it was stopped while it waited' }
     if (answer === 'timeout') return { kind: 'stop', detail: `no answer in ${timeoutMinutes} minute(s)` }
     const continued = answer.value === CONTINUE
-    this.ctx.logger('ops-approvals').info('run %s %s at its checkpoint by %s', question.runId, continued ? 'continued' : 'stopped', this.options.channel.answeredBy(questionId) ?? 'unknown')
+    this.ctx.logger('ops-approvals').info('run %s %s after a loop check by %s', question.runId, continued ? 'continued' : 'stopped', this.options.channel.answeredBy(questionId) ?? 'unknown')
     return continued ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by a person' }
   }
 

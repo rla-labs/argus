@@ -359,31 +359,26 @@ export function planThresholds(
 /** Why a run was stopped at a step boundary. */
 export type StopReason =
   | 'budget_stopped'
-  | 'max_steps'
-  | 'max_wallclock'
   | 'max_steps_total'
   | 'loop_detected'
   | 'stalled'
-
-/** The two limits that ask instead of stopping: a run reached its checkpoint. */
-export type CheckpointReason = Extract<StopReason, 'max_steps' | 'max_wallclock'>
+  /** The loop checker found a loop, and `on_loop` (or the person asked) stopped the run. */
+  | 'loop_checked'
 
 /** What to do with a step. */
 export type StepVerdict =
   | { readonly kind: 'allow' }
   | { readonly kind: 'reject'; readonly reason: StopReason; readonly detail: string }
-  /** The run reached its checkpoint: someone decides whether it goes on. */
-  | { readonly kind: 'checkpoint'; readonly reason: CheckpointReason; readonly detail: string }
+  /** The loop checker is due: a model reads the run before the step goes on. */
+  | { readonly kind: 'loop_check' }
 
 /** The per-run facts a step decision reads. */
 export interface RunView {
   readonly runId: string
   readonly steps: number
   readonly startedAt: number
-  /** The step count of the next checkpoint, once a Continue moved it; else `maxSteps`. */
-  readonly checkpointAt?: number
-  /** When the current time window started, once a Continue restarted it; else `startedAt`. */
-  readonly windowStartedAt?: number
+  /** The step count of the next loop check, once one ran; else `loopCheckSteps`. */
+  readonly nextLoopCheckAt?: number
   /** The most recent steps (a call and its result, {@link stepKey}), oldest first. */
   readonly recentToolCalls: readonly string[]
   /** Set when the no-progress check found the run stalled: what it saw. */
@@ -395,12 +390,10 @@ export interface RunView {
 
 /** The limits a step decision enforces. */
 export interface StepLimits {
-  /** Steps between checkpoints; 0 is none. */
-  readonly maxSteps: number
-  /** Time between checkpoints; 0 is none. */
-  readonly maxWallclockMs: number
-  /** Steps no checkpoint answer can pass. */
+  /** Steps one run never passes. */
   readonly maxStepsTotal: number
+  /** Steps between loop checks; 0 is none. */
+  readonly loopCheckSteps: number
   readonly loopRepeatThreshold: number
   /** Steps in a row with nothing new before a run is stalled; 0 is off. */
   readonly stallSteps: number
@@ -412,15 +405,14 @@ export interface StepLimits {
  * Read in this order so the *most specific* cause is reported: a run that both
  * ran out of budget and hit its step limit should say `budget_stopped`, because
  * that is what the operator can act on. The hard stops (budget, the ceiling, the
- * detectors) come before the checkpoint, so a run going nowhere is never offered a
- * Continue.
+ * detectors) come before the loop check, so a model is never paid to look at a run
+ * code already stopped.
  *
  * @param run the run's facts.
  * @param limits the configured limits.
- * @param now the current time.
  * @returns the verdict.
  */
-export function decideStep(run: RunView, limits: StepLimits, now: number): StepVerdict {
+export function decideStep(run: RunView, limits: StepLimits): StepVerdict {
   if (run.budgetLevel === 'hard') {
     return {
       kind: 'reject',
@@ -451,21 +443,8 @@ export function decideStep(run: RunView, limits: StepLimits, now: number): StepV
 
   if (run.stalled !== undefined) return { kind: 'reject', reason: 'stalled', detail: run.stalled }
 
-  if (limits.maxSteps > 0 && run.steps >= (run.checkpointAt ?? limits.maxSteps)) {
-    return {
-      kind: 'checkpoint',
-      reason: 'max_steps',
-      detail: `the run reached its checkpoint after ${run.steps} steps`,
-    }
-  }
-
-  if (limits.maxWallclockMs > 0 && now - (run.windowStartedAt ?? run.startedAt) >= limits.maxWallclockMs) {
-    const minutes = Math.round(limits.maxWallclockMs / 60_000)
-    return {
-      kind: 'checkpoint',
-      reason: 'max_wallclock',
-      detail: `the run has worked ${minutes} minutes since it started or was last continued`,
-    }
+  if (limits.loopCheckSteps > 0 && run.steps > 0 && run.steps >= (run.nextLoopCheckAt ?? limits.loopCheckSteps)) {
+    return { kind: 'loop_check' }
   }
 
   return { kind: 'allow' }

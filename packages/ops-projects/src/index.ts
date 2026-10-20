@@ -244,7 +244,7 @@ function limitsDefaultsOf(raw: Record<string, unknown>): Partial<ProjectLimits> 
   const limits = raw['limits']
   if (limits === null || typeof limits !== 'object') return {}
   return Object.fromEntries(
-    Object.entries(limits as Record<string, unknown>).filter(([key, value]) => (['max_steps_per_run', 'max_wallclock_min', 'max_steps_total', 'loop_repeat_threshold', 'stall_steps', 'max_tokens_per_request', 'judge_extend_steps', 'judge_max_extensions'].includes(key) ? typeof value === 'number' : key === 'judge' && typeof value === 'boolean')),
+    Object.entries(limits as Record<string, unknown>).filter(([key, value]) => (['max_steps_total', 'loop_repeat_threshold', 'stall_steps', 'max_tokens_per_request', 'loop_check_steps'].includes(key) ? typeof value === 'number' : key === 'on_loop' && ['stop', 'notify', 'ask'].includes(value as string))),
   )
 }
 

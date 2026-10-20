@@ -32,9 +32,9 @@ Risky actions wait for your answer, and no answer counts as no.
 **A sandbox.** An agent's commands are confined by the kernel (Landlock) to the
 project's own folder. `/undo` restores that folder to what it was before a run.
 
-**Long runs that cannot run away.** A run stops on a loop or after many steps with no
-progress. At a checkpoint it asks whether to continue, and a project never passes its
-step ceiling.
+**Long runs that cannot run away.** A run is never paused to ask for more time. It stops
+on its budget, its step ceiling, or a loop that code sees. An optional loop checker
+model can watch it too, and then stop it, tell you, or ask you.
 
 **Recovery.** A crash loses nothing, and interrupted runs come back as a retry button.
 A broken project file sidelines that project only.

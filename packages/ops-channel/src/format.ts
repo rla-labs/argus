@@ -220,9 +220,14 @@ export function stoppedText(subject: OutputSubject, reason: string, detail: stri
   return `${prefixFor(subject)}stopped: ${detail}\n(reason: ${reason})`
 }
 
-/** The judge extended a run at its checkpoint. */
-export function judgedText(subject: OutputSubject, steps: number, reason: string): string {
-  return `${prefixFor(subject)}the judge gave it ${steps} more step(s): ${reason}`
+/**
+ * What the loop checker found that the chat must hear: a loop under `on_loop: notify`
+ * (the run goes on), or the checker failing again and again (the run goes on unchecked).
+ */
+export function judgedText(subject: OutputSubject, finding: { readonly loop: true; readonly reason: string } | { readonly loop: false; readonly failures: number; readonly reason: string }): string {
+  return finding.loop
+    ? `${prefixFor(subject)}the loop checker thinks it is going in circles: ${finding.reason}\nIt goes on (limits.on_loop: notify); /stop ends it.`
+    : `${prefixFor(subject)}the loop checker failed ${finding.failures} times in a row (${finding.reason}). The run goes on without it.`
 }
 
 /** An interruption notice. */

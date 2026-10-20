@@ -1505,7 +1505,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         detail:
           'Writes the setting into the project’s file and reloads it, so the change is ' +
           'durable and checked by the same rules as at startup. A value that does not ' +
-          'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_per_run (the checkpoint; 0 is none), limits.max_steps_total, ' +
+          'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_total, limits.loop_check_steps (0 is none), limits.on_loop (stop, notify, ask), ' +
           'approvals.mode, approvals.auto_allow, description, fallback_model, preset, progress. ' +
           '`model` takes provider/model. id and cwd cannot be changed. A list is written ' +
           '[like, this], whole: it replaces the template\'s. `template none` writes the ' +
@@ -1623,9 +1623,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'With a target and a model (admin), checks the model like /model (a key and a ' +
           'price), writes it to ops.yaml (tasks.model or orchestrator.model, comments ' +
           'kept), and applies it at once: the next task runs on it, and the front desk ' +
-          'starts a fresh conversation on it with the next message. `judge` is the model ' +
-          'that decides at a checkpoint for the projects with limits.judge on (judge.model); ' +
-          'a strong model, different from the projects\' own, is best.',
+          'starts a fresh conversation on it with the next message. `judge` is the loop checker\'s model ' +
+          '(judge.model): every limits.loop_check_steps steps it reads a run and says whether it goes in circles; ' +
+          'a model different from the projects\' own is best.',
         examples: ['/defaults', '/defaults tasks deepseek/deepseek-flash', '/defaults frontdesk openrouter/z-ai/glm-5.3-flash', '/defaults judge anthropic/claude-sonnet-5-5'],
         mutating: true,
       },
@@ -1638,7 +1638,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           return result(
             `Tasks:      ${adhoc.provider}/${adhoc.model}\n` +
               `Front desk: ${desk === undefined ? 'not running' : desk.currentModel()}\n` +
-              `Judge:      ${judge === undefined ? 'none (no project is judged)' : `${judge.provider}/${judge.model}`}\n\n` +
+              `Judge:      ${judge === undefined ? 'none (no loop check)' : `${judge.provider}/${judge.model}`}\n\n` +
               'Change one: /defaults tasks|frontdesk|judge <provider/model>',
           )
         }
@@ -1671,7 +1671,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           target === 'tasks'
             ? 'The next task runs on it.'
             : target === 'judge'
-              ? 'It decides at the next checkpoint of a project with limits.judge on.'
+              ? 'It reads the runs of the projects with limits.loop_check_steps set, from their next check.'
               : 'The front desk starts a fresh conversation on it with your next message.'
         return result(`${label}: ${parsed.value.text}, written to ${file}. ${when}\n${priceLine(parsed.value)}`)
       },
@@ -1770,15 +1770,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         const { limits } = config
-        const checkpoints = [
-          ...(limits.max_steps_per_run === 0 ? [] : [`${limits.max_steps_per_run} steps${from('limits.max_steps_per_run')}`]),
-          ...(limits.max_wallclock_min === 0 ? [] : [`${limits.max_wallclock_min} min${from('limits.max_wallclock_min')}`]),
-        ]
-        const checkpoint = checkpoints.length === 0 ? 'no checkpoint' : `a checkpoint every ${checkpoints.join(' and every ')}`
-        const judged = limits.judge
-          ? `; at a checkpoint the judge${governor.judgeModel() === undefined ? ' (no model: /defaults judge)' : ''} may extend it ${limits.judge_max_extensions} time(s) first${from('limits.judge')}`
-          : ''
-        const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${checkpoint}${judged}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
+        const onLoop = { stop: 'stops it', notify: 'tells you and it goes on', ask: 'asks you' }[limits.on_loop]
+        const loopCheck =
+          limits.loop_check_steps === 0
+            ? `no loop check${from('limits.loop_check_steps')}`
+            : `a loop check every ${limits.loop_check_steps} steps${from('limits.loop_check_steps')}${governor.judgeModel() === undefined ? ' (off: no model, /defaults judge)' : ''}, and a loop it finds ${onLoop}${from('limits.on_loop')}`
+        const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${loopCheck}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
           `${projectId}: tools\n${rows.join('\n')}${hosts}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +

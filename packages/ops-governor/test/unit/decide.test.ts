@@ -702,7 +702,7 @@ describe('checkBudgets', () => {
 // ── decideStep ─────────────────────────────────────────────────────────────
 
 describe('decideStep', () => {
-  const limits = { maxSteps: 10, maxWallclockMs: 60_000, maxStepsTotal: 100, loopRepeatThreshold: 3, stallSteps: 0 }
+  const limits = { maxStepsTotal: 100, loopCheckSteps: 10, loopRepeatThreshold: 3, stallSteps: 0 }
   const run = {
     runId: 'run-1',
     steps: 0,
@@ -712,86 +712,53 @@ describe('decideStep', () => {
   }
 
   it('allows a healthy step', () => {
-    expect(decideStep(run, limits, 1_000)).toEqual({ kind: 'allow' })
+    expect(decideStep(run, limits)).toEqual({ kind: 'allow' })
   })
 
-  it('reaches a checkpoint at the step limit', () => {
-    const verdict = decideStep({ ...run, steps: 10 }, limits, 1_000)
-    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
+  it('is due for a loop check every loopCheckSteps steps, from where the last check moved it', () => {
+    expect(decideStep({ ...run, steps: 9 }, limits)).toEqual({ kind: 'allow' })
+    expect(decideStep({ ...run, steps: 10 }, limits)).toEqual({ kind: 'loop_check' })
+    expect(decideStep({ ...run, steps: 15, nextLoopCheckAt: 20 }, limits)).toEqual({ kind: 'allow' })
+    expect(decideStep({ ...run, steps: 20, nextLoopCheckAt: 20 }, limits)).toEqual({ kind: 'loop_check' })
   })
 
-  it('moves the checkpoint once a Continue set it', () => {
-    expect(decideStep({ ...run, steps: 15, checkpointAt: 20 }, limits, 1_000)).toEqual({ kind: 'allow' })
-    expect(decideStep({ ...run, steps: 20, checkpointAt: 20 }, limits, 1_000)).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
+  it('never asks or stops a run for its length alone: no check at 0', () => {
+    expect(decideStep({ ...run, steps: 99 }, { ...limits, loopCheckSteps: 0 })).toEqual({ kind: 'allow' })
   })
 
-  it('has no checkpoint at 0', () => {
-    expect(decideStep({ ...run, steps: 50 }, { ...limits, maxSteps: 0, maxWallclockMs: 0 }, 999_999)).toEqual({ kind: 'allow' })
+  it('rejects at the ceiling', () => {
+    expect(decideStep({ ...run, steps: 100, nextLoopCheckAt: 200 }, limits)).toEqual({ kind: 'reject', reason: 'max_steps_total', detail: 'the run reached its ceiling of 100 steps' })
   })
 
-  it('rejects at the ceiling, which no checkpoint passes', () => {
-    expect(decideStep({ ...run, steps: 100, checkpointAt: 200 }, limits, 1_000)).toEqual({ kind: 'reject', reason: 'max_steps_total', detail: 'the run reached its ceiling of 100 steps' })
-    expect(decideStep({ ...run, steps: 100 }, { ...limits, maxSteps: 0 }, 1_000)).toMatchObject({ reason: 'max_steps_total' })
-  })
-
-  it('stops a loop rather than offer it a checkpoint', () => {
-    expect(decideStep({ ...run, steps: 10, recentToolCalls: ['read\u0000{}', 'read\u0000{}', 'read\u0000{}'] }, limits, 1_000)).toMatchObject({ kind: 'reject', reason: 'loop_detected' })
+  it('stops a loop code found rather than pay a model to look at it', () => {
+    expect(decideStep({ ...run, steps: 10, recentToolCalls: ['read\u0000{}', 'read\u0000{}', 'read\u0000{}'] }, limits)).toMatchObject({ kind: 'reject', reason: 'loop_detected' })
   })
 
   it('rejects a run the no-progress check found stalled, with what it saw', () => {
-    expect(decideStep({ ...run, stalled: '25 steps in a row with no new result and no file changed' }, limits, 1_000)).toEqual({ kind: 'reject', reason: 'stalled', detail: '25 steps in a row with no new result and no file changed' })
-  })
-
-  it('allows the step just below the limit', () => {
-    expect(decideStep({ ...run, steps: 9 }, limits, 1_000)).toEqual({ kind: 'allow' })
-  })
-
-  it('reaches a checkpoint past the wall-clock limit, counted from the last Continue', () => {
-    expect(decideStep(run, limits, 60_000)).toMatchObject({ kind: 'checkpoint', reason: 'max_wallclock' })
-    expect(decideStep({ ...run, windowStartedAt: 50_000 }, limits, 60_000)).toEqual({ kind: 'allow' })
-  })
-
-  it('allows the step just inside the wall-clock limit', () => {
-    expect(decideStep(run, limits, 59_999)).toEqual({ kind: 'allow' })
+    expect(decideStep({ ...run, stalled: '25 steps in a row with no new result and no file changed' }, limits)).toEqual({ kind: 'reject', reason: 'stalled', detail: '25 steps in a row with no new result and no file changed' })
   })
 
   it('rejects a hard budget', () => {
-    const verdict = decideStep({ ...run, budgetLevel: 'hard' }, limits, 1_000)
-    expect(verdict).toMatchObject({ kind: 'reject', reason: 'budget_stopped' })
+    expect(decideStep({ ...run, budgetLevel: 'hard' }, limits)).toMatchObject({ kind: 'reject', reason: 'budget_stopped' })
   })
 
-  it('reports budget_stopped over max_steps when both apply', () => {
-    // The more actionable cause wins: an operator can raise a budget, but
-    // nothing will make the step limit useful again.
-    const verdict = decideStep({ ...run, budgetLevel: 'hard', steps: 99 }, limits, 999_999)
-    expect(verdict).toMatchObject({ reason: 'budget_stopped' })
-  })
-
-  it('reports max_steps over max_wallclock when both apply', () => {
-    const verdict = decideStep({ ...run, steps: 99 }, limits, 999_999)
-    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_steps' })
+  it('reports budget_stopped over the ceiling when both apply', () => {
+    // The more actionable cause wins: an operator can raise a budget.
+    expect(decideStep({ ...run, budgetLevel: 'hard', steps: 100 }, limits)).toMatchObject({ reason: 'budget_stopped' })
   })
 
   it('rejects a detected loop', () => {
-    const verdict = decideStep(
-      { ...run, recentToolCalls: ['read\u0000{}', 'read\u0000{}', 'read\u0000{}'] },
-      limits,
-      1_000,
-    )
+    const verdict = decideStep({ ...run, recentToolCalls: ['read\u0000{}', 'read\u0000{}', 'read\u0000{}'] }, limits)
     expect(verdict).toMatchObject({ kind: 'reject', reason: 'loop_detected' })
     expect(verdict.kind === 'reject' ? verdict.detail : '').toContain('read')
   })
 
   it('does not reject a soft budget', () => {
-    expect(decideStep({ ...run, budgetLevel: 'soft' }, limits, 1_000)).toEqual({ kind: 'allow' })
+    expect(decideStep({ ...run, budgetLevel: 'soft' }, limits)).toEqual({ kind: 'allow' })
   })
 
   it('mentions the scope whose budget stopped the run', () => {
-    const verdict = decideStep(
-      { ...run, budgetLevel: 'hard', budgetScope: 'project:site' as Scope },
-      limits,
-      1_000,
-    )
+    const verdict = decideStep({ ...run, budgetLevel: 'hard', budgetScope: 'project:site' as Scope }, limits)
     expect(verdict.kind === 'reject' ? verdict.detail : '').toContain('project:site')
   })
 })

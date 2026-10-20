@@ -40,22 +40,27 @@ declare module '@deepseek-ai/cordis' {
     }): void
 
     /**
-     * A run waits at its checkpoint for a person's Continue or Stop.
+     * A run waits for a person's Continue or Stop: the loop checker found a loop, and its
+     * project's `on_loop` is `ask`.
      * @mode emit
      */
     'ops/checkpoint-waiting'(payload: { readonly runId: string; readonly owner: Owner; readonly steps: number }): void
 
     /**
-     * The judge decided at a run's checkpoint. `invalid` and `error` granted nothing.
-     * @param payload.steps the steps granted, for `continue`.
+     * The loop checker read a run. `invalid` and `error` decided nothing, and the run
+     * went on.
+     * @param payload.onLoop for `loop`, what followed: the project's `on_loop`.
+     * @param payload.failures for `invalid` and `error`, how many checks of this run
+     * failed in a row.
      * @mode emit
      */
     'ops/judge-verdict'(payload: {
       readonly runId: string
       readonly owner: Owner
-      readonly verdict: 'continue' | 'stop' | 'invalid' | 'error'
-      readonly steps?: number
+      readonly verdict: 'loop' | 'progress' | 'invalid' | 'error'
       readonly reason: string
+      readonly onLoop?: 'stop' | 'notify' | 'ask'
+      readonly failures?: number
     }): void
 
     /**

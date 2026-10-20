@@ -187,18 +187,17 @@ export function sanitize(text: string, maxLength: number): string {
   return cleaned.length <= maxLength ? cleaned : `${cleaned.slice(0, maxLength - 3)}...`
 }
 
-/** The checkpoint buttons' values. */
+/** The loop question's button values. */
 export const CONTINUE = 'continue'
 export const STOP = 'stop'
 
-/** What a checkpoint question says. */
+/** What a loop question says. */
 export interface CheckpointInput {
   readonly projectId: string | null
   readonly runId: string
-  readonly reason: 'max_steps' | 'max_wallclock'
+  /** Why the loop checker thinks it is a loop. */
+  readonly reason: string
   readonly steps: number
-  /** Steps a Continue grants. */
-  readonly more: number
   readonly elapsedMs: number
   /** Files changed since the run started; undefined without snapshots. */
   readonly changes: { readonly files: number; readonly added: number; readonly removed: number } | undefined
@@ -206,24 +205,27 @@ export interface CheckpointInput {
   readonly timeoutMinutes: number
 }
 
-/** The checkpoint's buttons. */
-export function checkpointButtons(more: number): Button[] {
+/** The loop question's buttons. */
+export function checkpointButtons(): Button[] {
   return [
-    { value: CONTINUE, label: `Continue ${more} more step(s)` },
+    { value: CONTINUE, label: 'Continue' },
     { value: STOP, label: 'Stop' },
   ]
 }
 
 /**
- * The checkpoint question: what the run did, so a person can tell work from wheel-spinning.
+ * The loop question: why the checker thinks the run goes in circles, and what the run
+ * did, so a person decides knowing both.
  *
- * @param input what the run did.
+ * @param input what the checker said and the run did.
  * @returns the text.
  */
 export function checkpointQuestion(input: CheckpointInput): string {
   const where = input.projectId === null ? 'an ad-hoc task' : `project ${input.projectId}`
   const lines = [
-    `Checkpoint: ${where}`,
+    `Possible loop: ${where}`,
+    '',
+    `The loop checker: ${sanitize(input.reason, 200)}`,
     '',
     `  run     ${input.runId}`,
     `  steps   ${input.steps}`,
@@ -235,8 +237,7 @@ export function checkpointQuestion(input: CheckpointInput): string {
   lines.push(
     `  cost    ${formatUsd(input.costMicros as MicroUsd, { decimals: 4 })}`,
     '',
-    input.reason === 'max_steps' ? `It reached its checkpoint after ${input.steps} steps.` : 'It reached its time checkpoint.',
-    `Continue gives it ${input.more} more step(s) and restarts the clock. No answer in ${input.timeoutMinutes} minute(s) stops it; its work is kept, and "continue" picks it up.`,
+    `Continue lets it go on. No answer in ${input.timeoutMinutes} minute(s) stops it; its work is kept, and "continue" picks it up.`,
   )
   return lines.join('\n')
 }

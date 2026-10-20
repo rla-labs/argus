@@ -69,7 +69,7 @@ export interface ServerDeps {
   readonly settings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
-  /** Continue or stop a run waiting at its checkpoint. */
+  /** Continue or stop a run the loop checker found in a loop. */
   readonly answerCheckpoint: (runId: string, value: string, session: Session) => boolean
   /** Subscribe to "something changed"; returns the unsubscribe. */
   readonly onChange: (listener: (topic: string) => void) => () => void

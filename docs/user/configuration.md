@@ -156,16 +156,18 @@ desk use these.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `max_steps_per_run` | int | `60` | The **checkpoint**: every this many steps the run pauses and asks the person it works for, with what it did (steps, files changed, cost) and two buttons, **Continue N more** and **Stop**. No answer within `approvals.timeout_minutes` stops it. A scheduled run does not wait: it stops, and the report says how to go on. Either way its work, files and memory are kept, and "continue" picks it up. `0`: no checkpoint by steps. |
-| `max_wallclock_min` | int | `45` | The same checkpoint by time: minutes since the run started or was last continued. `0`: none by time. |
-| `max_steps_total` | int | `1000` | The **ceiling**: steps one run never passes, whatever is answered at a checkpoint. Set it per project for the work it does: a coding project may need hundreds of steps, a project that renders and cuts a clip a dozen (leave room for a retry: 15–20). |
+| `max_steps_total` | int | `1000` | The **ceiling**: steps one run never passes. Set it per project for the work it does: a coding project may need hundreds of steps, a project that renders and cuts a clip a dozen (leave room for a retry: 15–20). A run is never paused or asked anything for its length alone; the ceiling and the budget are what hold it. |
 | `max_tokens_per_request` | int | `8000` | Tokens in one model request. |
 | `max_subagent_depth` | int | `1` | **No effect.** dsh nests subagents at most one level deep for every agent; whether a project may use them at all is its `tools.agents`. Kept so existing files still load. |
 | `loop_repeat_threshold` | int | `5` | How many times in a row the same call **with the same result** (or a cycle of 2–3 such calls, like read-edit-read-edit) may repeat before the run is stopped as a loop. The same call with a different result (tests run again after a fix) is progress. Times, durations, ids and temp paths are ignored in the comparison. |
 | `stall_steps` | int | `25` | How many steps in a row may bring **nothing new** before the run is stopped as `stalled`: no tool result it has not had before in this run, and no file changed in the project's folder. This catches an agent going round in circles with varied calls, which the loop check cannot see. Long work that keeps producing new results or changing files is never stopped by it. `0` turns it off. |
-| `judge` | bool | `false` | Whether a **judge model** decides at a checkpoint before you are asked (its model: [`judge`](#judge)). It is told what code measured (the request, steps, cost, files changed, new and repeated results, errors) and the agent's last message as untrusted data, and answers continue or stop. Its stop is always followed; its continue is held to the bounds below and to the ceiling and the budget. A wrong or missing answer grants nothing: you are asked, a scheduled run stops. Its requests are charged to the project. |
-| `judge_extend_steps` | int | `0` | The most steps one judge extension grants; `0` is the checkpoint's own interval. |
-| `judge_max_extensions` | int | `2` | How many times the judge may extend one run; after that you decide (a scheduled run stops). |
+| `loop_check_steps` | int | `0` | The **loop checker**: every this many steps a model (its model: [`judge`](#judge)) reads what code measured about the run (the request, steps, cost, files changed, new and repeated results, errors) and the agent's last message as untrusted data, and says whether the run goes in circles. Its requests are charged to the project. An answer it cannot give (an error, a timeout, a wrong shape) decides nothing: the run goes on, and three failures in a row are reported once. `0`, or no `judge.model`: no loop check. |
+| `on_loop` | `stop` \| `notify` \| `ask` | `stop` | What a loop the checker finds does. `stop`: the run stops, and the chat says why. `notify`: the chat is told why, and the run goes on (`/stop` ends it). `ask`: the person it works for gets **Continue** / **Stop** with the checker's reason and what the run did; no answer within `approvals.timeout_minutes` stops it. A scheduled run is not asked: it is told about, as with `notify`. |
+
+`loop_repeat_threshold` and `stall_steps` are code: free, and certain about what they
+see. The loop checker is a model: it costs a request every `loop_check_steps` steps,
+and sees what code cannot (a run busy with new results that lead nowhere). The `site`
+template turns it on as an example, every 50 steps with `notify`.
 
 Before 0.6, a project's own `limits:` were read but not applied (except
 `max_tokens_per_request`): `ops.yaml`'s applied to every project. They apply now.
@@ -247,8 +249,8 @@ gets noticed.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `model` | `provider/model` | — | The model that decides at a checkpoint for the projects with `limits.judge: true`. Without one, no project is judged. A strong model, different from the projects' own, is best: it reads a short page of facts and answers one line, so it costs little. `/defaults judge` changes it from the chat. |
-| `timeout_s` | int | `60` | How long it may take; no answer in time grants nothing. |
+| `model` | `provider/model` | — | The **loop checker's** model, for the projects with `limits.loop_check_steps` set. Without one, there is no loop check. A model different from the projects' own is best: it reads a short page of facts and answers one line, so it costs little. `/defaults judge` changes it from the chat. |
+| `timeout_s` | int | `60` | How long it may take; no answer in time decides nothing, and the run goes on. |
 
 ## `orchestrator`
 
@@ -412,8 +414,9 @@ fallback_model: deepseek/deepseek-flash
 preset: null
 
 limits:
-  max_steps_per_run: 60
-  max_wallclock_min: 45
+  max_steps_total: 300
+  loop_check_steps: 50       # 0: no loop check
+  on_loop: notify            # stop | notify | ask
 
 budget:
   day_usd: 3
@@ -567,7 +570,7 @@ project which pages exist, the reports project asks devops for last night's disk
   other project show it.
 - A project that is answering a question cannot ask one, so two projects cannot keep
   each other busy.
-- It waits at most the other project's `limits.max_wallclock_min` plus five minutes.
+- It waits at most 45 minutes for the answer.
 
 With `agents: ask`, every question is an approval first.
 

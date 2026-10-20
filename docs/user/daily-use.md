@@ -83,28 +83,26 @@ waiting), and `/status` (nothing unexpected running). Approvals left unanswered 
 refused when they time out, so leaving one open is safe; the work just stops at that
 step.
 
-**Long work pauses at a checkpoint.** Every 60 steps (the project's
-`limits.max_steps_per_run`; 100 for a `site` project) the agent stops to ask, with what
-it did so far (steps, files changed, cost) and two buttons: **Continue N more** and
-**Stop**. It waits in place, so nothing is lost; no answer within the approvals timeout
-stops it, and "continue" picks it up later. A scheduled run never waits: it stops and
-says so. No run passes its ceiling, `limits.max_steps_total` (1000 by default; set it
-low for short, fixed jobs):
+**Long work is never paused to ask.** A run goes on until it finishes, its budget runs
+out, it reaches its ceiling (`limits.max_steps_total`, 1000 by default; set it low for
+short, fixed jobs), or Argus sees it going in circles: the same call with the same result
+5 times in a row, or 25 steps that bring nothing new. `/stop` ends it whenever you want.
 
 ```
 /set clipuri limits.max_steps_total 15
-/set clipuri limits.max_steps_per_run 0      no checkpoint: the ceiling is enough
 ```
 
-**A judge can answer the checkpoint for you.** With a judge model set (`/defaults judge
-<provider/model>`) and `limits.judge` on for a project, a model reads what the run did,
-measured by Argus, not told by the agent, and either gives it more steps (a line in the
-chat says how many and why) or stops it. It may extend a run twice by default; then you
-are asked, as before. A scheduled run can go on this way too, within the same bounds.
+**A loop checker can watch long runs.** With a model set (`/defaults judge
+<provider/model>`) and `limits.loop_check_steps` on for a project, a model reads what the
+run did every so many steps, measured by Argus, not told by the agent, and says whether
+it goes in circles. What a loop does is the project's `limits.on_loop`: `stop` it, `notify`
+you while it goes on, or `ask` you with the checker's reason. The `site` template checks
+every 50 steps and notifies.
 
 ```
 /defaults judge anthropic/claude-sonnet-5-5
-/set site-firma limits.judge true
+/set site-firma limits.loop_check_steps 40
+/set site-firma limits.on_loop ask
 ```
 
 ---
@@ -433,7 +431,7 @@ Settings change from the chat (the admin), without touching the server:
 
 ```
 /set site-firma budget.day_usd 5
-/set site-firma limits.max_steps_per_run 100
+/set site-firma limits.max_steps_total 500
 /set site-firma approvals.mode ask
 /set site-firma description The company website: pages, blog and the contact form
 /set site-firma model deepseek/deepseek-v4-flash

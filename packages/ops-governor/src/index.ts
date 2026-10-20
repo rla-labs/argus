@@ -147,7 +147,7 @@ export function apply(ctx: Context): void {
   // event that caused it.
   ctx.on('session/event', (session, event) => {
     if (event.type === 'assistant/message') {
-      // The agent's own words, which the judge sees as untrusted data.
+      // The agent's own words, which the loop checker sees as untrusted data.
       const content = (event.data as { message?: { content?: ReadonlyArray<{ type?: string; text?: unknown }> } }).message?.content ?? []
       governor.noteAssistantText(session.id as string, content.map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : '')).join('\n'))
       return

@@ -144,16 +144,13 @@ describe('parseProjectConfig', () => {
       sourcePath: SOURCE,
     })
     expect(config.limits).toEqual({
-      max_steps_per_run: 60,
-      max_wallclock_min: 45,
       max_steps_total: 1000,
       max_tokens_per_request: 8000,
       max_subagent_depth: 1,
       loop_repeat_threshold: 5,
       stall_steps: 25,
-      judge: false,
-      judge_extend_steps: 0,
-      judge_max_extensions: 2,
+      loop_check_steps: 0,
+      on_loop: 'stop',
     })
     expect(config.budget).toEqual({
       day_usd: 3,
@@ -173,7 +170,7 @@ describe('parseProjectConfig', () => {
       preset: 'standard',
       description: 'The company website.',
       progress: true,
-      limits: { max_steps_per_run: 10, max_wallclock_min: 5, max_tokens_per_request: 100, max_subagent_depth: 2, loop_repeat_threshold: 3 },
+      limits: { max_steps_total: 10, loop_check_steps: 5, on_loop: 'ask', max_tokens_per_request: 100, max_subagent_depth: 2, loop_repeat_threshold: 3 },
       budget: { day_usd: 1, month_usd: 10, info_pct: 40, soft_pct: 70, soft_action: 'downgrade', hard_action: 'reject_new' },
       approvals: { mode: 'auto', auto_allow: ['git status'], timeout_minutes: 5 },
       memory: { user_profile: false },
@@ -182,6 +179,7 @@ describe('parseProjectConfig', () => {
     expect(config.preset).toBe('standard')
     expect(config.progress).toBe(true)
     expect(config.limits.max_subagent_depth).toBe(2)
+    expect(config.limits).toMatchObject({ max_steps_total: 10, loop_check_steps: 5, on_loop: 'ask' })
     expect(config.budget.soft_action).toBe('downgrade')
     expect(config.budget.hard_action).toBe('reject_new')
     expect(config.approvals).toEqual({ mode: 'auto', auto_allow: ['git status'], timeout_minutes: 5 })
@@ -247,7 +245,7 @@ describe('parseProjectConfig', () => {
   })
 
   it('rejects a wrong type for a numeric limit', () => {
-    expect(() => parse({ limits: { max_steps_per_run: 'many' } })).toThrow(ProjectConfigError)
+    expect(() => parse({ limits: { loop_check_steps: 'many' } })).toThrow(ProjectConfigError)
   })
 })
 
@@ -361,12 +359,12 @@ describe('the budget defaults from ops.yaml', () => {
 })
 
 describe('the limits defaults from ops.yaml', () => {
-  const limitsDefaults = { max_steps_per_run: 100, loop_repeat_threshold: 7 }
+  const limitsDefaults = { loop_check_steps: 100, loop_repeat_threshold: 7 }
   const withDefaults = (overrides: Record<string, unknown> = {}) =>
     parseProjectConfig(doc(overrides), { sourcePath: SOURCE, projectsRoot: ROOT, expectedId: 'site', limitsDefaults })
 
   it('apply where the file sets no limit, key by key, and never over the file', () => {
-    expect(withDefaults().limits).toMatchObject({ max_steps_per_run: 100, loop_repeat_threshold: 7, max_wallclock_min: 45 })
-    expect(withDefaults({ limits: { max_steps_per_run: 80 } }).limits).toMatchObject({ max_steps_per_run: 80, loop_repeat_threshold: 7 })
+    expect(withDefaults().limits).toMatchObject({ loop_check_steps: 100, loop_repeat_threshold: 7, on_loop: 'stop' })
+    expect(withDefaults({ limits: { loop_check_steps: 80 } }).limits).toMatchObject({ loop_check_steps: 80, loop_repeat_threshold: 7 })
   })
 })

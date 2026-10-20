@@ -867,8 +867,8 @@ describe('admin-only commands', () => {
     expect((await booted.commands.runCommand('/defaults frontdesk fake/other-model', admin())).text).toContain('no front desk')
 
     // The judge: none until set; then in ops.yaml and in force at once.
-    expect(await run(booted, '/defaults')).toContain('Judge:      none (no project is judged)')
-    expect(await run(booted, '/defaults judge fake/judge-model', admin())).toContain('It decides at the next checkpoint')
+    expect(await run(booted, '/defaults')).toContain('Judge:      none (no loop check)')
+    expect(await run(booted, '/defaults judge fake/judge-model', admin())).toContain('It reads the runs of the projects with limits.loop_check_steps set')
     expect(booted.governor.judgeModel()).toEqual({ provider: 'fake', model: 'judge-model' })
     expect(readFileSync(file, 'utf8')).toMatch(/judge:\n\s+model: fake\/judge-model/)
     expect(await run(booted, '/defaults')).toContain('Judge:      fake/judge-model')
@@ -1274,7 +1274,7 @@ describe('/new', () => {
     const tools = await run(booted, '/tools box')
     expect(tools).toContain('shell   ask (ops)')
     expect(tools).toContain('Commands unasked: docker ps, uptime, df -h (ops)')
-    expect(tools).toContain('Limits per run: at most 1000 steps, a checkpoint every 60 steps and every 45 min; stopped after 5 identical calls in a row, or 25 steps with nothing new')
+    expect(tools).toContain('Limits per run: at most 1000 steps, no loop check; stopped after 5 identical calls in a row, or 25 steps with nothing new')
     expect(await run(booted, '/template ops')).toMatch(/auto_allow:[\s\S]*Followed by: box/)
 
     // The project's own list replaces the template's: a rule can be removed.

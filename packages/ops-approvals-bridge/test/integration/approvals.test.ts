@@ -1223,15 +1223,32 @@ describe('health', () => {
   }, 40_000)
 })
 
-describe('checkpoint', () => {
-  /** A project that works without end: a new tool argument at every step, so only its checkpoint stops it. */
-  async function endless(): Promise<{ booted: Booted; adapter: ConsoleChannelAdapter; stops: string[] }> {
-    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-cp-'))
+describe('the loop checker', () => {
+  const LOOP = '{"verdict":"loop","reason":"the same tick again and again."}'
+
+  /**
+   * A project whose run ticks `steps` times, then answers; every 2 steps the loop checker
+   * (fake/judge-model) reads it and answers `verdict`.
+   */
+  async function checked(onLoop: 'stop' | 'notify' | 'ask', verdict = LOOP, steps = 40): Promise<{ booted: Booted; adapter: ConsoleChannelAdapter; stops: string[] }> {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-loop-'))
     dirs.push(dataDir)
+    let calls = 0
     const booted = await bootBridge({
       dataDir,
-      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 2\n  loop_repeat_threshold: 99\n  stall_steps: 0\ntools:\n  other: allow` },
-      script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n }), id: `c${n}` }] })),
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  loop_check_steps: 2\n  on_loop: ${onLoop}\n  loop_repeat_threshold: 99\n  stall_steps: 0\ntools:\n  other: allow` },
+      opsYaml:
+        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
+        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
+        `access:\n  admin: console:dev\n` +
+        `channel:\n  default_address: console:dev\n` +
+        `judge:\n  model: fake/judge-model\n`,
+      script: ((request: { model: string }) =>
+        request.model === 'judge-model'
+          ? { text: verdict }
+          : calls < steps
+            ? { text: 'x', toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: ++calls }), id: `c${calls}` }] }
+            : { text: 'done' }) as never,
     })
     const adapter = await withConsole(booted)
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
@@ -1243,71 +1260,88 @@ describe('checkpoint', () => {
     return { booted, adapter, stops }
   }
 
-  it('asks the person with what the run did, continues on Continue and stops on Stop', async () => {
-    const { booted, adapter, stops } = await endless()
-    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
-    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the first checkpoint' })
+  const go = (booted: Booted, source: 'channel' | 'scheduler' = 'channel') =>
+    booted.governor.submit({ source, target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: source === 'channel' ? 0 : 1 })
+  const idle = (booted: Booted) => waitFor(() => booted.governor.status().running.length === 0 && booted.governor.status().pending.length === 0, { timeoutMs: 20_000, label: 'the run' })
+
+  it('on_loop ask: asks with the checker\'s reason and what the run did, goes on on Continue, stops on Stop', async () => {
+    const { booted, adapter, stops } = await checked('ask')
+    go(booted)
+    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the first question' })
     const first = adapter.pendingQuestion
-    expect(first?.text).toContain('Checkpoint: project alpha')
+    expect(first?.text).toContain('Possible loop: project alpha')
+    expect(first?.text).toContain('The loop checker: the same tick again and again.')
     expect(first?.text).toContain('steps   2')
-    expect(first?.text).toContain('Continue gives it 2 more step(s)')
     expect(first?.buttons.map((button) => button.value)).toEqual([CONTINUE, STOP])
     // It waits: the run holds its slot.
     expect(booted.governor.status().running).toHaveLength(1)
     adapter.answer(CONTINUE, 'dev')
-    await waitFor(() => adapter.pendingQuestion?.text.includes('steps   4') === true, { timeoutMs: 20_000, label: 'the second checkpoint' })
+    await waitFor(() => adapter.pendingQuestion?.text.includes('steps   4') === true, { timeoutMs: 20_000, label: 'the second question' })
     adapter.answer(STOP, 'dev')
-    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
-    expect(stops).toEqual(['the run reached its checkpoint after 4 steps: stopped by a person'])
+    await idle(booted)
+    expect(stops).toEqual(['the loop checker found a loop (the same tick again and again.): stopped by a person'])
     expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 4 })
   }, 60_000)
 
-  it('stops a run nobody answers', async () => {
-    const { booted, adapter, stops } = await endless()
-    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
-    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the checkpoint' })
+  it('on_loop ask: stops a run nobody answers', async () => {
+    const { booted, adapter, stops } = await checked('ask')
+    go(booted)
+    await waitFor(() => adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the question' })
     adapter.timeout()
-    await waitFor(() => booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
-    expect(stops).toEqual(['the run reached its checkpoint after 2 steps: no answer in 30 minute(s)'])
+    await idle(booted)
+    expect(stops).toEqual(['the loop checker found a loop (the same tick again and again.): no answer in 30 minute(s)'])
   }, 60_000)
 
-  it('lets the judge extend a scheduled run, then stops it without asking', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-judge-'))
-    dirs.push(dataDir)
-    let calls = 0
-    const booted = await bootBridge({
-      dataDir,
-      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 2\n  judge: true\n  judge_max_extensions: 1\n  loop_repeat_threshold: 99\n  stall_steps: 0\ntools:\n  other: allow` },
-      opsYaml:
-        `timezone: UTC\ndata_dir: ${JSON.stringify(dataDir)}\n` +
-        `pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n` +
-        `access:\n  admin: console:dev\n` +
-        `channel:\n  default_address: console:dev\n` +
-        `judge:\n  model: fake/judge-model\n`,
-      script: ((request: { model: string }) =>
-        request.model === 'judge-model'
-          ? { text: '{"verdict":"continue","steps":2,"reason":"new files each step"}' }
-          : { text: 'x', toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: ++calls }), id: `c${calls}` }] }) as never,
-    })
-    const adapter = await withConsole(booted)
-    const { defineTool } = await import('@deepseek-ai/dsh-tools')
-    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
-      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
-    )
-    const stops: string[] = []
-    booted.ctx.on('ops/run-stopped', ({ detail }) => stops.push(detail))
-    booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
-    await waitFor(() => stops.length > 0 && booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
-    expect(stops).toEqual(['the run reached its checkpoint after 4 steps: a scheduled run does not wait for an answer; to go on, /p alpha, then "continue"'])
+  it('on_loop ask: a scheduled run is not asked; it is told about and goes on', async () => {
+    const { booted, adapter, stops } = await checked('ask', LOOP, 4)
+    go(booted, 'scheduler')
+    await idle(booted)
     expect(adapter.pendingCount).toBe(0)
-    expect(adapter.texts().some((text) => text.includes('[alpha] the judge gave it 2 more step(s): new files each step'))).toBe(true)
+    expect(stops).toEqual([])
+    expect(adapter.texts().filter((text) => text.includes('[alpha] the loop checker thinks it is going in circles'))).toHaveLength(2)
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed' })
   }, 60_000)
 
-  it('stops a scheduled run at its checkpoint without asking, and says how to go on', async () => {
-    const { booted, adapter, stops } = await endless()
-    booted.governor.submit({ source: 'scheduler', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 1 })
-    await waitFor(() => stops.length > 0 && booted.governor.status().running.length === 0, { timeoutMs: 20_000, label: 'the run' })
+  it('on_loop notify: tells the chat and the run goes on to its end', async () => {
+    const { booted, adapter, stops } = await checked('notify', LOOP, 5)
+    go(booted)
+    await idle(booted)
+    expect(stops).toEqual([])
     expect(adapter.pendingCount).toBe(0)
-    expect(stops).toEqual(['the run reached its checkpoint after 2 steps: a scheduled run does not wait for an answer; to go on, /p alpha, then "continue"'])
+    const told = adapter.texts().filter((text) => text.includes('the loop checker thinks it is going in circles: the same tick again and again.'))
+    expect(told).toHaveLength(2)
+    expect(told[0]).toContain('It goes on (limits.on_loop: notify); /stop ends it.')
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 6 })
+  }, 60_000)
+
+  it('on_loop stop: stops the run and says why', async () => {
+    const { booted, adapter, stops } = await checked('stop')
+    go(booted)
+    await idle(booted)
+    expect(stops).toEqual(['the loop checker found a loop: the same tick again and again.'])
+    expect(adapter.pendingCount).toBe(0)
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 2 })
+    const audited = booted.store.audit.recent(20).find((row) => row.action === 'judge.verdict')
+    expect(JSON.parse(audited?.details_json ?? '{}')).toMatchObject({ verdict: 'loop', onLoop: 'stop', model: 'fake/judge-model' })
+  }, 60_000)
+
+  it('a checker that fails lets the run go on; failing three times in a row is told once', async () => {
+    const { booted, adapter, stops } = await checked('stop', 'not json', 9)
+    go(booted)
+    await idle(booted)
+    expect(stops).toEqual([])
+    const failed = adapter.texts().filter((text) => text.includes('the loop checker failed'))
+    expect(failed).toHaveLength(1)
+    expect(failed[0]).toContain('failed 3 times in a row (an answer that is not a verdict: not json). The run goes on without it.')
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 10 })
+  }, 60_000)
+
+  it('progress lets the run go on, and the chat hears nothing of it', async () => {
+    const { booted, adapter, stops } = await checked('stop', '{"verdict":"progress","reason":"new results."}', 5)
+    go(booted)
+    await idle(booted)
+    expect(stops).toEqual([])
+    expect(adapter.texts().some((text) => text.includes('loop checker'))).toBe(false)
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 6 })
   }, 60_000)
 })

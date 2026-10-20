@@ -419,6 +419,20 @@ docker exec argus-agent node -e '
 '
 ```
 
+### Upgrading to 0.6.2
+
+Nothing to do by hand. What changes for you:
+
+- **No more checkpoints.** A run is no longer paused every 60 steps or 45 minutes to ask
+  Continue or Stop. It goes on until it finishes, its budget runs out, it reaches
+  `limits.max_steps_total`, or a loop check stops it. `max_steps_per_run`,
+  `max_wallclock_min`, `judge`, `judge_extend_steps` and `judge_max_extensions` are
+  ignored where a file still has them; remove them when you next edit it.
+- **The judge is now a loop checker**, off unless a project sets
+  `limits.loop_check_steps`; `limits.on_loop` says what a loop does (`stop`, `notify`,
+  `ask`). Its model is still `judge.model`. A `site` project checks every 50 steps and
+  notifies, once a model is set ([Configuration](configuration.md#limits)).
+
 ### Upgrading to 0.6.0
 
 Nothing to do by hand, and no database migration. What changes for you:

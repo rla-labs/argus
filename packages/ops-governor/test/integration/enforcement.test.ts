@@ -567,7 +567,7 @@ describe('per-run limits', () => {
   it('stops an infinite tool loop', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_total: 50\n${PRICING}`,
       // The model asks for the same tool with identical arguments, forever.
       script: [
         { text: 'again', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'spin', arguments: '{"x":1}', id: 'c1' }] },
@@ -603,7 +603,7 @@ describe('per-run limits', () => {
     // signal is the STOP EVENT rather than a transient `running` count.
     await waitFor(() => reasons.length > 0, { timeoutMs: 25_000, label: 'loop stopped' })
 
-    // FACT: without detection this would run until max_steps_per_run.
+    // FACT: without detection this would run until its ceiling.
     expect(reasons).toContain('loop_detected')
     expect(calls).toBeLessThan(10)
     expect(booted.store.runs.recent(1)[0]?.status).toBe('limit_stopped')
@@ -612,7 +612,7 @@ describe('per-run limits', () => {
   it('does not stop a loop of DIFFERENT tool calls', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_total: 50\n${PRICING}`,
       // The arguments change each time, so this is paging, not looping.
       script: [
         { text: 'one', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'page', arguments: '{"n":1}', id: 'c1' }] },
@@ -652,7 +652,7 @@ describe('per-run limits', () => {
     // A test run again after each fix: same call, a different result each time.
     const progress = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_total: 50\n${PRICING}`,
       script: [
         ...Array.from({ length: 6 }, (_, n) => ({ text: 'again', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'test', arguments: '{}', id: `t${n}` }] })),
         { text: 'done', usage: { inputTokens: 10, outputTokens: 0 } },
@@ -674,7 +674,7 @@ describe('per-run limits', () => {
     // Read, edit, read, edit… with the same results: a cycle.
     const cycle = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_per_run: 50\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 3\n  max_steps_total: 50\n${PRICING}`,
       script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: n % 2 === 0 ? 'look' : 'change', arguments: '{"path":"a.ts"}', id: `c${n}` }] })),
       repeatLast: true,
     })
@@ -696,7 +696,7 @@ describe('per-run limits', () => {
     const boot = () =>
       bootGovernor({
         projects: { alpha: {} },
-        opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_per_run: 20\n${PRICING}`,
+        opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_total: 20\n${PRICING}`,
         script,
         repeatLast: true,
       }).then(async (booted) => {
@@ -718,7 +718,7 @@ describe('per-run limits', () => {
     const { join } = await import('node:path')
     const booted = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_per_run: 20\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 6\n  max_steps_total: 20\n${PRICING}`,
       script: Array.from({ length: 40 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'probe', arguments: JSON.stringify({ n: n % 4 }), id: `c${n}` }] })),
       repeatLast: true,
     })
@@ -734,14 +734,14 @@ describe('per-run limits', () => {
     booted.ctx.on('ops/run-stopped', ({ reason }) => stops.push(reason))
     submit(booted, 'alpha', 'go')
     await waitFor(() => stops.length > 0, { timeoutMs: 25_000, label: 'the run stopped' })
-    // FACT: the step limit stops it, not the no-progress check: files kept changing.
-    expect(stops).toEqual(['max_steps'])
+    // FACT: the ceiling stops it, not the no-progress check: files kept changing.
+    expect(stops).toEqual(['max_steps_total'])
   }, 60_000)
 
-  it('stops a run that exceeds its step limit', async () => {
+  it('stops a run that reaches its ceiling', async () => {
     const booted = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_steps_per_run: 3\n  loop_repeat_threshold: 99\n${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_steps_total: 3\n  loop_repeat_threshold: 99\n${PRICING}`,
       script: [
         { text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: '{"n":1}', id: 'c1' }] },
       ],
@@ -777,18 +777,18 @@ describe('per-run limits', () => {
     submit(booted, 'alpha', 'go')
     await waitIdle(booted, 'step limit')
 
-    expect(reasons).toContain('max_steps')
+    expect(reasons).toContain('max_steps_total')
     expect(booted.store.runs.recent(1)[0]?.status).toBe('limit_stopped')
   }, 45_000)
 
   it('applies the project\'s own step limit over ops.yaml\'s', async () => {
     const booted = await bootGovernor({
-      projects: { alpha: { limits: { max_steps_per_run: 3 } } },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_steps_per_run: 50\n  loop_repeat_threshold: 99\n${PRICING}`,
+      projects: { alpha: { limits: { max_steps_total: 3 } } },
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_steps_total: 50\n  loop_repeat_threshold: 99\n${PRICING}`,
       script: [{ text: 'x', usage: { inputTokens: 10, outputTokens: 0 } }],
       repeatLast: true,
     })
-    expect(booted.projects.configOf('alpha')?.limits).toMatchObject({ max_steps_per_run: 3, loop_repeat_threshold: 99 })
+    expect(booted.projects.configOf('alpha')?.limits).toMatchObject({ max_steps_total: 3, loop_repeat_threshold: 99 })
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
     const agent = await booted.projects.ensureAgent('alpha')
     agent.ctx.tools.register(defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }))
@@ -801,40 +801,8 @@ describe('per-run limits', () => {
     submit(booted, 'alpha', 'go')
     await waitIdle(booted, 'step limit')
     // FACT: before 0.6 the project's 3 was ignored and ops.yaml's 50 applied.
-    expect(details).toContain('the run reached its checkpoint after 3 steps: nobody can be asked to continue it')
+    expect(details).toContain('the run reached its ceiling of 3 steps')
   }, 45_000)
-
-  it('stops a run that exceeds its wall-clock limit', async () => {
-    const booted = await bootGovernor({
-      projects: { alpha: {} },
-      // A one-minute limit; the fake clock jumps past it.
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  max_wallclock_min: 1\n  max_steps_per_run: 50\n${PRICING}`,
-      script: [{ text: 'x', usage: { inputTokens: 10, outputTokens: 0 } }],
-      repeatLast: true,
-    })
-
-    const reasons: string[] = []
-    booted.ctx.on('ops/run-stopped', ({ reason }) => reasons.push(reason))
-
-    // Advance the real clock's reading by patching the governor's source of time
-    // is not exposed, so this asserts through the pure function's contract
-    // instead: the integration path is the same `decideStep` call.
-    const { decideStep } = await import('../../src/decide.js')
-    const verdict = decideStep(
-      {
-        runId: 'r',
-        steps: 0,
-        startedAt: 0,
-        recentToolCalls: [],
-        budgetLevel: 'ok',
-      },
-      { maxSteps: 50, maxWallclockMs: 60_000, maxStepsTotal: 1000, loopRepeatThreshold: 5, stallSteps: 0 },
-      60_000,
-    )
-    expect(verdict).toMatchObject({ kind: 'checkpoint', reason: 'max_wallclock' })
-    void booted
-    void reasons
-  }, 30_000)
 })
 
 // ── overrides ──────────────────────────────────────────────────────────────
@@ -1101,97 +1069,16 @@ describe('edge cases', () => {
 
 // ── the no-bypass rule ─────────────────────────────────────────────────────
 
-describe('checkpoint', () => {
-  /** A project whose model calls a tool with a new argument at every step, so only the limits stop it. */
-  async function ticking(limits: string): Promise<Booted> {
-    const booted = await bootGovernor({
-      projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 0\n${limits}${PRICING}`,
-      script: Array.from({ length: 60 }, (_, n) => ({ text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n }), id: `c${n}` }] })),
-      repeatLast: true,
-    })
-    const { defineTool } = await import('@deepseek-ai/dsh-tools')
-    ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
-      defineTool({ name: 'tick', description: 'tick', parameters: {}, output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] }, execute: async () => 'tick' }),
-    )
-    return booted
-  }
-
-  it('waits for the answer and goes on after Continue, then stops on Stop', async () => {
-    const booted = await ticking('  max_steps_per_run: 3\n')
-    const asked: Array<{ steps: number; more: number }> = []
-    booted.governor.setCheckpointAsker(async ({ steps, more }) => {
-      asked.push({ steps, more })
-      return asked.length === 1 ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by test' }
-    })
-    const stops: Array<{ reason: string; detail: string }> = []
-    booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push({ reason, detail }))
-    submit(booted, 'alpha', 'go')
-    await waitIdle(booted, 'stopped at the second checkpoint')
-    expect(asked).toEqual([{ steps: 3, more: 3 }, { steps: 6, more: 3 }])
-    expect(stops).toEqual([{ reason: 'max_steps', detail: 'the run reached its checkpoint after 6 steps: stopped by test' }])
-    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 6 })
-  }, 45_000)
-
-  it('never passes the ceiling, whatever is answered', async () => {
-    const booted = await ticking('  max_steps_per_run: 3\n  max_steps_total: 7\n')
-    const more: number[] = []
-    booted.governor.setCheckpointAsker(async (question) => {
-      more.push(question.more)
-      return { kind: 'continue' }
-    })
-    const stops: string[] = []
-    booted.ctx.on('ops/run-stopped', ({ reason }) => stops.push(reason))
-    submit(booted, 'alpha', 'go')
-    await waitIdle(booted, 'stopped at the ceiling')
-    // The second Continue offers only the one step left under the ceiling.
-    expect(more).toEqual([3, 1])
-    expect(stops).toEqual(['max_steps_total'])
-    expect(booted.store.runs.recent(1)[0]?.steps).toBe(7)
-  }, 45_000)
-
-  it('stops a run stopped while it waits', async () => {
-    const booted = await ticking('  max_steps_per_run: 2\n')
-    let asked = false
-    let aborted = false
-    booted.governor.setCheckpointAsker((_question, signal) => {
-      asked = true
-      signal.addEventListener('abort', () => (aborted = true))
-      return new Promise(() => undefined)
-    })
-    const details: string[] = []
-    booted.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
-    submit(booted, 'alpha', 'go')
-    await waitFor(() => asked, { timeoutMs: 20_000, label: 'the checkpoint asked' })
-    expect(booted.governor.status().running).toHaveLength(1)
-    expect(booted.governor.stop({ projectId: 'alpha' })).toBe(true)
-    await waitIdle(booted, 'stopped while waiting')
-    expect(details).toEqual(['the run reached its checkpoint after 2 steps: it was stopped while it waited'])
-    expect(aborted).toBe(true)
-  }, 45_000)
-
-  it('stops when the question fails', async () => {
-    const booted = await ticking('  max_steps_per_run: 2\n')
-    booted.governor.setCheckpointAsker(async () => {
-      throw new Error('no chat')
-    })
-    const details: string[] = []
-    booted.ctx.on('ops/run-stopped', ({ detail }) => details.push(detail))
-    submit(booted, 'alpha', 'go')
-    await waitIdle(booted, 'stopped')
-    expect(details).toEqual(['the run reached its checkpoint after 2 steps: the question could not be asked'])
-  }, 45_000)
-})
-
-describe('judge', () => {
+describe('the loop check', () => {
   /**
-   * A project that ticks forever, with the judge on: requests to `fake/judge-model`
-   * are the judge's, answered by `answer`; the rest are the agent's.
+   * A project that ticks `ticks` times with a new argument each, then answers: only the
+   * limits and the loop check stop it. Requests to `fake/judge-model` are the checker's,
+   * answered by `answer`.
    */
-  async function judged(limits: string, answer: (call: number) => string): Promise<{ booted: Booted; facts: string[]; verdicts: Array<{ verdict: string; steps?: number }>; stops: string[] }> {
+  async function checked(limits: string, answer: (call: number) => string, options: { ticks?: number; model?: boolean } = {}): Promise<{ booted: Booted; facts: string[]; verdicts: Array<{ verdict: string; onLoop?: string; failures?: number }>; stops: string[] }> {
     const booted = await bootGovernor({
       projects: { alpha: {} },
-      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\njudge:\n  model: fake/judge-model\nlimits:\n  loop_repeat_threshold: 99\n  stall_steps: 0\n  judge: true\n${limits}${PRICING}`,
+      opsYaml: `timezone: UTC\ndata_dir: ${JSON.stringify('PLACEHOLDER')}\n${options.model === false ? '' : 'judge:\n  model: fake/judge-model\n'}limits:\n  loop_repeat_threshold: 99\n  stall_steps: 0\n${limits}${PRICING}`,
     })
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
     ;(await booted.projects.ensureAgent('alpha')).ctx.tools.register(
@@ -1204,68 +1091,133 @@ describe('judge', () => {
         facts.push(request.lastUserText)
         return { text: answer(facts.length), usage: { inputTokens: 500, outputTokens: 20 } }
       }
+      if (agentCalls >= (options.ticks ?? Infinity)) return { text: 'done', usage: { inputTokens: 10, outputTokens: 0 } }
       agentCalls += 1
       return { text: 'all done, it works now', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: 'tick', arguments: JSON.stringify({ n: agentCalls }), id: `c${agentCalls}` }] }
     })
-    const verdicts: Array<{ verdict: string; steps?: number }> = []
-    booted.ctx.on('ops/judge-verdict', ({ verdict, steps }) => verdicts.push(steps === undefined ? { verdict } : { verdict, steps }))
+    const verdicts: Array<{ verdict: string; onLoop?: string; failures?: number }> = []
+    booted.ctx.on('ops/judge-verdict', ({ verdict, onLoop, failures }) => verdicts.push({ verdict, ...(onLoop === undefined ? {} : { onLoop }), ...(failures === undefined ? {} : { failures }) }))
     const stops: string[] = []
     booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push(`${reason}: ${detail}`))
     return { booted, facts, verdicts, stops }
   }
+  const LOOP = '{"verdict":"loop","reason":"it repeats itself"}'
+  const PROGRESS = '{"verdict":"progress","reason":"new results each step"}'
 
-  it('extends within its bounds, then a person decides', async () => {
-    const { booted, facts, verdicts, stops } = await judged('  max_steps_per_run: 3\n  judge_max_extensions: 2\n', () => '{"verdict":"continue","steps":50,"reason":"files keep changing"}')
-    const asked: number[] = []
-    booted.governor.setCheckpointAsker(async ({ steps }) => {
-      asked.push(steps)
-      return { kind: 'stop', detail: 'stopped by test' }
-    })
+  it('reads the run every loop_check_steps steps from what code measured, and progress lets it finish', async () => {
+    const { booted, facts, verdicts, stops } = await checked('  loop_check_steps: 3\n', () => PROGRESS, { ticks: 7 })
     submit(booted, 'alpha', 'make the tests pass')
-    await waitIdle(booted, 'stopped by the person')
-    // 50 asked, 3 granted (the checkpoint interval), twice; then the person.
-    expect(verdicts).toEqual([{ verdict: 'continue', steps: 3 }, { verdict: 'continue', steps: 3 }])
-    expect(asked).toEqual([9])
-    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 9 steps: stopped by test'])
+    await waitIdle(booted, 'the run')
+    expect(stops).toEqual([])
+    expect(verdicts).toEqual([{ verdict: 'progress' }, { verdict: 'progress' }])
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 8 })
     // The facts are code's: the request verbatim, the counts, the agent's words fenced as data.
     expect(facts[0]).toContain('> make the tests pass')
     expect(facts[0]).toContain('Steps so far: 3.')
     expect(facts[0]).toMatch(/Last 3 step\(s\): 3 new result\(s\), 0 repeated, 0 tool error\(s\)/)
     expect(facts[0]).toContain('<<<AGENT_MESSAGE\nall done, it works now\nAGENT_MESSAGE>>>')
-    expect(facts[1]).toContain('0 extension(s) are left after this one')
+    expect(facts[1]).toContain('Steps so far: 6.')
+    expect(facts[1]).toMatch(/Last 3 step\(s\)/)
     // Its requests are the run's: audited, and counted in the run's cost.
     expect(booted.store.audit.recent(50).filter((row) => row.action === 'judge.verdict')).toHaveLength(2)
     await booted.meter.flush()
     expect(booted.store.usage.totalsByRun(booted.store.runs.recent(1)[0]!.id).input_tokens).toBeGreaterThanOrEqual(2 * 500)
   }, 45_000)
 
-  it('stops the run when it says stop, without asking anyone', async () => {
-    const { booted, stops } = await judged('  max_steps_per_run: 3\n', () => '{"verdict":"stop","reason":"it repeats itself"}')
+  it('without a model, there is no loop check', async () => {
+    const { booted, facts, stops } = await checked('  loop_check_steps: 3\n', () => LOOP, { ticks: 7, model: false })
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'the run')
+    expect(facts).toEqual([])
+    expect(stops).toEqual([])
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed' })
+  }, 45_000)
+
+  it('on_loop stop: a loop stops the run, without asking anyone', async () => {
+    const { booted, verdicts, stops } = await checked('  loop_check_steps: 3\n  on_loop: stop\n', () => LOOP)
     let asked = false
     booted.governor.setCheckpointAsker(async () => {
       asked = true
       return { kind: 'continue' }
     })
     submit(booted, 'alpha', 'go')
-    await waitIdle(booted, 'stopped by the judge')
-    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 3 steps: the judge stopped it: it repeats itself'])
+    await waitIdle(booted, 'stopped by the loop check')
+    expect(stops).toEqual(['loop_checked: the loop checker found a loop: it repeats itself'])
+    expect(verdicts).toEqual([{ verdict: 'loop', onLoop: 'stop' }])
     expect(asked).toBe(false)
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'limit_stopped', steps: 3 })
   }, 45_000)
 
-  it('grants nothing for an answer that is not a verdict: the person decides', async () => {
-    const { booted, verdicts, stops } = await judged('  max_steps_per_run: 3\n', () => 'Sure! Keep going, it looks great.')
-    booted.governor.setCheckpointAsker(async () => ({ kind: 'stop', detail: 'stopped by test' }))
+  it('on_loop notify: a loop is reported and the run goes on', async () => {
+    const { booted, verdicts, stops } = await checked('  loop_check_steps: 3\n  on_loop: notify\n', () => LOOP, { ticks: 7 })
     submit(booted, 'alpha', 'go')
-    await waitIdle(booted, 'stopped by the person')
-    expect(verdicts).toEqual([{ verdict: 'invalid' }])
-    expect(stops).toEqual(['max_steps: the run reached its checkpoint after 3 steps: stopped by test'])
+    await waitIdle(booted, 'the run')
+    expect(stops).toEqual([])
+    expect(verdicts).toEqual([{ verdict: 'loop', onLoop: 'notify' }, { verdict: 'loop', onLoop: 'notify' }])
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 8 })
   }, 45_000)
 
-  it('never takes a run past its ceiling, however often it says continue', async () => {
-    const { booted, verdicts, stops } = await judged('  max_steps_per_run: 3\n  max_steps_total: 8\n  judge_max_extensions: 9\n', () => '{"verdict":"continue","steps":3,"reason":"progress"}')
+  it('on_loop ask: waits for the answer; Continue goes on, Stop stops', async () => {
+    const { booted, stops } = await checked('  loop_check_steps: 3\n  on_loop: ask\n', () => LOOP)
+    const asked: Array<{ steps: number; reason: string }> = []
+    booted.governor.setCheckpointAsker(async ({ steps, reason }) => {
+      asked.push({ steps, reason })
+      return asked.length === 1 ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by test' }
+    })
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped at the second question')
+    expect(asked).toEqual([{ steps: 3, reason: 'it repeats itself' }, { steps: 6, reason: 'it repeats itself' }])
+    expect(stops).toEqual(['loop_checked: the loop checker found a loop (it repeats itself): stopped by test'])
+  }, 45_000)
+
+  it('on_loop ask: stops when nobody can be asked', async () => {
+    const nobody = await checked('  loop_check_steps: 2\n  on_loop: ask\n', () => LOOP)
+    submit(nobody.booted, 'alpha', 'go')
+    await waitIdle(nobody.booted, 'stopped')
+    expect(nobody.stops).toEqual(['loop_checked: the loop checker found a loop (it repeats itself), and nobody can be asked whether it goes on'])
+  }, 45_000)
+
+  it('on_loop ask: stops when the question fails', async () => {
+    const { booted, stops } = await checked('  loop_check_steps: 2\n  on_loop: ask\n', () => LOOP)
+    booted.governor.setCheckpointAsker(async () => {
+      throw new Error('no chat')
+    })
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'stopped')
+    expect(stops).toEqual(['loop_checked: the loop checker found a loop (it repeats itself): the question could not be asked'])
+  }, 45_000)
+
+  it('on_loop ask: stops a run stopped while it waits', async () => {
+    const { booted, stops } = await checked('  loop_check_steps: 2\n  on_loop: ask\n', () => LOOP)
+    let asked = false
+    let aborted = false
+    booted.governor.setCheckpointAsker((_question, signal) => {
+      asked = true
+      signal.addEventListener('abort', () => (aborted = true))
+      return new Promise(() => undefined)
+    })
+    submit(booted, 'alpha', 'go')
+    await waitFor(() => asked, { timeoutMs: 20_000, label: 'the question asked' })
+    expect(booted.governor.status().running[0]?.checkpoint).toMatchObject({ steps: 2, reason: 'it repeats itself' })
+    expect(booted.governor.stop({ projectId: 'alpha' })).toBe(true)
+    await waitIdle(booted, 'stopped while waiting')
+    expect(stops).toEqual(['loop_checked: the loop checker found a loop (it repeats itself): it was stopped while it waited'])
+    expect(aborted).toBe(true)
+  }, 45_000)
+
+  it('an answer that is not a verdict decides nothing: the run goes on, and the failures are counted', async () => {
+    const { booted, verdicts, stops } = await checked('  loop_check_steps: 2\n  on_loop: stop\n', () => 'Sure! Keep going, it looks great.', { ticks: 7 })
+    submit(booted, 'alpha', 'go')
+    await waitIdle(booted, 'the run')
+    expect(stops).toEqual([])
+    expect(verdicts).toEqual([1, 2, 3].map((failures) => ({ verdict: 'invalid', failures })))
+    expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed' })
+  }, 45_000)
+
+  it('never takes a run past its ceiling, whatever it answers', async () => {
+    const { booted, stops } = await checked('  loop_check_steps: 3\n  max_steps_total: 8\n', () => PROGRESS)
     submit(booted, 'alpha', 'go')
     await waitIdle(booted, 'stopped at the ceiling')
-    expect(verdicts).toEqual([{ verdict: 'continue', steps: 3 }, { verdict: 'continue', steps: 2 }])
     expect(stops).toEqual(['max_steps_total: the run reached its ceiling of 8 steps'])
     expect(booted.store.runs.recent(1)[0]?.steps).toBe(8)
   }, 45_000)
@@ -1282,10 +1234,10 @@ describe('long runs, with the default limits', () => {
 
   /**
    * Run a project through the real governor with ops.yaml's defaults (threshold 5,
-   * stall 25, checkpoint 60, ceiling 1000). The model calls `script(n)` at its n-th
-   * request, or finishes when it returns undefined.
+   * stall 25, ceiling 1000, no loop check). The model calls `script(n)` at its n-th
+   * request, or finishes when it returns undefined. Nobody is there to answer a question.
    */
-  async function longRun(script: (n: number) => Step | undefined, asker?: () => 'continue' | 'stop'): Promise<{ status: string | undefined; steps: number | undefined; stops: string[]; asked: number[] }> {
+  async function longRun(script: (n: number) => Step | undefined): Promise<{ status: string | undefined; steps: number | undefined; stops: string[] }> {
     const booted = await bootGovernor({ projects: { alpha: {} } })
     const { defineTool } = await import('@deepseek-ai/dsh-tools')
     const { writeFileSync: write } = await import('node:fs')
@@ -1309,19 +1261,12 @@ describe('long runs, with the default limits', () => {
         ? { text: 'done', usage: { inputTokens: 10, outputTokens: 0 } }
         : { text: 'x', usage: { inputTokens: 10, outputTokens: 0 }, toolCalls: [{ name: pending.tool, arguments: pending.args, id: `c${calls}` }] }
     })
-    const asked: number[] = []
-    if (asker !== undefined) {
-      booted.governor.setCheckpointAsker(async ({ steps }) => {
-        asked.push(steps)
-        return asker() === 'continue' ? { kind: 'continue' } : { kind: 'stop', detail: 'stopped by test' }
-      })
-    }
     const stops: string[] = []
     booted.ctx.on('ops/run-stopped', ({ reason, detail }) => stops.push(`${reason}: ${detail}`))
     submit(booted, 'alpha', 'go')
     await waitIdle(booted, 'the long run')
     const run = booted.store.runs.recent(1)[0]
-    return { status: run?.status, steps: run?.steps, stops, asked }
+    return { status: run?.status, steps: run?.steps, stops }
   }
 
   const same = (tool: string, args: object, result: string): Step => ({ tool, args: JSON.stringify(args), result })
@@ -1333,9 +1278,9 @@ describe('long runs, with the default limits', () => {
   }, 60_000)
 
   it('2. the same call with a new result each time is progress', async () => {
-    const run = await longRun((n) => same('test', { cmd: 'npm test' }, `${Math.max(0, 80 - n)} failed`))
-    expect(run.stops).toEqual(['max_steps: the run reached its checkpoint after 60 steps: nobody can be asked to continue it'])
-    expect(run.steps).toBe(60)
+    const run = await longRun((n) => (n <= 80 ? same('test', { cmd: 'npm test' }, `${80 - n} failed`) : undefined))
+    expect(run.stops).toEqual([])
+    expect(run).toMatchObject({ status: 'completed', steps: 81 })
   }, 60_000)
 
   it('3. a cycle of two calls stops', async () => {
@@ -1378,15 +1323,14 @@ describe('long runs, with the default limits', () => {
   }, 60_000)
 
   it('9. the same answers while every step writes a file is work: no stall', async () => {
-    const run = await longRun((n) => ({ ...same('edit', { path: `dir-${n % 5}` }, 'written'), writes: true }))
-    expect(run.stops).toEqual(['max_steps: the run reached its checkpoint after 60 steps: nobody can be asked to continue it'])
-    expect(run.steps).toBe(60)
+    const run = await longRun((n) => (n <= 80 ? { ...same('edit', { path: `dir-${n % 5}` }, 'written'), writes: true } : undefined))
+    expect(run.stops).toEqual([])
+    expect(run).toMatchObject({ status: 'completed', steps: 81 })
   }, 60_000)
 
-  it('10. long work with new results is never cut off: it goes on at each checkpoint and finishes', async () => {
-    const run = await longRun((n) => (n <= 150 ? same('test', { cmd: 'npm test' }, `${150 - n} failed`) : undefined), () => 'continue')
+  it('10. long work with new results is never cut off, and nobody is asked anything', async () => {
+    const run = await longRun((n) => (n <= 150 ? same('test', { cmd: 'npm test' }, `${150 - n} failed`) : undefined))
     expect(run.stops).toEqual([])
-    expect(run.asked).toEqual([60, 120])
     expect(run).toMatchObject({ status: 'completed', steps: 151 })
   }, 60_000)
 })

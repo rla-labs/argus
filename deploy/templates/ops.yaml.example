@@ -117,11 +117,7 @@ concurrency:
 # max_subagent_depth has no effect: dsh nests subagents one level deep for every agent.
 
 limits:
-  # The checkpoint: every 60 steps (and every 45 minutes) a run asks whether to go on,
-  # with Continue / Stop buttons; a scheduled run stops instead. 0: no checkpoint.
-  max_steps_per_run: 60
-  max_wallclock_min: 45
-  # The ceiling: steps one run never passes, whatever is answered.
+  # The ceiling: steps one run never passes. A run is never paused to ask for more.
   max_steps_total: 1000
   max_tokens_per_request: 8000
   max_subagent_depth: 1
@@ -129,17 +125,17 @@ limits:
   # Steps in a row with no new result and no file changed before a run is stopped as
   # stalled (it is going round in circles with varied calls). 0 turns the check off.
   stall_steps: 25
-  # A judge model may extend a run at its checkpoint, before you are asked: at most
-  # judge_max_extensions times, judge_extend_steps each (0: the checkpoint's interval).
-  # Its stop is always followed. Its model is judge.model below.
-  judge: false
-  judge_extend_steps: 0
-  judge_max_extensions: 2
+  # The loop checker: every this many steps, judge.model (below) reads what the run did
+  # and says whether it goes in circles. 0: no loop check. Its requests are the run's.
+  loop_check_steps: 0
+  # What a loop it finds does: stop the run, notify you while it goes on, or ask you
+  # (a scheduled run is never asked: it is told about, as with notify).
+  on_loop: stop
 
 # ── judge ───────────────────────────────────────────────────────────────────────
 #
-# The model behind limits.judge. Without one, no project is judged. /defaults judge
-# sets it from the chat.
+# The loop checker's model, for limits.loop_check_steps. Without one, there is no loop
+# check. /defaults judge sets it from the chat.
 
 # judge:
 #   model: anthropic/claude-sonnet-5-5

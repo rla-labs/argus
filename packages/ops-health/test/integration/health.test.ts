@@ -357,7 +357,7 @@ describe('recovery', () => {
     dirs.push(dataDir)
     const booted = await bootHealth({
       dataDir,
-      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_per_run: 80\n  max_wallclock_min: 90`, beta: projectDocument(dataDir, 'beta') },
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nlimits:\n  max_steps_total: 80\n  loop_repeat_threshold: 9`, beta: projectDocument(dataDir, 'beta') },
     })
     const { ConsoleChannelAdapter } = await import('@argus-agent/testkit')
     const adapter = new ConsoleChannelAdapter({ name: 'console' })
@@ -368,7 +368,7 @@ describe('recovery', () => {
     booted.store.runtimeState.delete('notice.limits_apply_0_6')
     await booted.health.recover()
     const notice = adapter.texts().find((text) => text.includes('now apply'))
-    expect(notice).toContain('alpha            80 steps a run, 90 min a run')
+    expect(notice).toContain('alpha            at most 80 steps a run, a loop after 9 repeats')
     expect(notice).not.toContain('beta')
     // Once only.
     const before = adapter.texts().length

@@ -56,13 +56,14 @@ export interface BudgetsConfig {
   readonly default_month_usd: number
 }
 
+/** What follows when the loop checker finds a loop. */
+export const ON_LOOP_ACTIONS = ['stop', 'notify', 'ask'] as const
+/** What follows a loop the checker found. */
+export type OnLoop = (typeof ON_LOOP_ACTIONS)[number]
+
 /** Per-run limits. */
 export interface LimitsConfig {
-  /** Steps between checkpoints, where a person (or a schedule's rule) decides whether the run goes on; 0 is none. */
-  readonly max_steps_per_run: number
-  /** Minutes between checkpoints; 0 is none. */
-  readonly max_wallclock_min: number
-  /** Steps one run never passes, whatever is answered at a checkpoint. */
+  /** Steps one run never passes. */
   readonly max_steps_total: number
   /** How many identical consecutive tool calls count as a loop. */
   readonly loop_repeat_threshold: number
@@ -70,17 +71,15 @@ export interface LimitsConfig {
   readonly stall_steps: number
   /** How deep subagents may nest inside a project agent. */
   readonly max_subagent_depth: number
-  /** Whether a judge model decides at a checkpoint before a person is asked. */
-  readonly judge: boolean
-  /** Steps one judge extension may grant; 0 is the checkpoint's own interval. */
-  readonly judge_extend_steps: number
-  /** How many times the judge may extend one run. */
-  readonly judge_max_extensions: number
+  /** Steps between two loop checks by the `judge.model`; 0 is none. */
+  readonly loop_check_steps: number
+  /** What a loop the checker found does: stop the run, tell the person, or ask them. */
+  readonly on_loop: OnLoop
 }
 
-/** The `judge` section: the model the judge runs on, and how long it may take. */
+/** The `judge` section: the model the loop checker runs on, and how long it may take. */
 export interface JudgeConfig {
-  /** `judge.model` as a reference; without one the judge is off. */
+  /** `judge.model` as a reference; without one there is no loop check. */
   readonly model: { readonly provider: string; readonly model: string } | undefined
   readonly timeout_s: number
 }
@@ -132,22 +131,19 @@ export const budgetsSchema: Schema = z
 /** The `limits` section. */
 export const limitsSchema: Schema = z
   .object({
-    max_steps_per_run: z.number().min(0).default(60),
-    max_wallclock_min: z.number().min(0).default(45),
     max_steps_total: z.number().min(1).default(1000),
     loop_repeat_threshold: z.number().min(2).default(5),
     stall_steps: z.number().min(0).default(25),
     max_subagent_depth: z.number().min(0).default(1),
-    judge: z.boolean().default(false),
-    judge_extend_steps: z.number().min(0).default(0),
-    judge_max_extensions: z.number().min(0).default(2),
+    loop_check_steps: z.number().min(0).default(0),
+    on_loop: z.union(ON_LOOP_ACTIONS.map((value) => z.const(value))).default('stop'),
   })
   .default({})
 
 /** The `judge` section. */
 export const judgeSchema: Schema = z
   .object({
-    model: z.string().description('provider/model the judge runs on; /defaults judge sets it'),
+    model: z.string().description('provider/model the loop checker runs on; /defaults judge sets it'),
     timeout_s: z.number().min(5).default(60),
   })
   .default({})
