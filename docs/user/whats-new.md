@@ -3,6 +3,27 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.7.0
+
+**Files in and out, and the first practical tools.**
+
+- **Git, done by Argus.** A project clones, pulls and pushes its repositories through
+  Argus, with a token per project and per remote that only the admin sets and that never
+  reaches the agent, its shell or the conversation. A push asks first, showing its
+  commits and the files they change, and sends that commit or nothing; `main` and
+  `master` are protected, and nothing is force-pushed. Two projects can work on
+  repositories of two different accounts.
+- **Large files through the web.** Upload up to 2 GB into a project's `inbox/`, download
+  any folder as a zip, and get a one-time link for a file too big for the chat.
+- **Extensions with programs.** An extension can put programs in a project's shell,
+  confined like any other command. Two first-party ones: **office** (OfficeCLI: Word,
+  Excel and PowerPoint, existing documents edited in place) and **media** (ffmpeg and
+  ffprobe).
+- **Web searches are in the budget**, and `/tools` says when there is no DeepSeek key to
+  search with.
+
+[What changes](backup-and-upgrade.md#upgrading-to-070).
+
 ## 0.6.2
 
 **Long runs are not interrupted.** A run is no longer paused every 60 steps or 45
@@ -127,6 +148,13 @@ Telegram became optional.
   under ask) through the real governor and the chat, and its prompt against two real
   models: both find the loop in a run that only claims progress, and both let 150 steps
   of real progress go on.
+- **0.7.0's git:** a real git server over HTTPS and the real command sandbox; a hostile
+  repository (ten hooks, `fsmonitor`, filters, `insteadOf`, alternates into another
+  project) runs nothing with Argus's rights, and another project's commits never leave.
+  The token is nowhere in the project's folder, the conversation or the audit.
+- **0.7.0's extensions:** `office` and `media` installed and run, confined, in the real
+  image (`pnpm test:docker-extensions`) and on a fresh Ubuntu with systemd
+  (`pnpm test:native-vps`).
 - **`web_fetch` never reaches a private address**: the server itself, the private
   network and the cloud metadata service are refused.
 

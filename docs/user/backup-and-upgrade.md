@@ -419,6 +419,28 @@ docker exec argus-agent node -e '
 '
 ```
 
+### Upgrading to 0.7.0
+
+Nothing to do by hand, and no database migration. What changes for you:
+
+- **A new tool group, `git`** (`git_clone`, `git_pull`, `git_push`), `ask` by default. A
+  project has these tools only once it declares a remote (`/git remote`); its token is
+  set per project and per remote with `/git token`
+  ([Configuration](configuration.md#git--remotes-argus-clones-pulls-and-pushes)).
+- **Web searches count in the budget.** dsh never reported what a DeepSeek search cost;
+  each is now charged an upper bound, about a cent with DeepSeek V4 Flash. A project that
+  searches a lot shows more spending than before. `/tools` says when `web_search` has no
+  DeepSeek key to run with.
+- **Files:** a file sent in the chat that has the name of one already in `inbox/` is saved
+  as `name (2).ext`, instead of replacing it. A file the agent `present`s, and one too big
+  for the chat, now reach you (the second as a one-time link to the web).
+- **New in `ops.yaml`, with defaults:** `web.max_upload_mb` (2048) and
+  `web.download_link_hours` (24).
+- **Extensions may bring programs** (`bin`). The first-party `office` and `media` are
+  installed with `/ext install` ([Extensions](extensions.md#the-first-party-ones)).
+- `ARGUS_GIT_…` is a reserved prefix: `/key` refuses it, and an MCP server's `${NAME}` may
+  not use it.
+
 ### Upgrading to 0.6.2
 
 Nothing to do by hand. What changes for you:
