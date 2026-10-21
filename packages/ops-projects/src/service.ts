@@ -60,6 +60,8 @@ interface LiveAgent {
   runEvents: SessionEvent[]
   /** Whether the run's turn has produced an assistant message. */
   producing: boolean
+  /** A project agent's configuration when it was built: a different one rebuilds it between runs. */
+  config?: ProjectConfig
 }
 
 /** Options for creating an ephemeral agent. */
@@ -545,12 +547,17 @@ export class OpsProjects {
     }
 
     const existing = this.live.get(projectId)
-    if (existing !== undefined) return existing.handle.agent
+    const changed = existing === undefined ? [] : changedKeys(existing.config, config)
+    // A changed setting reaches the agent between runs: the same session, resumed by an
+    // agent built from the new settings. One in a run keeps its agent until the run ends.
+    if (existing !== undefined && (changed.length === 0 || existing.runId !== undefined || existing.handle.agent.status === 'running')) {
+      return existing.handle.agent
+    }
 
     const inFlight = this.pending.get(projectId)
     if (inFlight !== undefined) return (await inFlight).agent
 
-    const creation = this.createProjectAgent(config)
+    const creation = existing === undefined ? this.createProjectAgent(config) : this.refreshProjectAgent(existing, config, changed)
     this.pending.set(projectId, creation)
     try {
       const handle = await creation
@@ -558,6 +565,13 @@ export class OpsProjects {
     } finally {
       this.pending.delete(projectId)
     }
+  }
+
+  /** Replace a project's idle agent by one built from its new settings, in the same session. */
+  private async refreshProjectAgent(existing: LiveAgent, config: ProjectConfig, changed: readonly string[]): Promise<AgentHandle> {
+    await existing.handle.dispose()
+    this.store.audit.record({ actor: 'system', action: 'project.agent-refreshed', target: config.id, details: { changed } }, Date.now())
+    return this.createProjectAgent(config)
   }
 
   /** Create or resume one project's agent. */
@@ -576,7 +590,7 @@ export class OpsProjects {
           agentOptions: this.agentOptions(config),
           setup,
         })
-        this.adopt(config.id, { kind: 'project', projectId: config.id }, owner, handle)
+        this.adopt(config.id, { kind: 'project', projectId: config.id }, owner, handle, config)
         return handle
       } catch (error) {
         this.ctx.logger('ops-projects').warn(
@@ -606,7 +620,7 @@ export class OpsProjects {
       setup,
     })
     this.store.projects.setSession(config.id, handle.agent.id as string, Date.now())
-    this.adopt(config.id, { kind: 'project', projectId: config.id }, owner, handle)
+    this.adopt(config.id, { kind: 'project', projectId: config.id }, owner, handle, config)
     return handle
   }
 
@@ -896,7 +910,7 @@ export class OpsProjects {
   }
 
   /** Register a live agent and wire its events. */
-  private adopt(key: string, _target: AgentTarget, owner: Owner, handle: AgentHandle): void {
+  private adopt(key: string, _target: AgentTarget, owner: Owner, handle: AgentHandle, config?: ProjectConfig): void {
     const sessionId = handle.agent.id as string
     const entry: LiveAgent = {
       target: this.targetOf(owner),
@@ -905,6 +919,7 @@ export class OpsProjects {
       runId: undefined,
       runEvents: [],
       producing: false,
+      ...(config === undefined ? {} : { config }),
     }
     this.live.set(key, entry)
     this.entryBySession.set(sessionId, entry)
@@ -1030,30 +1045,6 @@ export class OpsProjects {
       { actor, action: 'project.reset', target: projectId, details: { previousSession: previous } },
       Date.now(),
     )
-  }
-
-  /**
-   * Change a project's model at runtime.
-   *
-   * The override lives in the database, so a configuration reload reverts it.
-   * A **live** agent does not pick it up: dsh fixes the model at creation
-   * (SPIKES.md spike 3), so the change applies to the next agent — a `reset`
-   * makes it immediate.
-   *
-   * @param projectId the slug.
-   * @param model the new model id.
-   * @param actor who asked.
-   * @returns whether the project exists.
-   */
-  setModel(projectId: string, model: string, actor = 'system'): boolean {
-    if (this.store.projects.get(projectId) === undefined) return false
-    const now = Date.now()
-    this.store.projects.setModel(projectId, model, now)
-    this.store.audit.record(
-      { actor, action: 'project.model-changed', target: projectId, details: { model } },
-      now,
-    )
-    return true
   }
 
   // ── run tracking ─────────────────────────────────────────────────────────
@@ -1277,4 +1268,34 @@ function hideTools(agentCtx: Context, names: readonly string[]): void {
   if (present.length === 0) return
   const lift = agentCtx.tools.restrict({ deny: present })
   agentCtx.effect(() => lift)
+}
+
+/**
+ * What a project's agent is built from: its model, preset, hidden tools, MCP servers,
+ * extensions and memory. The rest (approvals, budget, web hosts, a tool's exception) is
+ * read at each use, so a change to it leaves the live agent alone.
+ */
+function builtFrom(config: ProjectConfig): Record<string, unknown> {
+  return {
+    cwd: config.cwd,
+    model: `${config.provider}/${config.model}`,
+    max_tokens: config.limits.max_tokens_per_request,
+    preset: config.preset,
+    tools: hiddenTools(config.tools),
+    mcp: config.mcp,
+    extensions: config.extensions,
+    memory: config.memory,
+  }
+}
+
+/**
+ * What a project's agent was built from that changed since.
+ * @param before the configuration it was built from, if known.
+ * @param after the current one.
+ * @returns the changed keys of {@link builtFrom}, sorted.
+ */
+function changedKeys(before: ProjectConfig | undefined, after: ProjectConfig): string[] {
+  if (before === undefined) return []
+  const [was, now] = [builtFrom(before), builtFrom(after)]
+  return Object.keys(now).filter((key) => JSON.stringify(was[key]) !== JSON.stringify(now[key])).sort()
 }

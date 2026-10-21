@@ -478,29 +478,51 @@ describe('lifecycle events', () => {
   }, 30_000)
 })
 
-describe('setModel', () => {
-  it('records an override in the store and the audit log', async () => {
-    const { projects, store } = await bootProjects({ projects: { site: {} } })
-    expect(projects.setModel('site', 'new-model', 'user-1')).toBe(true)
-    expect(store.projects.get('site')?.model).toBe('new-model')
-    expect(store.audit.byAction('project.model-changed')).toHaveLength(1)
-  })
+describe('a changed setting', () => {
+  const reloadWith = async (boot: Awaited<ReturnType<typeof bootProjects>>, fields: Record<string, unknown>) => {
+    writeProject(boot.dataDir, 'site', fields)
+    const { reload } = await import('../../src/index.js')
+    reload(boot.projects['ctx'] as never, boot.projects)
+  }
 
-  it('reports an unknown project', async () => {
-    const { projects } = await bootProjects()
-    expect(projects.setModel('missing', 'm')).toBe(false)
-  })
+  it('rebuilds an idle agent at its next ensureAgent, in the same session', async () => {
+    const boot = await bootProjects({ projects: { site: {} }, fake: { script: [{ text: 'ok' }], repeatLast: true } })
+    const before = await boot.projects.ensureAgent('site')
+    before.followup(userMessage('m-1', 'remember banana'))
+    await before.whenIdle()
 
-  it('applies to the next agent, not the live one', async () => {
-    const { projects } = await bootProjects({ projects: { site: {} } })
-    const before = await projects.ensureAgent('site')
-    expect(before.options.model).toBe('fake-model')
+    await reloadWith(boot, { model: 'new-model' })
+    const after = await boot.projects.ensureAgent('site')
+    expect(after === before).toBe(false)
+    expect(after.id).toBe(before.id)
+    expect(after.options.model).toBe('new-model')
+    expect(JSON.stringify(after.session.snapshotEvents())).toContain('banana')
+    expect(JSON.parse(boot.store.audit.byAction('project.agent-refreshed')[0]?.details_json ?? '{}')).toEqual({ changed: ['model'] })
+  }, 30_000)
 
-    projects.setModel('site', 'new-model')
-    // dsh fixes the model at creation (SPIKES.md spike 3), so the live agent is
-    // unchanged.
-    expect(before.options.model).toBe('fake-model')
-  })
+  it('leaves the live agent alone when nothing it uses changed', async () => {
+    const boot = await bootProjects({ projects: { site: {} } })
+    const before = await boot.projects.ensureAgent('site')
+    await reloadWith(boot, { description: 'only the description' })
+    expect((await boot.projects.ensureAgent('site')) === before).toBe(true)
+    expect(boot.store.audit.byAction('project.agent-refreshed')).toHaveLength(0)
+  }, 30_000)
+
+  it('keeps the agent of a run in progress until the run ends', async () => {
+    const boot = await bootProjects({ projects: { site: {} }, fake: { script: [{ text: 'slow', latencyMs: 300 }], repeatLast: true } })
+    const capability = governorCapability(boot.projects)
+    const before = await boot.projects.ensureAgent('site')
+    await boot.projects.deliver(capability, { kind: 'project', projectId: 'site' }, [{ type: 'text', text: 'work' }], { runId: 'run-1' })
+
+    await reloadWith(boot, { model: 'new-model' })
+    expect((await boot.projects.ensureAgent('site')) === before).toBe(true)
+
+    await before.whenIdle()
+    await waitFor(() => boot.projects.runOf(before.id as string) === undefined)
+    const after = await boot.projects.ensureAgent('site')
+    expect(after === before).toBe(false)
+    expect(after.options.model).toBe('new-model')
+  }, 30_000)
 })
 
 describe('project configuration sync', () => {

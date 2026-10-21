@@ -911,7 +911,7 @@ describe('admin-only commands', () => {
 
   it('/set model sets the provider and the model, after the usual checks', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
-    expect(await run(booted, '/set alpha model fake/other-model', admin())).toContain('until /reset')
+    expect(await run(booted, '/set alpha model fake/other-model', admin())).toContain('from its next message')
     expect(booted.projects.configOf('alpha')).toMatchObject({ provider: 'fake', model: 'other-model' })
     const refused = await booted.commands.runCommand('/set alpha model nowhere/model', admin())
     expect(refused.error).toBe(true)
@@ -1111,7 +1111,8 @@ describe('/model', () => {
     const out = await booted.commands.runCommand('/model alpha deepseek/deepseek-flash', contextFor())
     expect(out.error).toBeUndefined()
     expect(out.text).toContain('deepseek/deepseek-flash')
-    expect(booted.store.projects.get('alpha')?.model).toBe('deepseek/deepseek-flash')
+    expect(out.text).toContain('from its next message')
+    expect(booted.projects.configOf('alpha')).toMatchObject({ provider: 'deepseek', model: 'deepseek-flash' })
   }, 30_000)
 
   it('rejects a malformed model reference', async () => {

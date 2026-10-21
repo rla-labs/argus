@@ -3,6 +3,13 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.7.1 (in progress)
+
+- **A changed setting applies without `/reset`.** Enabling an extension, changing a
+  project's model, tools or MCP servers reaches its agent at the next message, in the
+  same conversation; a run in progress finishes first. `/model` now writes the project's
+  file, like `/set <project> model`; before, it did not reach the agent at all.
+
 ## 0.7.0
 
 **Files in and out, and the first practical tools.**

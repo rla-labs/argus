@@ -1368,14 +1368,13 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         description: 'Change a project’s model (admin)',
         syntax: '/model <project-id> <provider/model>',
         detail:
-          'Records a runtime override. A live agent keeps its current model — dsh fixes the ' +
-          'model at agent creation — so the change applies to the next agent, or immediately ' +
-          'after /reset. A configuration reload reverts it, because the file is the durable intent.',
+          'Writes the model into the project\u2019s file, as /set <project> model does. Its agent ' +
+          'switches at its next message, in the same conversation; a run in progress finishes first.',
         examples: ['/model site-firma deepseek/deepseek-flash'],
         mutating: true,
         adminOnly: true,
       },
-      async run(input, context): Promise<CommandResult> {
+      async run(input): Promise<CommandResult> {
         const tokens = tokenize(input)
         const projectId = tokens[0]
         const modelText = tokens[1]
@@ -1386,14 +1385,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (!parsed.ok) return failWith({ syntax: this.spec.syntax } as CommandSpec, parsed.message)
         const refusal = await modelRefusal(parsed.value)
         if (refusal !== undefined) return errorResult(refusal)
-        if (!projects.setModel(projectId, parsed.value.text, context.userId)) {
-          return failWith({ syntax: this.spec.syntax } as CommandSpec, `No project "${projectId}".`)
-        }
-        return result(
-          `${projectId} now uses ${parsed.value.text}. ` +
-            'A running agent keeps its old model until it is reset.\n' +
-            priceLine(parsed.value),
-        )
+        const why = writeSetting(projectId, (doc) => {
+          doc.set('provider', parsed.value.provider)
+          doc.set('model', parsed.value.model)
+        })
+        if (why !== undefined) return errorResult(`Not changed. ${why}`)
+        return result(`${projectId} now uses ${parsed.value.text}, from its next message.\n` + priceLine(parsed.value))
       },
     },
 
@@ -1575,9 +1572,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         const invalid = projects.invalidOf(projectId)
         if (invalid !== undefined) return restore(`With ${key} = ${shown} the project does not validate:\n${invalid.reason}`)
-        // A server's access is read on every call; how to reach it, when the agent starts.
-        const later = ['model', 'provider', 'preset', 'fallback_model'].includes(path[0] ?? '') || (path[0] === 'mcp' && path[2] !== 'access')
-          ? ' The running agent keeps the old one until /reset.'
+        // Read when the agent is built, which happens again at its next message.
+        const later = ['model', 'provider', 'preset', 'fallback_model', 'mcp', 'tools', 'extensions'].includes(path[0] ?? '')
+          ? ' Its agent uses it from its next message; a run in progress finishes first.'
           : ''
         const template = loaded?.template ?? null
         const own = template !== null && loaded!.fromTemplate.some((inherited) => inherited === key || inherited.startsWith(`${key}.`))
@@ -1867,7 +1864,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'shows what it brings and asks; its install commands then run in the command sandbox, ' +
           'writing only in its own folder. update fetches its source again and shows what changes ' +
           'in what it may do. enable gives a project its tools (run confined to the project\'s ' +
-          'folder), skills and instructions, from its next conversation (/reset); disable takes ' +
+          'folder), skills and instructions, from its next message (a run in progress finishes first); disable takes ' +
           'them away. Seeing them is anyone\'s; the rest is the admin\'s.',
         examples: ['/ext enable site-firma office', '/ext', '/ext install https://github.com/rla-labs/argus-extensions#office', '/ext install /srv/ext/office@v1.2.0', '/ext update office', '/ext remove office'],
         mutating: true,
@@ -1907,7 +1904,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             for (const server of servers) doc.deleteIn(['mcp', server])
           })
           if (written !== undefined) return errorResult(`Not changed. ${written}`)
-          const said = `${argument} ${action === 'enable' ? 'uses' : 'no longer uses'} ${name}. Its agent ${action === 'enable' ? 'gets' : 'loses'} the tools, skills and instructions from its next conversation (/reset ${argument} to start one now). /tools ${argument} shows its tools.`
+          const said = `${argument} ${action === 'enable' ? 'uses' : 'no longer uses'} ${name}. Its agent ${action === 'enable' ? 'gets' : 'loses'} the tools, skills and instructions from its next message, in the same conversation. /tools ${argument} shows its tools.`
           // Its rules are offered, never applied: a press is the admin's /rule.
           const rules = action === 'enable' ? (extensions.usable().get(name)?.manifest.rules ?? []) : []
           return rules.length === 0

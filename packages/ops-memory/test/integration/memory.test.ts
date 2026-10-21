@@ -19,6 +19,7 @@ import {
   BASE_ENTRIES,
   OPTIONAL_ENTRIES,
   persistenceEntry,
+  userMessage,
   waitFor,
   type BootOpsOptions,
   type OpsBoot,
@@ -330,6 +331,25 @@ describe('the tool surface', () => {
 
     expect(await hasTool(booted, alpha, 'memory_update')).toBe(true)
     expect(await hasTool(booted, alpha, 'recall')).toBe(true)
+  }, 60_000)
+
+  it('gives them again to an agent rebuilt for a changed setting, in the same session', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-mem-refresh-'))
+    dirs.push(dataDir)
+    const booted = await bootMemory({ dataDir, projects: { alpha: projectDocument(dataDir, 'alpha') } })
+    const before = await booted.projects.ensureAgent('alpha')
+    before.followup(userMessage('m-1', 'hello'))
+    await before.whenIdle()
+
+    writeFileSync(join(dataDir, 'config', 'projects', 'alpha.yaml'), `${projectDocument(dataDir, 'alpha', { model: 'other-model' })}\n`)
+    const { reload } = await import('@argus-agent/projects')
+    reload((booted.projects as unknown as { ctx: never }).ctx, booted.projects)
+    const after = await booted.projects.ensureAgent('alpha')
+
+    expect(after.id).toBe(before.id)
+    expect(after.options.model).toBe('other-model')
+    expect(await hasTool(booted, after, 'memory_update')).toBe(true)
+    expect(await hasTool(booted, after, 'recall')).toBe(true)
   }, 60_000)
 
   it('gives an AD-HOC agent NEITHER tool', async () => {

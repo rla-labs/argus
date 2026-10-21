@@ -106,8 +106,11 @@ has run it in production yet, and dsh is still a release candidate (`0.2.0-rc.2`
 [what has been verified](docs/user/whats-new.md#what-has-been-verified), and what has
 not.
 
-**Next:** a browser extension (Playwright and Chromium), which also gives `office` its
-screenshots and PDF (0.7.1). After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
+**Next:** 0.7.1 (in progress) applies a changed setting without `/reset`, lets the admin
+pick the web search provider (Tavily, Brave, Serper, SearXNG or DeepSeek), adds the
+`diagrams`, `pdf` and `images` extensions, and lets a project send mail after approval.
+0.7.2: a browser extension (Playwright and Chromium), which also gives `office` its
+screenshots and PDF, and OAuth for external MCP servers such as Google Docs. After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
 your use case helps the most.
 
 ## Development

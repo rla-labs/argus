@@ -86,8 +86,12 @@ export function apply(ctx: Context): void {
 
   ctx.provide('opsMemory', service)
 
-  /** Sessions that already have the tools registered, so a re-compose is a no-op. */
-  const registered = new Set<string>()
+  /**
+   * Agents that already have the tools registered, so a re-compose is a no-op. Keyed by
+   * the agent's scope, not its session: an agent rebuilt for changed settings resumes
+   * the same session in a new scope, which needs them again.
+   */
+  const registered = new WeakSet<object>()
 
   /**
    * Inject on session start.
@@ -124,11 +128,11 @@ export function apply(ctx: Context): void {
       })
     }
 
-    // Registered once per session. `ops/agent-composed` can fire more than once for
+    // Registered once per scope. `ops/agent-composed` can fire more than once for
     // one agent — a resume re-composes the scope — and registering a name twice in
     // one scope throws.
-    if (!registered.has(payload.sessionId) && agentCtx !== undefined && agentCtx.tools !== undefined) {
-      registered.add(payload.sessionId)
+    if (agentCtx !== undefined && agentCtx.tools !== undefined && !registered.has(agentCtx)) {
+      registered.add(agentCtx)
       for (const tool of memory.projectTools(agent)) {
         agentCtx.effect(() => agentCtx.tools.register(tool))
       }

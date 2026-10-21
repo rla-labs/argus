@@ -14,7 +14,8 @@ import { Context } from '@deepseek-ai/cordis'
 import { scopeOf } from '@deepseek-ai/dsh-scope'
 import ArgusSandbox from '@argus-agent/argus-agent/sandbox-row'
 import { Extensions, parseProjectConfig, type UsableExtension } from '../../src/index.js'
-import { bootProjects } from '../helpers.js'
+import { userMessage } from '@argus-agent/testkit'
+import { bootProjects, writeProject } from '../helpers.js'
 
 const probe = fileURLToPath(new URL('../fixtures/probe-mcp.mjs', import.meta.url))
 const MANIFEST = [
@@ -115,6 +116,33 @@ describe('an extension enabled in a project', () => {
     const agent = await projects.ensureAgent('site')
     const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): unknown } } }).ctx
     expect(ctx.tools.get('mcp__probe__probe', scopeOf(ctx as never))).toBeUndefined()
+  }, 60_000)
+
+  it('reaches a live project at its next message, in the same conversation', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-ext-'))
+    await installNotes(dataDir)
+    const { projects, ctx } = await bootProjects({
+      dataDir,
+      projects: { site: {} },
+      fake: { script: [{ text: 'ok' }], repeatLast: true },
+      entries: [{ id: 'skill', name: '@deepseek-ai/dsh-skill' }],
+    })
+    const before = await projects.ensureAgent('site')
+    before.followup(userMessage('m-1', 'remember banana'))
+    await before.whenIdle()
+
+    writeProject(dataDir, 'site', { extensions: ['notes'] })
+    const { reload } = await import('../../src/index.js')
+    reload(projects['ctx'] as never, projects)
+
+    const after = await projects.ensureAgent('site')
+    expect(after.id).toBe(before.id)
+    expect(JSON.stringify(after.session.snapshotEvents())).toContain('banana')
+    const a = after as unknown as { ctx: { systemPrompt?: { assemble(context: unknown): Promise<{ sections: Array<{ name: string; text: string }> }> } } }
+    const assembly = await a.ctx.systemPrompt?.assemble({ scope: scopeOf(a.ctx as never) })
+    expect(assembly?.sections.find((s) => s.name === 'argus:extensions')?.text).toContain('Keep notes in notes/.')
+    const skills = (ctx as unknown as { skills: { list(options: { cwd: string; scope: unknown }): Promise<{ name: string }[]> } }).skills
+    expect((await skills.list({ cwd: projects.configOf('site')!.cwd, scope: scopeOf(after.ctx) })).map((skill) => skill.name)).toEqual(['note-taking'])
   }, 60_000)
 
   it.skipIf(!landlock)('puts its programs on the shell PATH of a project that enables it, with its variables, and nowhere else', async () => {

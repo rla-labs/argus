@@ -78,8 +78,8 @@ changed is not used, and `argus doctor` says so; `/ext update <name>` or `/ext r
 ```
 
 `enable` adds it to the project's [`extensions`](configuration.md#extensions--tools-skills-and-instructions-installed-once)
-list. From the project's next conversation (`/reset <project>` starts one now) its agent
-has:
+list. From the project's next message, in the same conversation, its agent has (a run in
+progress finishes first):
 
 - **its tools.** Each MCP server is started **confined**: it reads the system and the
   extension's folder, reads and writes the project's folder (its working directory) and a
@@ -110,7 +110,7 @@ Enabling and disabling are the admin's; on the web, a project's page has an
 /ext remove office
 ```
 
-An update or a removal reaches the projects at their next conversation; a project that
+An update or a removal reaches the projects at their next message; a project that
 still lists a removed extension runs without it, and `argus doctor` says so.
 
 `update` fetches the same source and shows the same question, plus **what changes in what

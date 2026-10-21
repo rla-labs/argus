@@ -565,19 +565,19 @@ shows the syntax.
 
 ## `/model <project-id> <provider/model>`
 
-Records a runtime override. The admin's: it changes what the project spends.
+Writes the model into the project's file, as `/set <project> model` does. The admin's:
+it changes what the project spends.
 
 ```
 /model site-firma deepseek/deepseek-flash
 ```
 
 ```
-site-firma now uses deepseek/deepseek-flash. A running agent keeps its old model until it is reset.
+site-firma now uses deepseek/deepseek-flash, from its next message.
 ```
 
-**A live agent keeps its current model** — dsh fixes the model at agent creation.
-The change applies to the next agent, or immediately after `/reset`. A
-configuration reload reverts the override, because the file is the durable intent.
+The project's agent switches at its next message, in the same conversation. A run in
+progress finishes on the old model first.
 
 The model id may itself contain slashes (`openrouter/deepseek/…`); the provider is
 everything before the **first** one.
@@ -840,8 +840,9 @@ whole and replaces the template's, so `/set servers approvals.auto_allow [docker
 also removes the template's other rules. A block such as `tools` is merged key by key:
 setting `tools.shell` leaves `tools.web` following the template.
 
-A change of `model`, `preset` or `fallback_model` reaches a running agent only after
-`/reset`. Unlike `/model`, which lasts until the next reload, `/set model` is in the file.
+A change of `model`, `preset`, `fallback_model`, `tools`, `mcp` or `extensions` reaches
+the agent at the project's next message, in the same conversation; a run in progress
+finishes first.
 
 ---
 

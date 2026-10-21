@@ -112,7 +112,7 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 |---|---|
 | `/tools <project>` | The group's setting: `off` hides the tools, `deny` refuses them |
 | The refusal names the rule (`tools.web: deny`, `tools.exceptions.edit: deny`, `mcp.github.access: deny`) | Change it with `/set <project> <that key> ask` |
-| You changed a group from `off` | Hidden tools come back after `/reset <project>` |
+| You changed a group from `off` | Hidden tools come back at the project's next message, once a run in progress ends |
 | A one-off task | It reads and searches the web only; give the work to a project |
 
 ### An MCP server's tools do not appear
@@ -120,7 +120,7 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 | Check | Fix |
 |---|---|
 | `grep 'MCP server .* is left out'` | The reason: a `${NAME}` not set (`/key NAME value`), a program not found, a server down |
-| Added or changed it after the agent started? | `/reset <project>`: the agent connects when it starts |
+| Added or changed it during a run? | The agent connects at the next message after the run ends |
 | `npx` and `uvx` in the Docker image | Both available |
 | `/tools <project>` | The server is listed, with its `access` |
 
@@ -129,7 +129,7 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 | Check | Fix |
 |---|---|
 | `/ext` | Is it installed, and **used by** this project? `/ext enable <project> <name>` |
-| Enabled after the agent started? | `/reset <project>`: the agent gets them when it starts |
+| Enabled during a run? | The agent gets them at the next message after the run ends |
 | `argus doctor` → `extension <name>` | Its files changed since install: it is not used. `/ext update <name>` or `/ext remove <name>` |
 | `argus doctor` → `project <id>` warns "left out" | The project lists an extension that is not installed |
 | `grep 'MCP server .* is left out'` | Its server could not start: the sandbox is unavailable, or a secret it declares is not set (`/key NAME value`) |

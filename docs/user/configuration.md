@@ -613,8 +613,9 @@ mcp:
 server's `.env`. A server whose secret is not set is left out, with a warning in the log;
 the project runs without it.
 
-The agent connects when it starts: after adding a server or changing how to reach it,
-send `/reset <project>`. A change of `access` (`/set <project> mcp.github.access allow`)
+The agent connects when it is built. After you add a server or change how to reach it,
+the project's agent is rebuilt at its next message, in the same conversation (a run in
+progress finishes first). A change of `access` (`/set <project> mcp.github.access allow`)
 applies to the next call. `/tools <project>` lists the servers. One-off tasks and the
 front desk have no MCP servers.
 
