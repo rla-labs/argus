@@ -673,6 +673,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: 3.18.4
         version: 3.18.4
+      nodemailer:
+        specifier: 10.1.7
+        version: 10.1.7
       yaml:
         specifier: 2.6.1
         version: 2.6.1
@@ -695,6 +698,9 @@ importers:
       '@deepseek-ai/dsh-skill':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-llm@0.2.0-rc.2)(@deepseek-ai/dsh-scope@0.2.0-rc.2)
+      '@types/nodemailer':
+        specifier: 8.0.2
+        version: 8.0.2
 
   packages/ops-scheduler:
     dependencies:
@@ -5513,6 +5519,12 @@ packages:
     dependencies:
       undici-types: 6.19.8
 
+  /@types/nodemailer@8.0.2:
+    resolution: {integrity: sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==}
+    dependencies:
+      '@types/node': 22.9.0
+    dev: true
+
   /@types/retry@0.12.0:
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
 
@@ -6585,6 +6597,11 @@ packages:
     requiresBuild: true
     dependencies:
       node-addon-api: 7.1.1
+    dev: false
+
+  /nodemailer@10.1.7:
+    resolution: {integrity: sha512-OQa6FDln5fLttmqSbjDiRYvFDOFNrBqfiOwHPlEbURil3b+vPB1v8xpi+Sp46drzNDlsTnNsS502vthmz56r4w==}
+    engines: {node: '>=20.0.0'}
     dev: false
 
   /normalize-url@8.1.1:

@@ -33,6 +33,7 @@ export * from './snapshots.js'
 export * from './templates.js'
 export * from './extensions.js'
 export * from './git-remotes.js'
+export * from './mail.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -121,7 +122,7 @@ export function apply(ctx: Context): void {
     if (sandbox.setWorkspaceExtras !== undefined) child.effect(() => sandbox.setWorkspaceExtras!((root) => service.workspaceExtras(root)))
   })
 
-  // ── git tools ────────────────────────────────────────────────────────────
+  // ── git and mail tools ─────────────────────────────────────────────────────────
   // Global, like send_file; the project comes from the calling agent (rule 6), never
   // from an argument. Argus does the remote work: the agent never holds the token.
   ctx.inject(['tools'], (child) => {
@@ -172,6 +173,25 @@ export function apply(ctx: Context): void {
           if (projectId === undefined) return 'git_push works only in a project.'
           const input = args as Record<string, unknown>
           return service.gitPush(projectId, { ...(str(input['remote']) === undefined ? {} : { remote: str(input['remote']) }), ...(str(input['path']) === undefined ? {} : { path: str(input['path']) }), ...(str(input['branch']) === undefined ? {} : { branch: str(input['branch']) }) })
+        },
+      }),
+      defineTool({
+        name: 'send_mail',
+        description: 'Send an e-mail from the project\'s mail account, which Argus holds; you never see it. A person is always shown the mail and approves it first. Recipients must be in the project\'s mail.allowed_recipients. Attachments are files in your folder.',
+        parameters: {
+          to: { type: 'array', items: { type: 'string' }, description: 'Addresses, like ana@example.com.', required: true },
+          cc: { type: 'array', items: { type: 'string' }, description: 'Addresses in copy.' },
+          bcc: { type: 'array', items: { type: 'string' }, description: 'Addresses in hidden copy.' },
+          subject: { type: 'string', description: 'One line.', required: true },
+          text: { type: 'string', description: 'The mail, as plain text.', required: true },
+          html: { type: 'string', description: 'The same mail as HTML, when it needs formatting.' },
+          attachments: { type: 'array', items: { type: 'string' }, description: 'Files in your folder, relative to it.' },
+        },
+        output: text,
+        execute: async (args, exec) => {
+          const projectId = projectOf(exec)
+          if (projectId === undefined) return 'send_mail works only in a project.'
+          return service.sendMail(projectId, String((exec as { callId: unknown }).callId), args)
         },
       }),
     ]

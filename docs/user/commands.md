@@ -21,7 +21,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -32,7 +32,7 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/rule`, `/key`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
+`/set`, `/rule`, `/key`, `/mail` (changing), `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions, the skills or the memory stays open to everyone.
 
@@ -782,6 +782,32 @@ message at once** and saves the token for that project and that remote only; the
 names it by its last four characters. `forget` removes the token, `remove` the remote,
 its token and Argus's copy of it; the project's folder is unchanged. Seeing them is
 anyone's; the rest is the admin's.
+
+---
+
+## `/mail`
+
+```
+/mail [project-id|default]
+/mail set <project-id|default> <smtps-url>      (admin)
+/mail test <project-id|default> <address>       (admin)
+/mail remove <project-id|default>               (admin)
+```
+
+A project's mail: the account `send_mail` sends with, who it may write to, its limits,
+and how many mails it sent in the last 24 hours. Argus sends the mail; the account never
+reaches the agent. See [mail](configuration.md#mail--who-a-project-may-write-to).
+
+- **`/mail set <project> <url>`** deletes your message at once and saves the account for
+  that project, as `smtps://user:password@host:465`, or `smtp://user:password@host:587`
+  for STARTTLS (required). A `@` in the user is written `%40`:
+  `smtps://office%40acme.ro:…@mail.acme.ro:465`. `default` saves one for every project
+  that has none of its own. The audit log keeps `set <project>` only.
+- **`/mail test <project> <address>`** sends one mail with the account, to check it.
+- **`/mail remove <project>`** forgets the account.
+
+Who the project may write to is in its file: `/set <project> mail.allowed_recipients
+[ana@acme.ro, @client.com]`. Seeing is anyone's; the rest is the admin's.
 
 ---
 

@@ -77,7 +77,7 @@ export interface Overview {
     readonly trend: ReadonlyArray<{ readonly day: string; readonly micros: number }>
   }
   readonly runs: ReadonlyArray<{ readonly runId: string; readonly who: string; readonly model: string; readonly steps: number; readonly startedAt: number; readonly micros: number }>
-  readonly approvals: ReadonlyArray<{ readonly id: string; readonly projectId: string | null; readonly action: string; readonly kind: string; readonly at: number; readonly always: string | null }>
+  readonly approvals: ReadonlyArray<{ readonly id: string; readonly projectId: string | null; readonly action: string; readonly kind: string; readonly at: number; readonly always: string | null; readonly detail: string | null }>
   /** Runs the loop checker found in a loop, waiting for Continue or Stop (`on_loop: ask`). */
   readonly checkpoints: ReadonlyArray<{ readonly runId: string; readonly who: string; readonly steps: number; readonly reason: string; readonly at: number }>
   readonly schedules: ReadonlyArray<{ readonly id: string; readonly cron: string; readonly who: string; readonly what: string; readonly enabled: boolean; readonly next: number }>
@@ -179,6 +179,8 @@ export function overview(sources: DataSources): Overview {
         at: row.created_at,
         // What "Always allow" would add, recorded by the bridge when the rule can be named.
         always: typeof (request['always'] as { entry?: unknown } | null)?.entry === 'string' ? (request['always'] as { entry: string }).entry : null,
+        // What the question shows whole: a mail, as it will be sent. Asked about once each, never for the run.
+        detail: typeof request['detail'] === 'string' ? request['detail'] : null,
       }
     }),
     schedules: (sources.schedules()?.list() ?? []).map((row) => ({

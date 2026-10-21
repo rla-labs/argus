@@ -14,6 +14,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { randomUUID } from 'node:crypto'
 import {
+  NEVER_UNASKED,
   PROJECT_TOOL_DEFAULTS,
   decodeAddress,
   encodeAddress,
@@ -92,6 +93,8 @@ export class OpsApprovalsBridge {
    * stays; clear by age if a long-lived process ever shows it growing.
    */
   private readonly gated = new Map<string, ParsedAction>()
+  /** What a question shows whole, by call: a mail as it will be sent. */
+  private readonly details = new Map<string, string>()
   /** `runId|action` already reported as blocked in a scheduled run; dropped with the run. */
   private readonly blocked = new Set<string>()
   /** Tool names in no group, each warned about once. */
@@ -209,6 +212,30 @@ export class OpsApprovalsBridge {
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
   }
 
+  /**
+   * A `send_mail` the gate asks about, shown as the mail it sends: from, to, subject,
+   * attachments and text, prepared by the projects service, which then sends that mail
+   * or nothing. One that cannot be sent (a recipient not allowed, no account, the daily
+   * limit, an attachment outside the folder) is refused here, before any question.
+   *
+   * @param exec the pending call.
+   * @returns the question, with the mail described, or the refusal.
+   */
+  async describeMail(
+    exec: { readonly name: string; readonly arguments: unknown; readonly callId: string; readonly agent?: Agent },
+  ): Promise<{ kind: 'ask'; reason: string } | { kind: 'deny'; reason: string }> {
+    const owner = exec.agent === undefined ? undefined : this.options.projects.ownerOf(exec.agent.id as string)
+    if (owner?.kind !== 'project') return { kind: 'deny', reason: 'send_mail works only in a project.' }
+    const preview = await this.options.projects.mailPreview(owner.projectId, String(exec.callId), exec.arguments)
+    if (!preview.ok) return { kind: 'deny', reason: preview.text }
+    const subject = /^subject: (.*)$/m.exec(preview.text)?.[1] ?? ''
+    const to = /^to: (.*)$/m.exec(preview.text)?.[1] ?? ''
+    const action = parseAction(exec.name, [], `to ${to}: ${subject}`)
+    this.gated.set(exec.callId, action)
+    this.details.set(exec.callId, preview.text)
+    return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
+  }
+
   // ── the waterfall ────────────────────────────────────────────────────────
 
   /**
@@ -265,14 +292,19 @@ export class OpsApprovalsBridge {
     const projectConfig = projectId === null ? undefined : this.options.projects.configOf(projectId)
     const policy = policyOf(projectConfig?.approvals, this.options.config.approvals_adhoc)
     const grant = this.grantFor(runId, parsed?.kind)
+    // A mail is asked about every time: no rule, mode or run grant answers for a person.
+    const strict = NEVER_UNASKED.has(request.toolName)
 
-    const decision: ApprovalDecision = decideApproval({
+    const decided: ApprovalDecision = decideApproval({
       mode: policy.mode,
       autoAllow: policy.autoAllow,
       adhocMode: this.options.config.approvals_adhoc,
       action: parsed,
       runGrant: grant === undefined ? undefined : { kind: grant.kind, reason: grant.reason },
     })
+    const decision: ApprovalDecision = strict && decided.kind !== 'deny' ? { kind: 'ask' } : decided
+    const detail = request.callId === undefined ? undefined : this.details.get(request.callId)
+    if (request.callId !== undefined) this.details.delete(request.callId)
 
     const base = {
       id,
@@ -296,7 +328,9 @@ export class OpsApprovalsBridge {
           kind: base.kind,
           decision: decision.kind,
           // What "Always allow" would write, so the web can offer it too.
-          always: projectId === null ? null : (alwaysRuleOf(request.toolName, parsed) ?? null),
+          always: projectId === null || strict ? null : (alwaysRuleOf(request.toolName, parsed) ?? null),
+          // What the question shows whole (a mail), so the web shows it too.
+          ...(detail === undefined ? {} : { detail }),
         }),
         status: 'pending',
       },
@@ -320,7 +354,7 @@ export class OpsApprovalsBridge {
       case 'deny':
         return toOutcome(this.finish(id, base, 'denied', 'denied', refusedText(decision.reason)))
       case 'ask':
-        return this.ask(request, next, id, base, parsed, projectId)
+        return this.ask(request, next, id, base, parsed, projectId, strict, detail)
     }
   }
 
@@ -332,9 +366,11 @@ export class OpsApprovalsBridge {
     base: { id: string; projectId: string | null; runId: string; toolName: string; kind: ActionKind; action: string },
     parsed: ParsedAction | undefined,
     projectId: string | null,
+    strict = false,
+    detail?: string,
   ): Promise<ApprovalOutcome> {
     // Offered only where the rule can be named exactly, and only in a project: a task has no file.
-    const always = projectId === null ? undefined : alwaysRuleOf(base.toolName, parsed)
+    const always = projectId === null || strict ? undefined : alwaysRuleOf(base.toolName, parsed)
     const unattended = this.isUnattended(base.runId)
     if (unattended && this.options.config.unattended_timeout_s === 0) {
       await this.reportBlocked(base, always)
@@ -362,13 +398,14 @@ export class OpsApprovalsBridge {
       alsoPending: Math.max(0, this.options.store.approvals.listPending().length - 1),
       ...(always === undefined || projectId === null ? {} : { repeated: this.timesApproved(projectId, id, base.action) }),
       ...(unattended ? { unattendedSeconds: this.options.config.unattended_timeout_s } : {}),
+      ...(detail === undefined ? {} : { detail }),
     })
 
     // The question id is OURS, so the answer can be attributed to the person who
     // pressed the button: the channel correlates by id, and two pending questions
     // can offer the same button value.
     const questionId = `approval:${id}`
-    const buttons = this.options.config.allow_run_grant ? approvalButtons() : approvalButtons().slice(0, 2)
+    const buttons = this.options.config.allow_run_grant && !strict ? approvalButtons() : approvalButtons().slice(0, 2)
     let answer
     try {
       answer = await this.options.channel.ask(
@@ -401,7 +438,7 @@ export class OpsApprovalsBridge {
     const by = this.options.channel.answeredBy(questionId) ?? null
 
     const value = answer.value
-    if (value === APPROVE_ALL && this.options.config.allow_run_grant) {
+    if (value === APPROVE_ALL && this.options.config.allow_run_grant && !strict) {
       this.grant(base.runId, parsed?.kind ?? 'other', by ?? 'unknown', base.action)
       return toOutcome(this.finish(id, base, 'approved-run', 'granted', decisionText(value, parsed), by))
     }

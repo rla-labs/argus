@@ -21,6 +21,11 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   **diagrams** (Mermaid to SVG, PNG or text, no browser), **pdf** (`pdftool`: text,
   merge, split, pages, rotate, render, compress, passwords) and **images** (ImageMagick
   7, x64). The Docker image gains the five libraries and the font `images` needs.
+- **A project can send mail** with `send_mail`, done by Argus: the account is the admin's
+  (`/mail set <project|default> smtps://…`), never the agent's. Every mail is shown whole
+  first, with Approve and Deny only, and what goes is what was shown. Recipients must be
+  listed in the project's `mail.allowed_recipients`; a daily limit and an attachment size
+  limit apply. A new tool group, `mail` (`ask`, never `allow`).
 
 ## 0.7.0
 

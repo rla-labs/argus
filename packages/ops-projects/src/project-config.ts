@@ -12,10 +12,11 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
-import { MCP_SERVER_PATTERN, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
+import { MCP_SERVER_PATTERN, NEVER_UNASKED, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 import type { ProjectTemplate } from './templates.js'
 import { BIN_DIR, EXTENSION_NAME, type UsableExtension } from './extensions.js'
 import { parseGitBlock, type GitRemote } from './git-remotes.js'
+import { parseMailBlock, type ProjectMail } from './mail.js'
 
 /**
  * A project slug.
@@ -97,6 +98,8 @@ export interface ProjectConfig {
   readonly extensionsMissing: readonly string[]
   /** Its git remotes (`git.remotes`), by name. Their tokens are not in the file. */
   readonly git: { readonly remotes: Readonly<Record<string, GitRemote>> }
+  /** Who it may mail and how much (`mail:`). Its account is the admin's `/mail`, never in the file. */
+  readonly mail: ProjectMail
   /** The template it follows (`template:`), or null for a fully explicit project. */
   readonly template: string | null
   /** The dotted keys whose value comes from the template: the project's file does not set them. */
@@ -124,7 +127,7 @@ function toolAccess(fallback: string) {
 }
 
 /** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
-const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other', 'web_hosts', 'exceptions']
+const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other', 'web_hosts', 'exceptions']
 
 /** What one tool's exception may be. */
 const ACCESS_VALUES = ['off', 'deny', 'ask', 'allow']
@@ -249,6 +252,7 @@ export const projectConfigSchema = z.object({
       web: toolAccess(PROJECT_TOOL_DEFAULTS.web),
       agents: toolAccess(PROJECT_TOOL_DEFAULTS.agents),
       git: toolAccess(PROJECT_TOOL_DEFAULTS.git),
+      mail: z.union([z.const('off'), z.const('deny'), z.const('ask')]).default(PROJECT_TOOL_DEFAULTS.mail),
       other: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default(PROJECT_TOOL_DEFAULTS.other),
       web_hosts: z.array(z.string()).default([]),
     })
@@ -536,15 +540,19 @@ export function parseProjectConfig(
         exceptions = named as Record<string, string>
         for (const [name, access] of Object.entries(exceptions)) {
           if (!ACCESS_VALUES.includes(access)) issues.push({ path: `tools.exceptions.${name}`, message: `must be one of ${ACCESS_VALUES.join(', ')}` })
+          else if (access === 'allow' && NEVER_UNASKED.has(name)) issues.push({ path: `tools.exceptions.${name}`, message: 'cannot be allow: every mail is shown to a person first (ask, deny or off)' })
         }
       }
     }
+    if ((tools as Record<string, unknown>)['mail'] === 'allow') issues.push({ path: 'tools.mail', message: 'cannot be allow: every mail is shown to a person first (ask, deny or off)' })
   }
 
   issues.push(...mcpIssues(document['mcp']))
   issues.push(...ruleIssues(document))
   const git = parseGitBlock(document['git'])
   issues.push(...git.issues)
+  const mail = parseMailBlock(document['mail'])
+  issues.push(...mail.issues)
 
   if (issues.length > 0) {
     throw new ProjectConfigError(`${options.sourcePath} is not a valid project`, issues, {
@@ -610,6 +618,7 @@ export function parseProjectConfig(
     extensions: enabled,
     extensionsMissing,
     git: { remotes: git.remotes },
+    mail: mail.mail,
     template,
     fromTemplate,
     sourcePath: options.sourcePath,

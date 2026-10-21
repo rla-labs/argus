@@ -90,6 +90,8 @@ export interface QuestionInput {
   readonly repeated?: number
   /** A scheduled run's wait, in seconds, instead of `timeoutMinutes`. */
   readonly unattendedSeconds?: number
+  /** What the call does, shown whole under the action: a mail, as it will be sent. */
+  readonly detail?: string
 }
 
 /**
@@ -130,6 +132,7 @@ export function approvalQuestion(input: QuestionInput): string {
   if (input.reason !== undefined && input.reason.trim().length > 0) {
     lines.push(`  reason    ${sanitize(input.reason, 200)}`)
   }
+  if (input.detail !== undefined) lines.push('', ...detailLines(input.detail))
   lines.push(
     '',
     input.unattendedSeconds === undefined
@@ -177,6 +180,25 @@ export function refusedText(reason: string): string {
 }
 
 /** Strip control characters and truncate. */
+/**
+ * A multi-line detail, each line cleaned like {@link sanitize} but kept a line, and the
+ * whole at most 3,500 characters, so the question fits one Telegram message.
+ */
+export function detailLines(text: string): string[] {
+  const lines = text.split('\n').map((line) => sanitize(line, 1000))
+  const kept: string[] = []
+  let size = 0
+  for (const line of lines) {
+    if (size + line.length > 3500) {
+      kept.push(`… (${lines.length - kept.length} more line(s), cut here; the mail is sent whole)`)
+      break
+    }
+    kept.push(line)
+    size += line.length + 1
+  }
+  return kept
+}
+
 export function sanitize(text: string, maxLength: number): string {
   // Matching control characters IS the job here: they are what could forge extra
   // lines in a message and make the displayed action differ from the approved one.

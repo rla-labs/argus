@@ -42,7 +42,7 @@ interface ProjectDetail extends ProjectRow {
   schedules: Array<{ id: string; cron: string; what: string; enabled: boolean; next: number }>
 }
 
-const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other'] as const
+const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other'] as const
 
 /** Spent of a limit, or just spent. */
 function spent(micros: number, limit: number | null): string {
@@ -159,6 +159,7 @@ export function ProjectView({ id, version, run, outcome, can }: PageProps & { id
     <${Undo} id=${id} version=${version} run=${run} can=${can} />
     <${Extensions} id=${id} version=${version} run=${run} can=${can} />
     <${Git} id=${id} version=${version} run=${run} can=${can} />
+    <${Mail} id=${id} version=${version} run=${run} can=${can} />
     <${Memory} id=${id} version=${version} run=${run} can=${can} />
     <${Files} id=${id} version=${version} run=${run} />`
 }
@@ -206,7 +207,7 @@ function Tools({ project, run, can }: { project: ProjectDetail; run: (line: stri
       ${GROUPS.map(
         (group) => html`<div class="field"><label class="lbl" for=${`pt-${group}`}>${t(`tools.${group}`)}</label>
           <select id=${`pt-${group}`} disabled=${!editable} value=${tools[group]} onChange=${(event: Event) => run(`/set ${project.id} tools.${group} ${(event.target as HTMLSelectElement).value}`)}>
-            ${(group === 'other' ? ['deny', 'ask', 'allow'] : ['off', 'deny', 'ask', 'allow']).map((value) => html`<option value=${value}>${value}</option>`)}
+            ${(group === 'other' ? ['deny', 'ask', 'allow'] : group === 'mail' ? ['off', 'deny', 'ask'] : ['off', 'deny', 'ask', 'allow']).map((value) => html`<option value=${value}>${value}</option>`)}
           </select></div>`,
       )}
       ${project.mcp.map(
@@ -261,6 +262,27 @@ function Extensions({ id, version, run, can }: { id: string; version: number; ru
           <${Field} id="x-name" label=${t('projects.extensionName')} value=${name} onInput=${setName} placeholder="office" grow="1 1 200px" />
           <button class="btn ghost" type="submit">${t('projects.extensionEnable')}</button>
           <button class="btn ghost" type="button" onClick=${() => act('disable')}>${t('projects.extensionDisable')}</button>
+        </form>`
+      : null}
+  </section>`
+}
+
+function Mail({ id, version, run, can }: { id: string; version: number; run: (line: string) => void; can: (name: string) => boolean }): VNode {
+  const [url, setUrl] = useState('')
+  const [to, setTo] = useState('')
+  return html`<section class="hud">
+    <h2>${t('projects.mail')}</h2>
+    <p class="muted" style="margin:0">${t('projects.mailHint')}</p>
+    <${CommandText} line=${`/mail ${id}`} version=${version} />
+    ${can('mail')
+      ? html`<form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (url.trim().length > 0) { run(`/mail set ${id} ${url.trim()}`); setUrl('') } }}>
+          <${Field} id="ml-url" type="password" label=${t('projects.mailAccount')} value=${url} onInput=${setUrl} placeholder="smtps://user:password@host:465" grow="1 1 300px" />
+          <button class="btn ghost" type="submit">${t('settings.save')}</button>
+          <button class="btn danger" type="button" onClick=${() => run(`/mail remove ${id}`)}>${t('projects.mailRemove')}</button>
+        </form>
+        <form class="inline" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (to.trim().length > 0) run(`/mail test ${id} ${to.trim()}`) }}>
+          <${Field} id="ml-to" label=${t('projects.mailTestTo')} value=${to} onInput=${setTo} placeholder="you@example.com" grow="1 1 240px" />
+          <button class="btn ghost" type="submit">${t('projects.mailTest')}</button>
         </form>`
       : null}
   </section>`

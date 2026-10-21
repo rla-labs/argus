@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { GIT_REMOTE_PATTERN, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
+import { GIT_REMOTE_PATTERN, describeAccount, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 
 /** Return a failed parse as an error that shows the syntax. */
@@ -2058,6 +2058,70 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (written !== undefined) return errorResult(`Not changed. ${written}`)
         await git.remove(config.id, remote)
         return result(`${config.id}: the remote ${remote}, its token and its copy are removed. The project's own folder is unchanged.`)
+      },
+    },
+
+    // ── /mail ──────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'mail',
+        description: 'A project’s mail account and settings (admin to change)',
+        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url> | /mail remove <project-id|default> | /mail test <project-id|default> <address>',
+        detail:
+          'A project sends mail with send_mail, and Argus does it: the account never reaches ' +
+          'the agent, its shell or the conversation, and every mail is shown to a person ' +
+          'first. set deletes your message at once and saves the account, as ' +
+          'smtps://user:password@host:465 (or smtp://…:587, with STARTTLS required), for that ' +
+          'project or as the default for all. Who it may write to, and how much, is in the ' +
+          'project’s file: mail.allowed_recipients, mail.max_per_day, mail.max_attachment_mb. ' +
+          'test sends one mail with the account to the address you give. Seeing it is ' +
+          'anyone’s; the rest is the admin’s.',
+        examples: ['/mail site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail test site-firma ana@acme.ro', '/mail remove site-firma'],
+        mutating: true,
+        secret: 2,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const mail = projects.mail
+        const [action, target, value, ...rest] = tokenize(input)
+        const actions = ['set', 'remove', 'test']
+        if (action === undefined || !actions.includes(action)) {
+          if (action === 'default') {
+            const found = await mail.accountOf(null)
+            return result(found === undefined ? 'No default mail account. Set one: /mail set default smtps://user:password@host:465' : `The default mail account: ${describeAccount(found.account)}. A project with no account of its own sends with it.`)
+          }
+          const id = projectOf(action, context)
+          const config = id === undefined ? undefined : projects.configOf(id)
+          if (config === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, id === undefined ? 'Which project? /mail <project-id>' : `No project "${id}". Send /projects to see them.`)
+          const found = await mail.accountOf(config.id)
+          const { allowed_recipients: allowed, max_per_day: perDay, max_attachment_mb: mb, from } = config.mail
+          return result(
+            `${config.id}'s mail:
+` +
+              `account     ${found === undefined ? `none (/mail set ${config.id} <smtps-url>, or a default)` : `${describeAccount(found.account)}${found.own ? '' : ' (the default)'}`}
+` +
+              `from        ${from ?? (found === undefined ? '-' : found.account.user)}
+` +
+              `may write   ${allowed.length === 0 ? `nobody yet (/set ${config.id} mail.allowed_recipients [ana@example.com, @example.com])` : allowed.join(', ')}
+` +
+              `limits      ${perDay} a day (${mail.sentToday(config.id)} sent in the last 24 hours), ${mb} MB of attachments a mail
+` +
+              `send_mail   ${config.tools.mail}: every mail is shown to a person first`,
+          )
+        }
+        if (!context.isAdmin) return errorResult('Only the admin can change a mail account.')
+        if (target === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs a project, or default.`)
+        const projectId = target === 'default' ? null : target
+        if (projectId !== null && projects.configOf(projectId) === undefined) return errorResult(`No project "${target}". Send /projects to see them.`)
+        const who = projectId ?? 'the default'
+        if (action === 'set') {
+          if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'set needs the account, as one smtps:// URL.')
+          const saved = await mail.setAccount(projectId, value)
+          return saved.ok ? result(saved.message) : errorResult(`Not saved. ${saved.message}`)
+        }
+        if (action === 'remove') return result((await mail.removeAccount(projectId)) ? `${who}: the mail account is removed.` : `${who} has no mail account of its own.`)
+        if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'test needs one address to send to.')
+        const sent = await mail.test(projectId, value)
+        return sent.ok ? result(sent.message) : errorResult(sent.message)
       },
     },
 

@@ -10,7 +10,7 @@
  */
 
 /** A group of tools a project names in its `tools:` block. */
-export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'git' | 'other'
+export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'git' | 'mail' | 'other'
 
 /**
  * What a project allows for a group.
@@ -29,6 +29,8 @@ export interface ToolPolicy {
   readonly agents: ToolAccess
   /** `git_clone`, `git_pull` and `git_push` on the project's declared remotes, done by Argus. */
   readonly git: ToolAccess
+  /** `send_mail`, done by Argus with the project's mail account. Never `allow`: every mail is asked about. */
+  readonly mail: Exclude<ToolAccess, 'allow'>
   /** Any tool not in a group: one a later dsh adds, or an integration's. Never `off`. */
   readonly other: Exclude<ToolAccess, 'off'>
   /** Hosts `web_fetch` reaches unasked under `web: ask`; a host covers its subdomains. */
@@ -51,7 +53,15 @@ export const TOOL_GROUPS: Readonly<Record<Exclude<ToolGroup, 'other'>, readonly 
   web: ['web_fetch', 'web_search'],
   agents: ['subagent', 'workflow', 'ralph', 'send_message', 'interrupt_agent', 'list_agents', 'list_subagent_models', 'ask_project'],
   git: ['git_clone', 'git_pull', 'git_push'],
+  mail: ['send_mail'],
 }
+
+/**
+ * Tools no setting, rule or run grant lets run unasked: each call is shown to a person.
+ * A mail is the easiest way to send data out, so it stays asked about until reading
+ * mail and access per tool exist.
+ */
+export const NEVER_UNASKED: ReadonlySet<string> = new Set(['send_mail'])
 
 /**
  * Tools that only keep the agent's own books (its todo list, goals, background
@@ -79,6 +89,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
   web: 'ask',
   agents: 'off',
   git: 'ask',
+  mail: 'ask',
   other: 'ask',
   web_hosts: [],
   exceptions: {},
@@ -94,7 +105,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
  */
 export function taskToolPolicy(adhoc: 'auto' | 'ask' | 'deny'): ToolPolicy {
   const risky = adhoc === 'deny' ? 'deny' : 'ask'
-  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', git: 'off', other: risky, web_hosts: [], exceptions: {} }
+  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', git: 'off', mail: 'off', other: risky, web_hosts: [], exceptions: {} }
 }
 
 /**

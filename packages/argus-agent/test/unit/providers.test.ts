@@ -199,6 +199,9 @@ describe('saving and removing a key', () => {
     expect((await service.setKey('ARGUS_GIT_0123ABCD', 'ghp_x')).message).toContain('reserved for git tokens')
     expect(keys.saved['ARGUS_GIT_0123ABCD']).toBeUndefined()
     expect((await service.removeKey('ARGUS_GIT_0123ABCD')).ok).toBe(false)
+    expect((await service.setKey('ARGUS_MAIL_DEFAULT', 'smtps://u:p@h')).message).toContain('reserved for mail accounts')
+    expect(keys.saved['ARGUS_MAIL_DEFAULT']).toBeUndefined()
+    expect((await service.removeKey('ARGUS_MAIL_DEFAULT')).ok).toBe(false)
   })
 
   it('saves a Telegram bot token Telegram accepts, refuses a malformed or rejected one, and lists telegram', async () => {

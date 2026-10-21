@@ -553,6 +553,7 @@ Each group takes one of four values:
 | `web` | `web_fetch`, `web_search` (answered by the [`web_search`](#web_search--who-answers-the-agents-searches) provider, and charged to the project) | `ask` |
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
+| `mail` | `send_mail`, with the project's [mail account](#mail--who-a-project-may-write-to). `off`, `deny` or `ask`, never `allow`: every mail is shown to a person | `ask` (`off` in a one-off task) |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
 
 **A read or write outside the project's folder asks even under `allow`**, and is
@@ -703,6 +704,36 @@ A public repository needs no token to clone or pull. Changing a remote's URL
 (`/git remote`) forgets its token; archiving the project forgets all of them. `/undo`
 puts the files back, not the commits or the pushes. A server with its own certificate
 authority is trusted when the service has `GIT_SSL_CAINFO` set to its CA file.
+
+### `mail` — who a project may write to
+
+A project sends mail with `send_mail`, and Argus sends it: the account (an SMTP server,
+its user and password) is set by the admin with [`/mail`](commands.md#mail), kept in
+the credentials store, and never reaches the agent, its shell or the conversation. The
+project's file says who it may write to and how much:
+
+```yaml
+mail:
+  allowed_recipients: [ana@acme.ro, "@client.com"]   # an address, or anyone at a domain
+  from: office@acme.ro        # default: the account's user
+  max_per_day: 20             # mails in any 24 hours (1-500)
+  max_attachment_mb: 20       # the attachments of one mail, together (1-50)
+```
+
+- **Nobody is allowed until you list them.** A recipient outside `allowed_recipients` (in
+  `to`, `cc` or `bcc`) is refused before anyone is asked.
+- **Every mail is shown first**, whole: from, to, cc, bcc, subject, the attachments with
+  their sizes, and the text (cut after 3,000 characters in the chat; the web shows all).
+  The buttons are Approve and Deny only: no "for this run", no "always", and no setting,
+  rule or template makes `send_mail` run unasked. A scheduled run with nobody watching
+  cannot send mail.
+- **What goes is what was shown.** An attachment that changed after the question is
+  refused; send again to be asked again.
+- **Attachments are files in the project's folder**: not a link, not a file outside it.
+- One account per project, or a default for all (`/mail set default …`); a project's own
+  wins. TLS is required (`smtps://`, or `smtp://` with STARTTLS), with the server's
+  certificate checked. Every send is in the audit log (`mail.send`), with the number of
+  recipients and the attachments' names and sizes, never the text or the password.
 
 ### `extensions` — tools, skills and instructions installed once
 

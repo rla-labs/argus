@@ -1771,6 +1771,37 @@ describe('/ext', () => {
   }, 60_000)
 })
 
+describe('/mail', () => {
+  it('shows a project\'s mail, and lets only the admin set, test and remove an account, kept as a credential', async () => {
+    const booted = await bootCommands({ projects: { alpha: { mail: { allowed_recipients: ['ana@acme.ro'] } } } })
+    const values = new Map<string, string>()
+    ;(booted.ctx as unknown as { provide(name: string, value: unknown): void }).provide('credentials', {
+      set: async (ref: unknown, value: string) => void values.set(String(ref), value),
+      unset: async (ref: unknown) => void values.delete(String(ref)),
+      resolve: async (ref: unknown) => (values.has(String(ref)) ? { value: values.get(String(ref)) } : undefined),
+    })
+    const sent: unknown[] = []
+    ;(booted.projects.mail as unknown as { transport: unknown }).transport = () => ({ sendMail: async (message: unknown) => (sent.push(message), {}) })
+    expect(await run(booted, '/mail alpha')).toContain('account     none (/mail set alpha <smtps-url>, or a default)')
+    expect(await run(booted, '/mail set default smtps://office%40acme.ro:s3cret@mail.acme.ro:465', contextFor({ isAdmin: false }))).toContain('Only the admin')
+    expect(await run(booted, '/mail set default http://x')).toContain('Not saved. Only smtps://')
+    expect(await run(booted, '/mail set default smtps://office%40acme.ro:s3cret@mail.acme.ro:465')).toContain('The default mail account: smtps://office@acme.ro@mail.acme.ro:465')
+    expect([...values.keys()]).toEqual(['ARGUS_MAIL_DEFAULT'])
+    const shown = await run(booted, '/mail alpha')
+    expect(shown).toContain('smtps://office@acme.ro@mail.acme.ro:465 (the default)')
+    expect(shown).toContain('may write   ana@acme.ro')
+    expect(shown).toContain('send_mail   ask: every mail is shown to a person first')
+    expect(shown).not.toContain('s3cret')
+    expect(await run(booted, '/mail test alpha ana@acme.ro')).toContain('Sent a test mail to ana@acme.ro')
+    expect(sent).toHaveLength(1)
+    // The audit keeps the action and the project only.
+    expect(JSON.stringify(booted.store.audit.recent(50))).not.toContain('s3cret')
+    expect(await run(booted, '/set alpha tools.mail allow')).toContain('cannot be allow')
+    expect(await run(booted, '/mail remove default')).toContain('the default: the mail account is removed.')
+    expect(values.size).toBe(0)
+  }, 30_000)
+})
+
 describe('/git', () => {
   /** dsh's credentials service, in memory, mounted on the booted tree. */
   function withCredentials(booted: Booted): Map<string, string> {

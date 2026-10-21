@@ -38,6 +38,7 @@ token.
         ├──▶ <provider> API            the model
         ├──▶ registry                  the image pull, at install/upgrade
         ├──▶ your git hosts            a project's remotes, by Argus, with their tokens
+        ├──▶ your mail server          a project's approved mail, by Argus (SMTP over TLS)
         └──▶ what you add              an MCP server's URL, the npm registry when `npx`
                                        fetches one, an extension's download at install,
                                        the sites a project fetches
@@ -160,6 +161,14 @@ plain data, cross between that copy and the project:
 | HTTPS only, no redirect followed, no prompt, no user or system git config | The token goes to the remote's host and nowhere else. |
 | A push is a fast-forward of the commit the person approved | A branch that moved after the question is not pushed; nothing is force-pushed; protected branches are refused. |
 | Archiving a project forgets its tokens | A project that no longer runs holds nothing. |
+
+**A mail account is the same kind of exception.** It is kept under `ARGUS_MAIL_…`, which
+`/key`, `${NAME}` and an extension's secrets refuse, and only Argus's own `send_mail`
+uses it, over TLS with the server's certificate checked. Mail is the easiest way to send
+data out, so: every mail is shown whole to a person, with Approve and Deny only (no run
+grant, no "always", no setting that skips it); the recipients must be in the project's
+`mail.allowed_recipients`; the attachments must be files in the project's folder, and
+one that changes after the question is not sent; a daily limit applies.
 
 The tests plant each of these in a project's repository and check that nothing ran
 with Argus's rights and that another project's commits never left.

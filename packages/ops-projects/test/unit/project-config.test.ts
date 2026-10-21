@@ -251,7 +251,7 @@ describe('parseProjectConfig', () => {
 
 describe('the tools block', () => {
   it('defaults to today\'s behaviour with delegation hidden', () => {
-    expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', git: 'ask', other: 'ask', web_hosts: [], exceptions: {} })
+    expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', git: 'ask', mail: 'ask', other: 'ask', web_hosts: [], exceptions: {} })
   })
 
   it('takes a group\'s access and the web hosts', () => {

@@ -146,6 +146,7 @@ describe('extensions', () => {
     }
     for (const problem of ['bin: ../outside must be a file inside', 'bin: /abs must be a file inside', 'env: API_TOKEN cannot be set', 'env: PATH cannot be set', 'env: lower is not a NAME_LIKE_THIS', 'rules: "rm -rf / ; x" is not a command rule']) expect(message).toContain(problem)
     expect(message).not.toContain('"ok *"')
+    expect(() => parseManifest({ name: 'mailer', version: '1', summary: 's', requires: { secrets: ['ARGUS_MAIL_DEFAULT', 'ARGUS_GIT_X'] } })).toThrow(/ARGUS_MAIL_ names are reserved for mail accounts[\s\S]*|ARGUS_GIT_ names are reserved/)
   })
 
   it('installs only programs that are its own executable files, linked from .argus-bin', async () => {

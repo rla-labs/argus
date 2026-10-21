@@ -23,7 +23,7 @@ interface Overview {
   projects: Array<{ id: string; description: string | null; status: string; model: string; running: boolean; waiting: boolean; dayPct: number | null; dayMicros: number; invalid: string | null }>
   spend: { dayMicros: number; dayLimitMicros: number | null; monthMicros: number; monthLimitMicros: number | null; trend: Array<{ day: string; micros: number }> }
   runs: Array<{ runId: string; who: string; model: string; steps: number; startedAt: number; micros: number }>
-  approvals: Array<{ id: string; projectId: string | null; action: string; kind: string; at: number; always: string | null }>
+  approvals: Array<{ id: string; projectId: string | null; action: string; kind: string; at: number; always: string | null; detail: string | null }>
   checkpoints: Array<{ runId: string; who: string; steps: number; reason: string; at: number }>
   schedules: Array<{ id: string; cron: string; who: string; what: string; enabled: boolean; next: number }>
   log: Array<{ at: number; actor: string; action: string; target: string | null }>
@@ -82,7 +82,7 @@ function fromHash(): { view: View; sub: string } {
   const [view, ...rest] = location.hash.slice(1).split('/')
   return { view: view === 'setup' ? 'setup' : (VIEWS.find((each) => each === view) ?? 'overview'), sub: decodeURIComponent(rest.join('/')) }
 }
-const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'other'] as const
+const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
 
@@ -115,9 +115,10 @@ function ApprovalCard({ approval, admin, onDone }: { approval: Overview['approva
   return html`<div class="approval">
     <div class="head"><span class="mono" style="color:var(--amber)">${approval.projectId ?? 'task'} · ${approval.kind}</span><span class="lbl">${clock(approval.at)}</span></div>
     <code class="action">${approval.action}</code>
+    ${approval.detail === null ? null : html`<pre class="mono" style="white-space:pre-wrap;max-height:24rem;overflow:auto;margin:0">${approval.detail}</pre>`}
     <div class="btns">
       <button class="btn primary" type="button" disabled=${busy} onClick=${() => answer('approve')}>${t('approvals.approve')}</button>
-      <button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('approve-all')}>${t('approvals.approveAll')}</button>
+      ${approval.detail === null ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('approve-all')}>${t('approvals.approveAll')}</button>` : null}
       <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('deny')}>${t('approvals.deny')}</button>
       ${admin && approval.always !== null && approval.projectId !== null
         ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('always')}>${t('approvals.always', { rule: approval.always.length > 40 ? `${approval.always.slice(0, 39)}…` : approval.always, project: approval.projectId })}</button>`
@@ -584,7 +585,7 @@ function SettingsView({ data, run, outcome, account }: { data: Settings; run: (l
             ${GROUPS.map(
               (group) => html`<td><label class="sr" for=${`t-${project.id}-${group}`}>${project.id} ${group}</label>
                 <select id=${`t-${project.id}-${group}`} value=${project.tools[group]} onChange=${(e: Event) => run(`/set ${project.id} tools.${group} ${(e.target as HTMLSelectElement).value}`)}>
-                  ${(group === 'other' ? ['deny', 'ask', 'allow'] : ['off', 'deny', 'ask', 'allow']).map((value) => html`<option value=${value}>${value}</option>`)}
+                  ${(group === 'other' ? ['deny', 'ask', 'allow'] : group === 'mail' ? ['off', 'deny', 'ask'] : ['off', 'deny', 'ask', 'allow']).map((value) => html`<option value=${value}>${value}</option>`)}
                 </select></td>`,
             )}
             <td>$${project.dayUsd} / $${project.monthUsd}</td>

@@ -42,6 +42,8 @@ import { projectModelRef } from './project-config.js'
 import type { SnapshotEntry, Snapshots, SnapshotSettings } from './snapshots.js'
 import type { Extensions } from './extensions.js'
 import { GitError, GitRemotes, isGitTokenName, type GitRemote, type PushPlan, type TokenStore } from './git-remotes.js'
+import { createTransport } from 'nodemailer'
+import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, type MailTransport } from './mail.js'
 
 /** What a delivery targets. */
 export type AgentTarget =
@@ -116,6 +118,8 @@ export class OpsProjects {
   readonly extensions: Extensions | undefined
   /** The projects' git remotes: tokens and mirrors. */
   readonly git: GitRemotes
+  /** The projects' mail: accounts, the question's preview, the sending. */
+  readonly mail: ProjectMailer
   private readonly snapshotSettings: () => SnapshotSettings
   private gitPresent: boolean | undefined
   private disposed = false
@@ -123,7 +127,7 @@ export class OpsProjects {
   constructor(
     ctx: Context,
     store: OpsStore,
-    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions },
+    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions; mailTransport?: MailTransport },
   ) {
     this.ctx = ctx
     this.store = store
@@ -141,7 +145,36 @@ export class OpsProjects {
         return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: root }, reads)).argv
       },
     )
+    this.mail = new ProjectMailer(
+      () => ctx.get('credentials' as never) as unknown as MailSecrets | undefined,
+      { record: (entry, ts) => store.audit.record(entry, ts), byAction: (action, limit) => store.audit.byAction(action, limit) },
+      options.mailTransport ?? nodemailerTransport,
+      (name) => credentialRef(name),
+    )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
+  }
+
+  // ── mail ─────────────────────────────────────────────────────────────────
+
+  /**
+   * The mail a `send_mail` would send, for the person asked to approve it. Remembered:
+   * the send that follows sends that mail or nothing.
+   *
+   * @returns the description, or why it cannot be sent.
+   */
+  mailPreview(projectId: string, callId: string, args: unknown): Promise<{ ok: boolean; text: string }> {
+    const config = this.requireConfig(projectId)
+    return this.mail.preview(projectId, callId, config.cwd, config.mail, args)
+  }
+
+  /**
+   * `send_mail`: the approved mail, with the project's account.
+   *
+   * @returns what happened, for the agent.
+   */
+  sendMail(projectId: string, callId: string, args: unknown): Promise<string> {
+    const config = this.requireConfig(projectId)
+    return this.mail.send(projectId, callId, config.cwd, config.mail, args)
   }
 
   // ── extensions in the project's shell ────────────────────────────────────
@@ -791,6 +824,7 @@ export class OpsProjects {
       for (const [reference, name] of value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
         // A git token is for Argus's own git, on its own remote: never handed to a server.
         if (isGitTokenName(name as string)) throw new Error(`\${${name}} is a git token, which only Argus's git operations may use`)
+        if (isMailSecretName(name as string)) throw new Error(`\${${name}} is a mail account, which only Argus's send_mail may use`)
         // Without the credentials service (a bare composition) only the environment is read.
         const secret =
           credentials === undefined
@@ -1299,3 +1333,6 @@ function changedKeys(before: ProjectConfig | undefined, after: ProjectConfig): s
   const [was, now] = [builtFrom(before), builtFrom(after)]
   return Object.keys(now).filter((key) => JSON.stringify(was[key]) !== JSON.stringify(now[key])).sort()
 }
+
+/** nodemailer, for a real account. */
+const nodemailerTransport: MailTransport = (account) => createTransport(transportOptions(account) as never) as unknown as ReturnType<MailTransport>
