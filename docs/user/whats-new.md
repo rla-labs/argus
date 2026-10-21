@@ -3,7 +3,10 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.7.1 (in progress)
+## 0.7.1
+
+**Settings that apply at once, web search from the provider you choose, three more
+extensions, and mail.**
 
 - **A changed setting applies without `/reset`.** Enabling an extension, changing a
   project's model, tools or MCP servers reaches its agent at the next message, in the
@@ -26,6 +29,8 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   first, with Approve and Deny only, and what goes is what was shown. Recipients must be
   listed in the project's `mail.allowed_recipients`; a daily limit and an attachment size
   limit apply. A new tool group, `mail` (`ask`, never `allow`).
+
+[What changes](backup-and-upgrade.md#upgrading-to-071).
 
 ## 0.7.0
 

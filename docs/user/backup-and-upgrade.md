@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.7.0
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.7.1
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -418,6 +418,27 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.7.1
+
+Nothing to do by hand, and no database migration. What changes for you:
+
+- **A changed setting reaches a running project** at its next message, without `/reset`:
+  its agent is rebuilt between runs and resumes the same conversation. `/model` now
+  writes the project's file, like `/set <project> model`; before, it reached no agent.
+- **Web search stays on DeepSeek** until you set `web_search.provider` in `ops.yaml`
+  (`tavily`, `brave`, `serper` or `searxng`, then restart). Each search is still charged
+  to the project that searched, now at the provider's own price
+  ([Configuration](configuration.md#web_search--who-answers-the-agents-searches)).
+- **Mail is off until you set an account.** A new tool group, `mail` (`send_mail`), is
+  `ask` in a project and `off` in a task, and can never be `allow`. Nothing is sent until
+  you run `/mail set` and list recipients in the project's `mail.allowed_recipients`
+  ([Configuration](configuration.md#mail--who-a-project-may-write-to)).
+- **The Docker image is about 15 MB larger:** five system libraries and a font, for the
+  `images` extension. A native install that wants `images` installs them with apt
+  ([Extensions](extensions.md#the-first-party-ones)).
+- `ARGUS_MAIL_…` is a reserved prefix: `/key` refuses it, and an MCP server's `${NAME}`
+  and an extension's `requires.secrets` may not use it.
 
 ### Upgrading to 0.7.0
 
