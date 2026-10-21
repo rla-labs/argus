@@ -16,6 +16,11 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   Tavily, Brave, Serper, a private SearXNG next to Argus (a new compose overlay), or
   DeepSeek as before (the default). Each search is charged its price to the project
   that searched; `/key tavily <key>` and the others check a key with one search.
+- **Three new extensions** in
+  [rla-labs/argus-extensions](https://github.com/rla-labs/argus-extensions):
+  **diagrams** (Mermaid to SVG, PNG or text, no browser), **pdf** (`pdftool`: text,
+  merge, split, pages, rotate, render, compress, passwords) and **images** (ImageMagick
+  7, x64). The Docker image gains the five libraries and the font `images` needs.
 
 ## 0.7.0
 

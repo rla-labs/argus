@@ -80,9 +80,12 @@ ENV ARGUS_AGENT_VERSION="$ARGUS_AGENT_VERSION"
 # `tini` is the init. Node does not reap orphaned children or forward signals to a
 # process group by default, and this container runs an agent that spawns shells: a
 # `kill` that leaves the agent's subprocesses running is a leak, and a PID 1 that
-# does not reap is a slow failure.
+# does not reap is a slow failure. The second line: the libraries ImageMagick's official
+# Linux build loads from the system (the `images` extension), and a font for text drawn
+# on an image; about 15 MB.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ca-certificates curl zip git \
+      libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 
 # `uv` (and `uvx`), one static binary, for the Python MCP servers an extension may

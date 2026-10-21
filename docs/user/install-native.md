@@ -36,6 +36,7 @@ Step by step, from a fresh Linux server to a working bot on Telegram, with **no 
 | Network | Outbound HTTPS | `api.telegram.org`, your provider, npm |
 | `zip` | Any | So `send_file` can send a folder or several files as one zip: `sudo apt-get install -y zip` (`sudo dnf install -y zip` on RHEL/Rocky/Fedora). The Docker image has it. |
 | `git` | Any | The install fetches Argus with it, and `/undo` records each project's folder with it before a run. |
+| For the `images` extension | x64 | ImageMagick's system libraries and a font: `sudo apt-get install -y libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core`. The Docker image has them. |
 | Optional | | whatever an [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) needs (`npx` comes with Node; `uvx` for Python servers is yours to install); [Tailscale](https://tailscale.com), to open the [web interface](web.md) |
 
 Three things to collect before you start:
