@@ -1263,7 +1263,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'With no action, shows the scope’s state. `+<usd>` adds temporary headroom and ' +
           're-dispatches, which is also what un-pauses a project the hard action stopped. ' +
           '`unlock <duration>` grants headroom that expires. `set <day|month> <usd>` changes ' +
-          'the limit itself. Scope is global, adhoc or a project id.',
+          'the limit itself, and resumes a paused project it leaves under its limit. Scope is global, adhoc or a project id.',
         examples: ['/budget site-firma', '/budget site-firma +5', '/budget site-firma unlock 2h', '/budget global set day 20'],
         mutating: true,
       },
@@ -1351,7 +1351,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
             action_soft: store.budgets.get(scope, period)?.action_soft ?? 'warn',
             action_hard: store.budgets.get(scope, period)?.action_hard ?? 'pause',
           })
-          return result(`Set the ${period} limit for ${scope} to $${formatUsd(money.value)}.`)
+          const resumed = governor.limitChanged(scope)
+          return result(`Set the ${period} limit for ${scope} to $${formatUsd(money.value)}.${resumed === undefined ? '' : ` ${resumed} is no longer over its budget: resumed.`}`)
         }
 
         return failWith(
@@ -1769,6 +1770,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`,
         )
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
+        const enabled = config.extensions.map((extension) => `${extension.name.padEnd(12)} ${extension.binDir === null ? 'no programs' : readdirSync(extension.binDir).sort().join(', ')}`)
+        const programs = enabled.length > 0 ? `\n\nExtensions (their programs run in the shell, confined, under shell's access and the commands unasked):\n${enabled.join('\n')}` : ''
         const { limits } = config
         const onLoop = { stop: 'stops it', notify: 'tells you and it goes on', ask: 'asks you' }[limits.on_loop]
         const loopCheck =
@@ -1778,7 +1781,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const limitsLine = `\nLimits per run: at most ${limits.max_steps_total} steps${from('limits.max_steps_total')}, ${loopCheck}; stopped after ${limits.loop_repeat_threshold} identical calls in a row${from('limits.loop_repeat_threshold')}, ${limits.stall_steps === 0 ? 'no stall check' : `or ${limits.stall_steps} steps with nothing new`}${from('limits.stall_steps')}`
         const follows = config.template === null ? '' : `\n(${config.template}): from the ${config.template} template, which /template ${config.template} shows; /set makes a value the project's own.`
         return result(
-          `${projectId}: tools\n${rows.join('\n')}${hosts}${search}${commands}${named}${limitsLine}${mcp}${follows}\n\n` +
+          `${projectId}: tools\n${rows.join('\n')}${hosts}${search}${commands}${named}${limitsLine}${mcp}${programs}${follows}\n\n` +
             `Change one: /set ${projectId} tools.web allow`,
         )
       },

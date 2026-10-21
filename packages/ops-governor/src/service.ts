@@ -1683,6 +1683,27 @@ export class OpsGovernor {
     this.requestDispatch()
   }
 
+  /**
+   * A scope's limit was set (`/budget <scope> set`): when it is no longer over, a project
+   * the hard action paused is resumed and queued work is dispatched, as an override does.
+   * @param scope the scope.
+   * @returns the project resumed, if one was.
+   */
+  limitChanged(scope: Scope): string | undefined {
+    this.recomputeThresholds()
+    if (this.budgetState(scope).level === 'hard') return undefined
+    let resumed: string | undefined
+    if (scope.startsWith('project:')) {
+      const projectId = scope.slice('project:'.length)
+      if (this.options.store.projects.get(projectId)?.status === 'paused') {
+        this.options.store.projects.setStatus(projectId, 'active', this.options.now())
+        resumed = projectId
+      }
+    }
+    this.requestDispatch()
+    return resumed
+  }
+
   /** The configured limit for a scope, used when creating its first budget row. */
   private configuredLimitOf(scope: Scope, period: Period): number {
     const projectLimit = this.projectLimit(scope, period)

@@ -558,6 +558,14 @@ Unlocked project:site-firma for 2h.
 Set the day limit for global to $20.
 ```
 
+A new limit above what the scope has spent also does what `+<usd>` does: a project the
+hard action paused is resumed, and its queued messages run.
+
+```
+/budget site-firma set month 30
+Set the month limit for project:site-firma to $30. site-firma is no longer over its budget: resumed.
+```
+
 A scope with no limit shows `limit unlimited`. An unknown action reports it and
 shows the syntax.
 
@@ -947,7 +955,8 @@ even under `allow`. Change a group with `/set <project> tools.<group> <value>`; 
 groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
 Then come the commands that run unasked (`approvals.auto_allow`), the tools that differ from their group (`tools.exceptions`, set with
 `/set <project> tools.exceptions.<tool> <value>`), and the project's MCP servers, each
-with its `access` (`/set <project> mcp.<server>.access allow`). In a project made from
+with its `access` (`/set <project> mcp.<server>.access allow`), and its extensions with
+the programs each puts in its shell. In a project made from
 a template, a value that still comes from it is marked with the template's name:
 `shell   ask (devops)`.
 

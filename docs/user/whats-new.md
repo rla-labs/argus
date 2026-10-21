@@ -9,6 +9,9 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   project's model, tools or MCP servers reaches its agent at the next message, in the
   same conversation; a run in progress finishes first. `/model` now writes the project's
   file, like `/set <project> model`; before, it did not reach the agent at all.
+- **`/budget <project> set` resumes** a project the budget paused, when the new limit is
+  above what it spent, as `+<usd>` already did.
+- **`/tools <project>` lists the extensions' programs.**
 
 ## 0.7.0
 

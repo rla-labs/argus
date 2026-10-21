@@ -1051,6 +1051,29 @@ describe('/budget', () => {
     expect(booted.store.projects.get('alpha')?.status).toBe('active')
   }, 40_000)
 
+  it('un-pauses with set when the new limit is above what it spent, and runs its queued message', async () => {
+    const booted = await bootCommands({
+      projects: { alpha: { budget: { day_usd: 0, hard_action: 'pause' } } },
+      opsYaml:
+        'timezone: UTC\ndata_dir: "PLACEHOLDER"\ntasks:\n  model: fake/fake-model\n' +
+        'pricing:\n  fake/*: { input: 1, cached: 1, output: 1 }\n' +
+        'budgets:\n  default_day_usd: 100\n  hard_action: pause\n',
+    })
+    submit(booted, 'alpha')
+    await waitFor(() => booted.store.projects.get('alpha')?.status === 'paused', { timeoutMs: 20_000, label: 'paused' })
+    // A message to a paused project waits.
+    submit(booted, 'alpha', 'the queued one')
+    await waitFor(() => booted.governor.status().pending.some((request) => request.projectId === 'alpha'), { timeoutMs: 20_000, label: 'kept pending' })
+
+    // Still over: stays paused, nothing runs.
+    expect(await run(booted, '/budget alpha set day 0')).not.toContain('resumed')
+    expect(booted.store.projects.get('alpha')?.status).toBe('paused')
+
+    expect(await run(booted, '/budget alpha set day 20')).toContain('alpha is no longer over its budget: resumed.')
+    expect(booted.store.projects.get('alpha')?.status).toBe('active')
+    await waitFor(() => booted.governor.status().pending.length === 0, { timeoutMs: 20_000, label: 'the queued message dispatched' })
+  }, 40_000)
+
   it('sets an expiring unlock', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const out = await booted.commands.runCommand('/budget alpha unlock 2h', contextFor())
@@ -1719,6 +1742,21 @@ describe('/ext', () => {
     expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual([])
     expect(await run(booted, '/rule alpha hello *')).toContain('hello *')
     expect(booted.projects.configOf('alpha')?.approvals.auto_allow).toEqual(['hello *'])
+    const remove = await booted.commands.runCommand('/ext remove tools', contextFor())
+    await booted.commands.confirm(remove.confirm?.token as string, true, contextFor())
+  }, 60_000)
+
+  it('lists an enabled extension\'s programs in /tools', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const repo = extensionRepo('name: tools\nversion: 1.0.0\nsummary: Tools\n')
+    mkdirSync(join(repo.path, 'bin'))
+    writeFileSync(join(repo.path, 'bin', 'hello'), '#!/bin/sh\necho hi\n', { mode: 0o755 })
+    repo.commit('name: tools\nversion: 1.0.0\nsummary: Tools\nbin: [bin/hello]\n')
+    const asked = await booted.commands.runCommand(`/ext install ${repo.path}`, contextFor())
+    await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())
+    expect(await run(booted, '/tools alpha')).not.toContain('Extensions')
+    await run(booted, '/ext enable alpha tools')
+    expect(await run(booted, '/tools alpha')).toMatch(/Extensions \(their programs run in the shell[^\n]*\ntools +hello/)
     const remove = await booted.commands.runCommand('/ext remove tools', contextFor())
     await booted.commands.confirm(remove.confirm?.token as string, true, contextFor())
   }, 60_000)
