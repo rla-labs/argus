@@ -6,8 +6,8 @@ Argus is a self-hosted system for running AI agents over days and weeks. It enfo
 budget on every run, asks before risky actions and recovers after a crash. You run
 and watch it from a web interface or from Telegram.
 
-**Current release: [0.6.2](https://github.com/rla-labs/argus/releases/tag/v0.6.2)**
-(`ghcr.io/rla-labs/argus:0.6.2`). [What's new](docs/user/whats-new.md).
+**Current release: [0.7.0](https://github.com/rla-labs/argus/releases/tag/v0.7.0)**
+(`ghcr.io/rla-labs/argus:0.7.0`). [What's new](docs/user/whats-new.md).
 
 ## What it does
 
@@ -47,7 +47,9 @@ link.
 
 **Extensions.** MCP servers, command-line programs and skills installed from git,
 pinned, and enabled per project. A program runs in the project's shell, confined like
-any other command.
+any other command. The first-party ones, in
+[argus-extensions](https://github.com/rla-labs/argus-extensions): **office** (Word,
+Excel and PowerPoint) and **media** (ffmpeg).
 
 ## Quick start
 
@@ -104,8 +106,8 @@ has run it in production yet, and dsh is still a release candidate (`0.2.0-rc.2`
 [what has been verified](docs/user/whats-new.md#what-has-been-verified), and what has
 not.
 
-**Next:** an `office` extension for Word, Excel and PowerPoint (0.7.0). After that,
-Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
+**Next:** a browser extension (Playwright and Chromium), which also gives `office` its
+screenshots and PDF (0.7.1). After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
 your use case helps the most.
 
 ## Development

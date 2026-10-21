@@ -1,6 +1,6 @@
 {
   "name": "@argus-agent/web",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "The web interface: a dashboard, approvals, settings and a chat channel, on a private network",
   "type": "module",
   "main": "lib/index.js",

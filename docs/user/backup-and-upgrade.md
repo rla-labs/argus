@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.6.2
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.7.0
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
