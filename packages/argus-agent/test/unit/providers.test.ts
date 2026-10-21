@@ -231,4 +231,33 @@ describe('saving and removing a key', () => {
     const pinned = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, memoryKeys({}, { TELEGRAM_BOT_TOKEN: token }), ok)
     expect((await pinned.setKey('telegram', token)).message).toContain('environment')
   })
+
+  it('saves a web search key after one search with it works, lists it, and removes it', async () => {
+    const key = 'tvly-dev-abcdefghijklmnop9876'
+    const urls: string[] = []
+    const ok = (async (url: string, init: RequestInit) => {
+      urls.push(`${url} ${JSON.stringify(init.headers)}`)
+      return new Response(JSON.stringify({ results: [] }), { status: 200 })
+    }) as unknown as typeof globalThis.fetch
+    const keys = memoryKeys()
+    const service = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, keys, ok)
+    expect(service.keyStatus().map((entry) => entry.provider)).toEqual(expect.arrayContaining(['tavily', 'brave', 'serper']))
+
+    const change = await service.setKey('tavily', key)
+    expect(change).toMatchObject({ ok: true })
+    expect(change.message).toContain('…9876')
+    expect(change.message).not.toContain('abcdefghijklmnop')
+    expect(urls).toHaveLength(1)
+    expect(urls[0]).toMatch(/^https:\/\/api\.tavily\.com\/search .*Bearer tvly-dev-/)
+    expect(keys.saved['TAVILY_API_KEY']).toBe(key)
+    expect(service.keyStatus().find((entry) => entry.provider === 'tavily')).toMatchObject({ configured: true, writable: true })
+    expect((await service.removeKey('tavily')).message).toBe('tavily: key removed.')
+    expect(keys.saved['TAVILY_API_KEY']).toBeUndefined()
+
+    const refused = memoryKeys()
+    const refusing = new OpsProviders(buildRoutes({}, new Map([['openrouter', ['m']]])).routes, refused, answer(401))
+    const no = await refusing.setKey('brave', key)
+    expect(no.message).toContain('brave did not accept the key …9876: brave search: api.search.brave.com answered HTTP 401: the key was refused. Nothing was saved.')
+    expect(refused.saved).toEqual({})
+  })
 })

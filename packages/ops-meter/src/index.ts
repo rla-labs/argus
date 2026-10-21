@@ -272,6 +272,23 @@ export function apply(ctx: Context): void {
     }
   }
 
+  // A search through Tavily, Brave, Serper or SearXNG: a fixed price per search, recorded
+  // as a request of `<provider>/search` with no tokens.
+  ctx.on('ops/web-search', ({ sessionId, provider, costMicros }) => {
+    const owner = ctx.opsProjects.ownerOf(sessionId)
+    if (meter.isStopped || owner === undefined) return
+    meter.record({
+      sessionId,
+      rootSessionId: ctx.opsProjects.rootSessionOf(sessionId),
+      owner,
+      model: { provider, model: 'search' },
+      usage: { inputTokens: 0, outputTokens: 0 },
+      runId: ctx.opsProjects.runOf(sessionId),
+      ts: Date.now(),
+      costMicros,
+    })
+  })
+
   ctx.on('ops/agent-idle', ({ runId }) => {
     if (runId !== undefined) meter.forgetRun(runId)
   })

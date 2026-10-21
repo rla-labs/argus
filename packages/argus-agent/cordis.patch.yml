@@ -38,6 +38,12 @@
     - id: ops-providers
       name: '@argus-agent/argus-agent/providers-row'
 
+    # Web search: the one provider dsh's `web` row is pinned to (below), which sends
+    # each search to the backend ops.yaml names (`web_search.provider`, DeepSeek by
+    # default) and charges it to whoever searched. Publishes ctx.opsWebSearch.
+    - id: ops-web-search
+      name: '@argus-agent/argus-agent/search-row'
+
     # Command confinement. Replaces the base's `sandbox` row (below), whose Landlock
     # profile confines writes only: an agent's shell could read the database, the
     # other projects and every conversation. This one grants the system, the
@@ -124,6 +130,19 @@
 # route for every catalog provider and every one declared in ops.yaml → providers:,
 # so the base's is switched off: two instances would advertise the same providers.
 - id: llm-pi-ai
+  disabled: true
+
+# ── web search ───────────────────────────────────────────────────────────────
+# The base pins dsh's search to `deepseek-official`, and a pinned id wins over
+# $DSH_WEB_SEARCH_PROVIDER. Pinned to `argus` instead (ops-web-search, above), which
+# runs DeepSeek itself when ops.yaml chooses it; the base's DeepSeek row would
+# never be used.
+- id: web
+  config:
+    searchProvider: argus
+    fetchProvider: http
+
+- id: web-search-deepseek
   disabled: true
 
 # ── command confinement ──────────────────────────────────────────────────────

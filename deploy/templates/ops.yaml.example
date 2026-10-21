@@ -341,6 +341,13 @@ web:
   # How long a download link (a file too big for the chat) stays valid.
   download_link_hours: 24
 
+# Who answers the agents' web_search: deepseek (the default, with the DeepSeek key),
+# tavily, brave, serper (each with /key <provider> <key>) or searxng (free, private:
+# see SEARXNG_SECRET in .env). price_usd: what one search is charged; 0 inside a free tier.
+# web_search:
+#   provider: tavily
+#   price_usd: 0
+
 # ── rate limits ─────────────────────────────────────────────────────────────────
 
 rate_limits: {}

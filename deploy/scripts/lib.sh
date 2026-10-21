@@ -24,6 +24,7 @@ readonly COMPOSE_DIR="${DEPLOY_DIR}/compose"
 readonly COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.yml"
 readonly OLLAMA_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.ollama.yml"
 readonly CADDY_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.caddy.yml"
+readonly SEARXNG_COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.searxng.yml"
 
 # The project root, for a build-from-checkout. Exported so install.sh and upgrade.sh
 # (which source this file) read it without re-deriving it.
@@ -105,24 +106,31 @@ require_docker() {
 
 # `docker compose` with the project's file, from its own directory so relative paths
 # in the compose file resolve the way the file's author intended.
-# The Caddy overlay (public mode) comes along whenever .env names its domain, so an
-# `up --remove-orphans` never removes the proxy.
+# The Caddy overlay (public mode) and the SearXNG one come along whenever .env asks for
+# them, so an `up --remove-orphans` never removes them.
 compose() {
-  local caddy=()
-  using_caddy && caddy=(-f "${CADDY_COMPOSE_FILE}")
-  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" "${caddy[@]}" "$@" )
+  local extra=()
+  using_caddy && extra+=(-f "${CADDY_COMPOSE_FILE}")
+  using_searxng && extra+=(-f "${SEARXNG_COMPOSE_FILE}")
+  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" "${extra[@]}" "$@" )
 }
 
 # Compose with the Ollama overlay, when it is in use.
 compose_with_overlay() {
-  local caddy=()
-  using_caddy && caddy=(-f "${CADDY_COMPOSE_FILE}")
-  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" -f "${OLLAMA_COMPOSE_FILE}" "${caddy[@]}" "$@" )
+  local extra=()
+  using_caddy && extra+=(-f "${CADDY_COMPOSE_FILE}")
+  using_searxng && extra+=(-f "${SEARXNG_COMPOSE_FILE}")
+  ( cd "${COMPOSE_DIR}" && "${COMPOSE[@]}" -f "${COMPOSE_FILE}" -f "${OLLAMA_COMPOSE_FILE}" "${extra[@]}" "$@" )
 }
 
 # Whether the Caddy overlay (public mode) is active, according to `.env`.
 using_caddy() {
   [ -f "${COMPOSE_DIR}/.env" ] && grep -qE '^[[:space:]]*ARGUS_DOMAIN=.' "${COMPOSE_DIR}/.env" 2>/dev/null
+}
+
+# Whether the SearXNG overlay is active, according to `.env`.
+using_searxng() {
+  [ -f "${COMPOSE_DIR}/.env" ] && grep -qE '^[[:space:]]*SEARXNG_SECRET=.' "${COMPOSE_DIR}/.env" 2>/dev/null
 }
 
 # Whether the Ollama overlay is active, according to `.env`.

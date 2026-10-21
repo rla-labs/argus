@@ -195,6 +195,18 @@ describe('metering a real turn', () => {
     expect(booted.store.usage.eventsBetween(0, Number.MAX_SAFE_INTEGER)[0]).toMatchObject({ provider: 'deepseek', model: 'deepseek-v4-flash', input_tokens: 80_000, output_tokens: 4096 })
   }, 30_000)
 
+  it('charges a search through another provider its fixed price, to the project that searched', async () => {
+    const booted = await bootMeter({ projects: { site: {} } })
+    const agent = await booted.projects.ensureAgent('site')
+    ;(booted.ctx as unknown as { emit(name: string, payload: unknown): void }).emit('ops/web-search', { sessionId: agent.id as string, provider: 'tavily', costMicros: 8_000 })
+    expect(booted.meter.spending('project:site').dayMicros).toBe(8_000)
+    await booted.meter.flush()
+    expect(booted.store.usage.eventsBetween(0, Number.MAX_SAFE_INTEGER)[0]).toMatchObject({ provider: 'tavily', model: 'search', input_tokens: 0, output_tokens: 0, cost_micros: 8_000 })
+    // A session nobody owns is not charged.
+    ;(booted.ctx as unknown as { emit(name: string, payload: unknown): void }).emit('ops/web-search', { sessionId: 'unknown', provider: 'tavily', costMicros: 8_000 })
+    expect(booted.meter.spending('global').dayMicros).toBe(8_000)
+  }, 30_000)
+
   it('records the event durably', async () => {
     const booted = await bootMeter({ projects: { site: {} } })
     await deliver(booted, 'site')

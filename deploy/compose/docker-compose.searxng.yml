@@ -1,0 +1,38 @@
+# == ARGUS AGENT PROJECT ==
+# An overlay that adds a private SearXNG, so the agents' web_search needs no paid API.
+#
+#   1. In .env:      SEARXNG_SECRET=<a random string: openssl rand -hex 32>
+#   2. In ops.yaml:  web_search: { provider: searxng, searxng_url: http://searxng:8080 }
+#   3. argus upgrade (or: docker compose -f docker-compose.yml -f docker-compose.searxng.yml up -d)
+#
+# The scripts add this overlay whenever .env sets SEARXNG_SECRET. SearXNG publishes no
+# port: only Argus reaches it, by its service name. It does reach the internet, to ask
+# the search engines; a busy engine may refuse it for a while, and SearXNG then answers
+# from the others.
+
+services:
+  searxng:
+    image: searxng/searxng:2026.10.19-81371861f
+    container_name: argus-agent-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?set SEARXNG_SECRET in .env}
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ops:
+    depends_on:
+      - searxng

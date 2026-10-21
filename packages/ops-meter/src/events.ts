@@ -9,6 +9,23 @@ import type { MicroUsd, Owner, Scope } from '@argus-agent/types'
 declare module '@deepseek-ai/cordis' {
   interface Events {
     /**
+     * A web search through a backend with a price per search (Tavily, Brave, Serper,
+     * SearXNG) ran in a session. Emitted by the bundle's search row; the meter charges
+     * the price to the session's owner and run. A DeepSeek search is charged from its
+     * request instead.
+     *
+     * @param payload.sessionId the session that searched.
+     * @param payload.provider the backend.
+     * @param payload.costMicros its price.
+     * @mode emit
+     */
+    'ops/web-search'(payload: {
+      readonly sessionId: string
+      readonly provider: string
+      readonly costMicros: MicroUsd
+    }): void
+
+    /**
      * One model request was priced and counted.
      *
      * Emitted after the counters are advanced, so the governor's listener sees

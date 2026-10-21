@@ -1,0 +1,13 @@
+# == ARGUS AGENT PROJECT ==
+# SearXNG for Argus's web_search (docker-compose.searxng.yml). Only what differs
+# from SearXNG's defaults: JSON answers on (Argus asks for format=json), no rate
+# limiter (only Argus reaches it, on the compose network), no image proxy.
+# The secret key comes from SEARXNG_SECRET, which the overlay sets.
+use_default_settings: true
+server:
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json

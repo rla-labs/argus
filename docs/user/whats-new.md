@@ -12,6 +12,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 - **`/budget <project> set` resumes** a project the budget paused, when the new limit is
   above what it spent, as `+<usd>` already did.
 - **`/tools <project>` lists the extensions' programs.**
+- **Web search through the provider you choose.** `web_search.provider` in `ops.yaml`:
+  Tavily, Brave, Serper, a private SearXNG next to Argus (a new compose overlay), or
+  DeepSeek as before (the default). Each search is charged its price to the project
+  that searched; `/key tavily <key>` and the others check a key with one search.
 
 ## 0.7.0
 

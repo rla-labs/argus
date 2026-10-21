@@ -54,6 +54,8 @@ export interface CommandsOptions {
   readonly configPath?: () => string | undefined
   /** Delegate for `/key`: the model providers, looked up live. */
   readonly keys?: () => KeysPort | undefined
+  /** The web search backend, for `/tools`; looked up live. */
+  readonly search?: () => SearchPort | undefined
   /** Whether free text has a destination without an active project; for `/start`. */
   readonly hasOrchestrator?: () => boolean
   /** Re-read the project directory after a change; returns what the load did. */
@@ -97,6 +99,11 @@ export interface FrontDeskPort {
 }
 
 /** What `/key` needs from the providers row (`ctx.opsProviders`). */
+/** The web search backend, as the bundle's search row reports it. */
+export interface SearchPort {
+  status(): { provider: string; ready: boolean; fix?: string; priceMicros?: number }
+}
+
 export interface KeysPort {
   keyStatus(): ReadonlyArray<{ provider: string; name: string; configured: boolean; source?: string; writable: boolean }>
   setKey(provider: string, key: string): Promise<{ ok: boolean; message: string }>

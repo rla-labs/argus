@@ -142,6 +142,15 @@ describe('Argus Agent bundle composition', () => {
     expect(byId.get('ops-sandbox')?.disabled).toBeFalsy()
   })
 
+  it('pins dsh\'s web search to the search row, which runs DeepSeek itself', () => {
+    const byId = new Map(composedEntries().entries.map((entry) => [entry.id, entry]))
+    expect(byId.get('web')?.config).toEqual({ searchProvider: 'argus', fetchProvider: 'http' })
+    expect(byId.get('web-search-deepseek')?.disabled).toBe(true)
+    expect(byId.get('ops-web-search')?.name).toBe('@argus-agent/argus-agent/search-row')
+    expect(byId.get('web-fetch-http')?.disabled).toBeFalsy()
+    expect(byId.get('tool-web')?.disabled).toBeFalsy()
+  })
+
   it('reads no skill from a project folder: the base\'s skill provider is off, the registry and the tool stay', () => {
     const byId = new Map(composedEntries().entries.map((entry) => [entry.id, entry]))
     expect(byId.get('skill-filesystem')?.disabled).toBe(true)

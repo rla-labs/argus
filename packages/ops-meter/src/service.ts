@@ -44,6 +44,8 @@ export interface RecordInput {
   readonly usage: TokenUsage
   readonly runId: string | undefined
   readonly ts: number
+  /** A fixed cost (a web search's price), charged instead of pricing the usage. */
+  readonly costMicros?: MicroUsd
 }
 
 /** A snapshot of one scope's spending. */
@@ -254,8 +256,9 @@ export class OpsMeter {
   record(input: RecordInput): MicroUsd | undefined {
     this.rollIfNeeded(input.ts)
 
-    const price = this.options.prices.resolve(input.model)
-    if (price === undefined) {
+    const fixed = input.costMicros
+    const price = fixed === undefined ? this.options.prices.resolve(input.model) : undefined
+    if (fixed === undefined && price === undefined) {
       this.ctx.emit('ops/unpriced-model', { model: formatModelRef(input.model) })
       if (this.options.prices.unknownPolicy === 'block') {
         throw new OpsError(
@@ -273,9 +276,10 @@ export class OpsMeter {
       outputTokens: input.usage.outputTokens,
     }
     const costMicros =
-      price === undefined
+      fixed ??
+      (price === undefined
         ? (0 as MicroUsd)
-        : priceRequest(price, { ...counts, cacheWriteTokens: input.usage.cacheWriteTokens ?? 0 })
+        : priceRequest(price, { ...counts, cacheWriteTokens: input.usage.cacheWriteTokens ?? 0 }))
 
     // Counters first: they are what a budget check reads, and a budget must not
     // be able to spend past its limit because a durable write is buffered.

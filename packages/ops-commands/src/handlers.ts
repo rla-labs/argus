@@ -1760,9 +1760,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         )
         rows.push(`${'other'.padEnd(7)} ${(tools.other + from('tools.other')).padEnd(width)} any tool not listed above`)
         const hosts = tools.web_hosts.length > 0 ? `\nweb_fetch unasked: ${tools.web_hosts.join(', ')}${from('tools.web_hosts')}` : ''
-        // dsh searches only through DeepSeek: without its key, every web_search fails.
-        const deepseek = options.keys?.()?.keyStatus().find((entry) => entry.provider === 'deepseek')
-        const search = tools.web !== 'off' && deepseek !== undefined && !deepseek.configured ? '\nweb_search needs a DeepSeek key, which is not set (/key deepseek <key>); without it every search fails. Each search is charged as a DeepSeek request.' : ''
+        // The backend web_search goes to (web_search.provider in ops.yaml), and what it lacks.
+        const backend = options.search?.()?.status()
+        const charged = backend === undefined ? '' : backend.priceMicros === undefined ? ' Each search is charged as a DeepSeek request.' : ` Each search is charged $${(backend.priceMicros / 1_000_000).toFixed(4)}.`
+        const search = tools.web === 'off' || backend === undefined ? '' : backend.ready ? `\nweb_search goes to ${backend.provider}.${charged}` : `\nweb_search goes to ${backend.provider}, which cannot search: ${backend.fix ?? ''}. Without it every search fails.`
         const commands = config.approvals.auto_allow.length > 0 ? `\nCommands unasked: ${config.approvals.auto_allow.join(', ')}${from('approvals.auto_allow')}` : ''
         const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''

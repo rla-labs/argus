@@ -360,6 +360,39 @@ The [web interface](web.md).
 | `max_upload_mb` | int | `2048` | The largest file a project's page [uploads](web.md#large-files) into its `inbox/`. |
 | `download_link_hours` | int | `24` | How long the link for a file too big for a chat stays valid (1 to 168). |
 
+## `web_search` — who answers the agents' searches
+
+Which provider answers `web_search`, for every project, task and the front desk.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `provider` | `deepseek`, `tavily`, `brave`, `serper` or `searxng` | `deepseek` | Who answers. Each but SearXNG needs its key: `/key tavily <key>`, `/key brave <key>`, `/key serper <key>`, `/key deepseek <key>`. |
+| `searxng_url` | string | | SearXNG's address, for `provider: searxng`, e.g. `http://searxng:8080`. |
+| `price_usd` | number | the provider's list price | What one search is charged in the budget: Tavily $0.008, Brave $0.005, Serper $0.001, SearXNG $0. Set `0` while you are inside a provider's free tier. |
+
+```yaml
+web_search:
+  provider: tavily
+  price_usd: 0   # inside Tavily's 1,000 free searches a month
+```
+
+- **DeepSeek** (the default) is charged by its tokens, an upper bound of about a cent a
+  search with DeepSeek V4 Flash. It shares the key of DeepSeek's models.
+- **Tavily** returns sources made for an agent, plus a short answer; 1,000 searches a
+  month are free. **Brave** has its own index and $5 of free searches a month.
+  **Serper** returns Google's results and is the cheapest per search.
+- **SearXNG** is free and private: it runs next to Argus and asks the search engines
+  itself. With Docker, add `SEARXNG_SECRET=<random>` (`openssl rand -hex 32`) to `.env`
+  and set `searxng_url: http://searxng:8080`; `argus upgrade` then starts it
+  (`deploy/compose/docker-compose.searxng.yml`). On a native install, point
+  `searxng_url` at any SearXNG with `format: json` enabled. A busy search engine may
+  refuse SearXNG for a while; it answers from the others.
+
+A change takes effect after a restart (`docker restart argus-agent`, or `sudo systemctl
+restart argus-agent` natively; with SearXNG newly added, `argus upgrade`). `/tools <project>` and
+`argus doctor` say which provider answers and whether it can: a provider without its key
+makes every search fail, with a message that says so.
+
 ## `health`
 
 | Key | Type | Default | Meaning |
@@ -517,7 +550,7 @@ Each group takes one of four values:
 | `read` | `read`, `read_image`, `glob`, `grep`, and the MCP resource tools (`list_mcp_resources`, `list_mcp_resource_templates`, `read_mcp_resource`) | `allow` |
 | `write` | `write`, `edit` | `ask` |
 | `shell` | `bash`, `pwsh`, `run_code` | `ask` |
-| `web` | `web_fetch`, `web_search` (a search needs a DeepSeek key, and is charged as a DeepSeek request) | `ask` |
+| `web` | `web_fetch`, `web_search` (answered by the [`web_search`](#web_search--who-answers-the-agents-searches) provider, and charged to the project) | `ask` |
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |

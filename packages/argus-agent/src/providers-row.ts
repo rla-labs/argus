@@ -27,6 +27,7 @@ import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels, getBuiltinProviders, type BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { apiKeyEnvOf, keyTail, type DoctorFinding, type ModelProblem, type ModelRef } from '@argus-agent/types'
+import { runSearch, SEARCH_KEYS } from './search.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-providers'
@@ -290,6 +291,7 @@ export class OpsProviders {
       .filter((route) => route.keyEnv !== null && route.error === undefined)
       .map((route) => ({ provider: route.provider, name: route.keyEnv as string, ...this.keys.info(route.keyEnv as string) }))
       .concat({ provider: TELEGRAM, name: TELEGRAM_KEY, ...this.keys.info(TELEGRAM_KEY) })
+      .concat(Object.entries(SEARCH_KEYS).map(([provider, name]) => ({ provider, name, ...this.keys.info(name) })))
       .sort((a, b) => Number(b.configured) - Number(a.configured) || a.provider.localeCompare(b.provider))
   }
 
@@ -309,6 +311,7 @@ export class OpsProviders {
     const value = key.trim()
     if (SECRET_NAME.test(provider)) return this.setSecret(provider, value)
     if (provider === TELEGRAM) return this.setTelegram(value)
+    if (SEARCH_KEYS[provider] !== undefined) return this.setSearchKey(provider, value)
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
     if (refusal !== undefined) return { ok: false, message: refusal }
@@ -342,6 +345,14 @@ export class OpsProviders {
       if (fixed !== undefined) return { ok: false, message: fixed }
       const removed = await this.removeSecret(TELEGRAM_KEY)
       return removed.ok ? { ok: true, message: 'telegram: bot token removed; the bot stops now.' } : removed
+    }
+    const search = SEARCH_KEYS[provider]
+    if (search !== undefined) {
+      if (!this.keys.has(search)) return { ok: false, message: `${provider} has no key.` }
+      const fixed = this.envRefusal(search)
+      if (fixed !== undefined) return { ok: false, message: fixed }
+      const removed = await this.removeSecret(search)
+      return removed.ok ? { ok: true, message: `${provider}: key removed.` } : removed
     }
     const route = this.routes.get(provider)
     const refusal = this.keyRefusal(provider, route)
@@ -407,6 +418,28 @@ export class OpsProviders {
         `telegram: token ${keyTail(token)} accepted${username === undefined ? '' : ` (@${username})`}; the bot starts now. ` +
         'Connect your Telegram account to your user: /link on the web (Settings → Your channels), then send the code to the bot.',
     }
+  }
+
+  /**
+   * Save a web search provider's key, after one search with it (one result) works.
+   * That search may count against the key's quota or cost a fraction of a cent.
+   */
+  private async setSearchKey(provider: string, key: string): Promise<KeyChange> {
+    const name = SEARCH_KEYS[provider] as string
+    if (key.length === 0 || /\s/.test(key)) return { ok: false, message: 'A key is one word with no spaces.' }
+    const fixed = this.envRefusal(name)
+    if (fixed !== undefined) return { ok: false, message: fixed }
+    try {
+      await runSearch({ provider: provider as 'tavily', key, fetch: this.fetch }, { query: 'Argus Agent', maxResults: 1 }, AbortSignal.timeout(PROBE_TIMEOUT_MS))
+    } catch (error) {
+      return { ok: false, message: `${provider} did not accept the key ${keyTail(key)}: ${errorText(error)}. Nothing was saved.` }
+    }
+    try {
+      await this.keys.set(name, key)
+    } catch (error) {
+      return { ok: false, message: `The key could not be saved: ${errorText(error)}` }
+    }
+    return { ok: true, message: `${provider}: key ${keyTail(key)} accepted (one search). web_search uses it when web_search.provider is ${provider} in ops.yaml.` }
   }
 
   /** Remove a secret saved with {@link setSecret}. */
@@ -544,7 +577,7 @@ export async function apply(ctx: Context): Promise<void> {
 
   // The snapshot is taken BEFORE the service is published, so the first project
   // load already sees a key saved in the store, not only one in the environment.
-  const names = [...new Set([...routes.values()].flatMap((route) => (route.keyEnv === null ? [] : [route.keyEnv])).concat(TELEGRAM_KEY))]
+  const names = [...new Set([...routes.values()].flatMap((route) => (route.keyEnv === null ? [] : [route.keyEnv])).concat(TELEGRAM_KEY, ...Object.values(SEARCH_KEYS)))]
   const keys = await credentialKeys(ctx, names)
   const service = new OpsProviders(routes, keys)
   ctx.provide('opsProviders', service)
@@ -570,7 +603,7 @@ export async function apply(ctx: Context): Promise<void> {
  * @param names every variable a route reads its key from.
  * @returns the store.
  */
-async function credentialKeys(ctx: Context, names: readonly string[]): Promise<KeyStore> {
+export async function credentialKeys(ctx: Context, names: readonly string[]): Promise<KeyStore> {
   const credentials = ctx.credentials
   const snapshot = new Map<string, KeyInfo>()
   const refresh = async (name: string): Promise<void> => {

@@ -914,6 +914,7 @@ Manages the model providers' API keys, and the secrets of MCP servers, from the 
 /key openrouter sk-or-v1-…
 /key GITHUB_TOKEN ghp_…
 /key telegram 8123456789:AAH…
+/key tavily tvly-…
 /key remove groq
 ```
 
@@ -932,6 +933,9 @@ Manages the model providers' API keys, and the secrets of MCP servers, from the 
   without Telegram adds it later (from the web's Settings → API keys, or this chat).
   Then connect your Telegram account with [`/link`](#link-code). `/key remove telegram`
   stops the bot.
+- **`/key tavily|brave|serper <key>`** saves a [web search](configuration.md#web_search--who-answers-the-agents-searches)
+  provider's key, after one search with it works (that search counts against the key's
+  quota). `web_search` uses it once `web_search.provider` names that provider.
 - **`/key remove <provider>`** (or `NAME`) removes a saved key.
 
 Keys are saved in dsh's credentials store (`.credentials.yaml` under the dsh home,
