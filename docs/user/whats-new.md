@@ -8,6 +8,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 - **Access per MCP tool.** `mcp.<server>.tools` gives a tool, or a glob such as
   `read_*`, its own `allow`, `ask` or `deny`; the most specific match wins, and the
   server's `access` covers the rest. An extension can ship such rules as defaults.
+- **Every local MCP server runs confined**, the ones you add as well as an extension's:
+  it reads the system and the project's folder, and keeps its logins and caches in a
+  home of its own that the agent's shell cannot read. `/mcp reset` empties it. A server
+  whose program is outside `/usr` or `/opt` no longer starts: see the upgrade notes.
 
 ## 0.7.1
 

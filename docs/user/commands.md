@@ -21,7 +21,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -32,7 +32,7 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/rule`, `/key`, `/mail` (changing), `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
+`/set`, `/rule`, `/key`, `/mail` (changing), `/mcp`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions, the skills or the memory stays open to everyone.
 
@@ -808,6 +808,21 @@ reaches the agent. See [mail](configuration.md#mail--who-a-project-may-write-to)
 
 Who the project may write to is in its file: `/set <project> mail.allowed_recipients
 [ana@acme.ro, @client.com]`. Seeing is anyone's; the rest is the admin's.
+
+---
+
+## `/mcp`
+
+```
+/mcp reset <project-id> <server>                (admin)
+```
+
+A local MCP server keeps its logins and caches in a home of its own,
+`state/<project>/mcp/<server>/`, outside the project's folder: the agent and its shell
+cannot read it. **`/mcp reset`** empties it, for a login gone wrong or a broken cache.
+The project's agent is let go if it is idle, and its next message starts the server
+afresh, in the same conversation; a project in a run must finish first. `/tools
+<project>` lists the servers.
 
 ---
 

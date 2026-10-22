@@ -86,7 +86,7 @@ progress finishes first):
 
 - **its tools.** Each MCP server is started **confined**: it reads the system and the
   extension's folder, reads and writes the project's folder (its working directory) and a
-  private temp folder, and nothing else; not the database, the keys, the conversations or
+  home of its own (`state/<project>/mcp/<server>/`, out of the agent's reach), and nothing else; not the database, the keys, the conversations or
   another project. Its environment holds the secrets it declares, set with `/key`.
   Without the command sandbox it does not start. Its access is the one you saw at
   install, with its rules per tool if it has any (`browser_snapshot allow`);

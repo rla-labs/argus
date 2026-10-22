@@ -2129,6 +2129,35 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /mcp ───────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'mcp',
+        description: 'A project’s MCP servers: start one afresh (admin)',
+        syntax: '/mcp reset <project-id> <server>',
+        detail:
+          'A local MCP server keeps its logins and caches in a home of its own, outside the ' +
+          'project’s folder, which the agent cannot read. reset empties it, for a login gone ' +
+          'wrong or a broken cache: the project’s agent is let go if it is idle, and the next ' +
+          'message starts the server afresh, in the same conversation. A project in a run ' +
+          'must finish first. /tools <project> lists the servers. Only the admin can run it.',
+        examples: ['/mcp reset site-firma browser'],
+        mutating: true,
+        adminOnly: true,
+      },
+      async run(input): Promise<CommandResult> {
+        const [action, projectId, server] = tokenize(input)
+        if (action !== 'reset' || projectId === undefined || server === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'Which project, and which server?')
+        const config = projects.configOf(projectId)
+        if (config === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
+        const found = config.mcp[server]
+        if (found === undefined) return errorResult(`${projectId} has no MCP server "${server}". /tools ${projectId} lists them.`)
+        if (found.command === null) return errorResult(`${server} is a remote server: it keeps nothing here.`)
+        if ((await projects.resetMcpHome(projectId, server)) === 'busy') return errorResult(`${projectId} is in a run. Try again when it ends, or /cancel ${projectId}.`)
+        return result(`${projectId}: ${server}'s home is empty. The server starts afresh at the project's next message.`)
+      },
+    },
+
     // ── /archive ───────────────────────────────────────────────────────────
     {
       spec: {

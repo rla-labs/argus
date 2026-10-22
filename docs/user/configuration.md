@@ -664,9 +664,19 @@ progress finishes first). A change of `access` or `tools` (`/set <project>
 mcp.github.access allow`) applies to the next call. `/tools <project>` lists the servers. One-off tasks and the
 front desk have no MCP servers.
 
-A local server runs as Argus's own user, outside the shell sandbox, and is given only
-the variables in its `env` (dsh removes every inherited variable that looks like a key,
-token or password). Install only servers you would install on the machine yourself.
+**A local server runs confined**, in the command sandbox, or not at all:
+
+- it reads the system (`/usr`, `/opt`, `/etc`…) and, for an extension's, the
+  extension's folder; a program elsewhere (`/srv/…`, your home) cannot start. Install it
+  under `/opt`, run it with `npx` or `uvx`, or ship it as an [extension](extensions.md);
+- it reads and writes the project's folder, where it starts;
+- it keeps what it stores (logins, caches, what `npx` and `uvx` download) in a home of
+  its own, `state/<project>/mcp/<server>/`, which the agent's shell cannot read; `/mcp
+  reset <project> <server>` empties it;
+- it has the network;
+- it gets only the variables in its `env` (dsh removes every inherited variable that
+  looks like a key, token or password).
+
 In the Docker image `npx` and `uvx` are available.
 
 ### `git` — remotes Argus clones, pulls and pushes

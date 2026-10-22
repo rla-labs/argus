@@ -10,10 +10,10 @@
  */
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, realpathSync } from 'node:fs'
+import { mkdirSync, realpathSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { hiddenTools, taskToolPolicy, type DoctorFinding, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
+import { hiddenTools, taskToolPolicy, type DoctorFinding, type McpServer, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -112,6 +112,8 @@ export class OpsProjects {
   private readonly ctx: Context
   private readonly scratchDir: string
   private readonly stateDir: string | undefined
+  /** Where per-project state goes: `stateDir`, or `state/` next to the scratch folder. */
+  private readonly stateRoot: string
   private readonly projectsRoot: string
   private readonly snapshots: Snapshots | undefined
   /** The installed extensions (`/ext`); undefined in a bare composition. */
@@ -133,11 +135,12 @@ export class OpsProjects {
     this.store = store
     this.scratchDir = options.scratchDir
     this.stateDir = options.stateDir
+    this.stateRoot = options.stateDir ?? join(options.scratchDir, '..', 'state')
     this.projectsRoot = options.projectsRoot
     this.snapshots = options.snapshots
     this.extensions = options.extensions
     this.git = new GitRemotes(
-      options.stateDir ?? join(options.scratchDir, '..', 'state'),
+      this.stateRoot,
       () => ctx.get('credentials' as never) as unknown as TokenStore | undefined,
       async (argv, root, reads) => {
         const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
@@ -778,9 +781,10 @@ export class OpsProjects {
     for (const [name, server] of Object.entries(config.mcp)) {
       try {
         const common = { serverName: name, toolCallTimeoutMs: server.timeout_s * 1000 }
-        // An extension's server is someone else's code: it runs confined, reading its own
-        // install and working in the project's folder, or it does not run.
-        const argv = server.command === null ? [] : server.extension === undefined ? [server.command, ...server.args] : await this.confineServer(config, server.extension.dir, [server.command, ...server.args])
+        // A local server runs confined, or not at all: it reads the system and, for an
+        // extension's, its install; it works in the project's folder; it keeps what it
+        // stores in a home of its own, which the agent's shell cannot read.
+        const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args])
         const options =
           server.command !== null
             ? { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env: await this.expand(server.env), cwd: config.cwd }
@@ -793,19 +797,52 @@ export class OpsProjects {
   }
 
   /**
-   * Wrap an extension's server in the command sandbox: read the system and its folder,
-   * read and write the project's folder.
+   * Wrap a local server in the command sandbox: read the system and its extension's
+   * folder, read and write the project's folder and its own home.
    *
    * @param config the project.
-   * @param dir the extension's folder.
+   * @param name the server's name.
+   * @param server the server.
    * @param argv the server's command.
    * @returns the wrapped command.
    * @throws {Error} without the sandbox: the server is then left out.
    */
-  private async confineServer(config: ProjectConfig, dir: string, argv: readonly string[]): Promise<readonly string[]> {
-    const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
-    if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available, and an extension runs only confined')
-    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, [dir])).argv
+  private async confineServer(config: ProjectConfig, name: string, server: McpServer, argv: readonly string[]): Promise<readonly string[]> {
+    const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[], home?: string): Promise<{ argv: readonly string[] }> } | undefined
+    if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available, and a local MCP server runs only confined')
+    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, server.extension === undefined ? [] : [server.extension.dir], this.mcpHomeOf(config.id, name))).argv
+  }
+
+  /**
+   * Empty a local MCP server's home: a login gone wrong, a broken cache. An idle agent is
+   * let go first, so the server is not running; the project's next message starts it
+   * afresh, in the same conversation.
+   *
+   * @param projectId the project.
+   * @param server the server's name.
+   * @returns `busy` while the project is in a run: nothing is touched.
+   */
+  async resetMcpHome(projectId: string, server: string): Promise<'reset' | 'busy'> {
+    const existing = this.live.get(projectId)
+    if (existing !== undefined) {
+      if (existing.runId !== undefined || existing.handle.agent.status === 'running') return 'busy'
+      await existing.handle.dispose()
+    }
+    rmSync(this.mcpHomeOf(projectId, server), { recursive: true, force: true })
+    this.store.audit.record({ actor: 'admin', action: 'mcp.reset', target: projectId, details: { server } }, Date.now())
+    return 'reset'
+  }
+
+  /**
+   * A local MCP server's own home: `state/<project>/mcp/<server>/`, outside the project's
+   * folder, so the agent's shell cannot read the logins and caches it keeps there.
+   *
+   * @param projectId the project.
+   * @param server the server's name.
+   * @returns the folder (made when the server starts).
+   */
+  mcpHomeOf(projectId: string, server: string): string {
+    return join(this.stateRoot, projectId, 'mcp', server)
   }
 
   /**

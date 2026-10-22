@@ -17,7 +17,7 @@ What this deployment defends against, and what it explicitly does not.
 | A local attacker with root | **No** | Root reads `/data` and the secrets. Nothing here defends against root. |
 | A malicious project workspace | **Partly** | A project asks before its file tools read outside its own folder; the commands it runs cannot read outside it at all ([Sandbox](#sandbox)). |
 | A web page steering the agent's commands | **Partly** | `web` and `shell` ask by default; `argus doctor` warns about a project that allows both unasked. |
-| An MCP server, or what it returns | **Partly** | Off until the admin adds it to one project; its tools ask until allowed. It runs as Argus's user, outside the sandbox ([below](#mcp-servers)). |
+| An MCP server, or what it returns | **Partly** | Off until the admin adds it to one project; its tools ask until allowed. A local one runs in the command sandbox ([below](#mcp-servers)). |
 | One project steering another | **Partly** | `ask_project` is off by default; a question runs as ordinary work in the other project, on its budget and rules, and a project answering cannot ask in turn. |
 | An approval rule that grows too wide | **Partly** | "Always allow" saves one exact command or one site, and only on the admin's press. |
 | Losing the host | **Partly** | Backups. **Copy them off the machine** — a backup on the same disk is not a backup. |
@@ -183,7 +183,8 @@ tools from other systems, and as trusted as the programs behind them:
 
 | What | Why it matters |
 |---|---|
-| A local server runs as Argus's user, **outside the shell sandbox** | It reaches what Argus reaches. Install only servers you would run on the host yourself. |
+| A local server runs **in the command sandbox**, or not at all | It reads the system and the project's folder, writes the project's folder and a home of its own; not the database, the keys, the conversations or another project. It has the network. |
+| Its home (`state/<project>/mcp/<server>/`) is its own | Logins and caches it keeps there are out of the agent's reach: the agent's shell cannot read outside the project's folder. |
 | It gets only the variables in its `env` | dsh drops every inherited variable that looks like a key, token or password. |
 | Its tools follow `access` (default `ask`) | Every call is a question until you allow the server. |
 | What it returns goes to the model | A server that reads e-mail or web pages can carry instructions in its answers; keep `access: ask` for such a server unless the project's other tools are harmless. |

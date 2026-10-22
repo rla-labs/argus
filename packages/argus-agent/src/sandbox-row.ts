@@ -116,23 +116,28 @@ export default class ArgusSandbox extends SandboxProvider {
    * @param argv the command.
    * @param policy the mode and the workspace (read and write under `workspace-write`).
    * @param reads more folders it may read.
+   * @param home a home of its own, outside the workspace, instead of the one every
+   *   command of that workspace shares: an MCP server keeps its logins and caches there,
+   *   where the agent's shell cannot read them. Created `0700`; the XDG folders point
+   *   into it.
    * @returns the wrapped command.
    * @throws {SandboxUnavailableError} without Landlock.
    */
-  async confineReading(argv: readonly string[], policy: SandboxPolicy, reads: readonly string[]): Promise<ConfinedArgv> {
+  async confineReading(argv: readonly string[], policy: SandboxPolicy, reads: readonly string[], home?: string): Promise<ConfinedArgv> {
     const enforcement = this.enforcement()
     if (enforcement === 'unusable') throw new SandboxUnavailableError(policy.mode, 'Landlock is not available on this kernel')
     const resolved = { ...policy, workspaceRoot: canonicalPath(policy.workspaceRoot) }
     // Per workspace, never inside it: a project's caches and temp files are its own,
     // and another project's command cannot read them.
-    const own = join(tmpdir(), 'argus-sandbox', createHash('sha256').update(resolved.workspaceRoot).digest('hex').slice(0, 16))
+    const own = home ?? join(tmpdir(), 'argus-sandbox', createHash('sha256').update(resolved.workspaceRoot).digest('hex').slice(0, 16))
     mkdirSync(own, { recursive: true, mode: 0o700 })
+    const xdg = home === undefined ? [] : [`XDG_CONFIG_HOME=${own}/.config`, `XDG_DATA_HOME=${own}/.local/share`, `XDG_STATE_HOME=${own}/.local/state`, `XDG_CACHE_HOME=${own}/.cache`]
     const extras = this.extrasOf?.(resolved.workspaceRoot)
     // An extension's programs go before the inherited PATH, which only the shell knows.
     const path = extras === undefined || extras.path.length === 0 ? [] : [`ARGUS_EXTENSION_PATH=${extras.path.join(':')}`, 'sh', '-c', 'export PATH="$ARGUS_EXTENSION_PATH:$PATH"; exec "$@"', 'argus']
     const env = Object.entries(extras?.env ?? {}).map(([key, value]) => `${key}=${value}`)
     return {
-      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, [...reads, ...(extras?.reads ?? [])])), '--', 'env', `HOME=${own}`, `TMPDIR=${own}`, ...env, ...path, ...argv],
+      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, [...reads, ...(extras?.reads ?? [])])), '--', 'env', ...env, `HOME=${own}`, `TMPDIR=${own}`, ...xdg, ...path, ...argv],
       enforcement,
       denialSignatures: DENIAL_SIGNATURES,
       runnerFailureRules: RUNNER_FAILURE_RULES,
