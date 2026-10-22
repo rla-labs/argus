@@ -49,7 +49,8 @@ link.
 pinned, and enabled per project. A program runs in the project's shell, confined like
 any other command. The first-party ones, in
 [argus-extensions](https://github.com/rla-labs/argus-extensions): **office** (Word,
-Excel and PowerPoint), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
+Excel and PowerPoint, with screenshots and PDF), **browser** (a headless Chromium, public
+internet only), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
 (merge, split, text, render) and **images** (ImageMagick).
 
 ## Quick start

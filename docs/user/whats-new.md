@@ -17,6 +17,12 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   per server. Argus keeps the grant and refreshes it; the agent reaches the server
   through a local proxy and never sees a token. A provider that needs a client of yours
   (Google, Slack) gets it under `oauth_clients` in `ops.yaml`.
+- **A browser**, the `browser` extension: a headless Chromium driven with Playwright
+  MCP. It reaches the public internet only, through Argus's new egress proxy, which
+  refuses the server, its network and the cloud's metadata service; reading a page runs
+  unasked, acting on it asks. The Docker image gains Chromium's libraries (about 8 MB).
+- **`office` 1.1.0:** screenshots of documents, so the agent checks its layout, and
+  `office-pdf` for a PDF.
 
 ## 0.7.1
 

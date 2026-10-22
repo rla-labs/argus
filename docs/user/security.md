@@ -208,6 +208,22 @@ data:
 | Its programs (`bin`) run as the project's own commands | Confined to the project's folder, with the project's approvals. Only the programs it names are on the `PATH`, and only in a project that enabled it: another project cannot run them by their path. Its `env` cannot hold a secret or change `PATH`. |
 | A project gets it only when the admin enables it there | Every other project, `/task` and the front desk never see it. |
 
+## The browser
+
+The [`browser` extension](extensions.md#the-first-party-ones) gives an agent a headless
+Chromium. Playwright says plainly that a browser is not a security boundary, so:
+
+| What | Why it matters |
+|---|---|
+| Its MCP server and Chromium run in the command sandbox | They read the system and the extension's folder and write the project's folder and the server's own home; not the database, the keys or another project. |
+| Every request goes through Argus's egress proxy, loopback included | A page, a redirect or a link cannot steer the browser to the server, its network or the cloud's metadata service: the proxy resolves the name and refuses anything not public. WebRTC is limited to proxied UDP. |
+| A clean profile each session | No cookies or logins to steal or reuse. |
+| Reading a page runs unasked; acting on it asks; page code and uploads are refused | A page that carries instructions cannot make the agent click, type or run code without you seeing it. The rules are per tool (`/tools <project>`). |
+| `file://` is refused | The browser cannot open the project's or the system's files as pages. |
+
+The agent's own shell is not behind the proxy: a `curl` there is the `shell`
+approval's job, as before.
+
 ## Skills
 
 A skill is a how-to an agent reads when a task calls for it; the agent sees each skill's
