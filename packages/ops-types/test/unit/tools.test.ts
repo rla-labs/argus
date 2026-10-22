@@ -1,6 +1,6 @@
 // == ARGUS AGENT PROJECT ==
 import { describe, expect, it } from 'vitest'
-import { PROJECT_TOOL_DEFAULTS, hiddenTools, hostAllowed, taskToolPolicy, toolGroupOf } from '@argus-agent/types'
+import { PROJECT_TOOL_DEFAULTS, hiddenTools, hostAllowed, mcpToolAccess, mcpToolOf, taskToolPolicy, toolGroupOf } from '@argus-agent/types'
 
 describe('tool groups', () => {
   it('puts every tool dsh 0.2.0-rc.2 registers in a group or among the quiet ones', () => {
@@ -48,5 +48,34 @@ describe('hostAllowed', () => {
     expect(hostAllowed('https://a.b.example.com', hosts)).toBe(true)
     expect(hostAllowed('https://example.com', hosts)).toBe(false)
     expect(hostAllowed('https://badexample.com', hosts)).toBe(false)
+  })
+})
+
+describe('an MCP server\'s tools', () => {
+  const server = { access: 'ask' as const, tools: { 'read_*': 'allow' as const, 'delete_*': 'deny' as const, read_secret: 'deny' as const, '*_doc': 'ask' as const, 'browser_?ab*': 'allow' as const } }
+
+  it('follow the most specific key, then the server\'s access', () => {
+    expect(mcpToolAccess(server, 'read_doc')).toEqual({ access: 'allow', pattern: 'read_*' })
+    expect(mcpToolAccess(server, 'read_secret')).toEqual({ access: 'deny', pattern: 'read_secret' })
+    expect(mcpToolAccess(server, 'delete_page')).toEqual({ access: 'deny', pattern: 'delete_*' })
+    expect(mcpToolAccess(server, 'update_doc')).toEqual({ access: 'ask', pattern: '*_doc' })
+    expect(mcpToolAccess(server, 'browser_tabs')).toEqual({ access: 'allow', pattern: 'browser_?ab*' })
+    expect(mcpToolAccess(server, 'share')).toEqual({ access: 'ask', pattern: null })
+  })
+
+  it('on a tie, the stricter wins, whatever the order', () => {
+    expect(mcpToolAccess({ access: 'allow', tools: { 'a*': 'allow', '*a': 'deny' } }, 'aa').access).toBe('deny')
+    expect(mcpToolAccess({ access: 'allow', tools: { '*a': 'deny', 'a*': 'allow' } }, 'aa').access).toBe('deny')
+  })
+
+  it('match the whole name, - and _ literally', () => {
+    expect(mcpToolAccess({ access: 'deny', tools: { 'get-x': 'allow' } }, 'get-xy').access).toBe('deny')
+    expect(mcpToolAccess({ access: 'deny', tools: { 'get_*': 'allow' } }, 'get_x').access).toBe('allow')
+    expect(mcpToolAccess({ access: 'deny', tools: { 'get_*': 'allow' } }, 'xget_x').access).toBe('deny')
+  })
+
+  it('are named by what follows mcp__<server>__', () => {
+    expect(mcpToolOf('mcp__gdocs__read_doc')).toBe('read_doc')
+    expect(mcpToolOf('read')).toBeUndefined()
   })
 })

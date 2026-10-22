@@ -22,6 +22,8 @@ import {
   isInside,
   taskToolPolicy,
   mcpServerOf,
+  mcpToolAccess,
+  mcpToolOf,
   toolGroupOf,
   type ChannelAddress,
   type ServiceHealth,
@@ -144,7 +146,7 @@ export class OpsApprovalsBridge {
     const project = owner.kind === 'project' ? this.options.projects.configOf(owner.projectId) : undefined
     const exception = project?.tools.exceptions[exec.name]
     if (group === 'quiet' && exception === undefined) return undefined
-    // A tool of one of the project's MCP servers follows that server's `access`.
+    // A tool of one of the project's MCP servers follows that server's `access`...
     const serverName = mcpServerOf(exec.name)
     const server = serverName === undefined ? undefined : project?.mcp[serverName]
     if (group === 'other' && server === undefined && !this.unclassified.has(exec.name)) {
@@ -152,10 +154,12 @@ export class OpsApprovalsBridge {
       this.ctx.logger('ops-approvals').warn('tool %s is in no group; it follows tools.other', exec.name)
     }
     const policy = owner.kind === 'project' ? (project?.tools ?? PROJECT_TOOL_DEFAULTS) : taskToolPolicy(this.options.config.approvals_adhoc)
-    const access = exception ?? server?.access ?? (group === 'quiet' ? 'allow' : policy[group])
+    // ...or the most specific of its `tools` keys that matches.
+    const decided = server === undefined ? undefined : mcpToolAccess(server, mcpToolOf(exec.name) ?? '')
+    const access = exception ?? decided?.access ?? (group === 'quiet' ? 'allow' : policy[group])
     if (access === 'deny' || access === 'off') {
       const where = owner.kind === 'project' ? `in project ${owner.projectId}` : 'in a one-off task'
-      const rule = exception !== undefined ? `tools.exceptions.${exec.name}` : server === undefined ? `tools.${group}` : `mcp.${serverName}.access`
+      const rule = exception !== undefined ? `tools.exceptions.${exec.name}` : decided === undefined ? `tools.${group}` : decided.pattern === null ? `mcp.${serverName}.access` : `mcp.${serverName}.tools.${decided.pattern}`
       return { kind: 'deny', reason: `${exec.name} is not allowed ${where} (${rule}: ${access}). Do not look for another way to do the same thing.` }
     }
 

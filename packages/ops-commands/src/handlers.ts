@@ -1537,8 +1537,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         // typo that the file would keep and nothing would read.
         const loaded = projects.configOf(projectId)
         const known = loaded === undefined ? undefined : settingKeys(loaded)
-        // A tool's exception is a new key by nature: any tool name may get one.
-        const exception = /^tools\.exceptions\.[a-z0-9_-]+$/i.test(key)
+        // A tool's exception is a new key by nature: any tool name may get one; so is a
+        // rule for one tool of a server the project has.
+        const exception = /^tools\.exceptions\.[a-z0-9_-]+$/i.test(key) || (/^mcp\.[a-z0-9-]+\.tools\.[A-Za-z0-9_*?-]+$/.test(key) && loaded?.mcp[path[1] ?? ''] !== undefined)
         if (known !== undefined && key !== 'model' && !exception && !known.includes(key)) {
           return errorResult(`"${key}" is not a project setting. Known: ${known.join(', ')}.`)
         }
@@ -1738,7 +1739,8 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'tools.<group> <value>; web_hosts lists the sites web_fetch reaches unasked. ' +
           'One tool can differ from its group: /set <project> tools.exceptions.<tool> <value>. ' +
           'MCP servers are listed with their access; change one with /set <project> ' +
-          'mcp.<server>.access <value>. ' +
+          'mcp.<server>.access <value>, or one of its tools (a name or a glob such as read_*) ' +
+          'with /set <project> mcp.<server>.tools.<tool> <value>: the most specific match wins. ' +
           'With no project, uses this chat’s active one.',
         examples: ['/tools', '/tools site-firma'],
         mutating: false,
@@ -1767,9 +1769,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const commands = config.approvals.auto_allow.length > 0 ? `\nCommands unasked: ${config.approvals.auto_allow.join(', ')}${from('approvals.auto_allow')}` : ''
         const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
-        const servers = Object.entries(config.mcp).map(
-          ([name, server]) => `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`,
-        )
+        const servers = Object.entries(config.mcp).map(([name, server]) => {
+          const line = `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`
+          const rules = Object.entries(server.tools).map(([tool, access]) => `${tool} ${access}${from(`mcp.${name}.tools.${tool}`)}`)
+          return rules.length === 0 ? line : `${line}\n${' '.repeat(13)}tools: ${rules.join(', ')}`
+        })
         const mcp = servers.length > 0 ? `\n\nMCP servers (tools mcp__<server>__…):\n${servers.join('\n')}` : ''
         const enabled = config.extensions.map((extension) => `${extension.name.padEnd(12)} ${extension.binDir === null ? 'no programs' : readdirSync(extension.binDir).sort().join(', ')}`)
         const programs = enabled.length > 0 ? `\n\nExtensions (their programs run in the shell, confined, under shell's access and the commands unasked):\n${enabled.join('\n')}` : ''
@@ -2689,9 +2693,15 @@ function settingValue(text: string): { ok: true; value: unknown } | { ok: false;
   }
 }
 
+/** A server's tool rules, after its access: `; read_* allow, erase deny`. */
+function toolRules(tools: Readonly<Record<string, string>>): string {
+  const rules = Object.entries(tools).map(([tool, access]) => `${tool} ${access}`)
+  return rules.length === 0 ? '' : `; ${rules.join(', ')}`
+}
+
 /** What an extension may do, one part each: its tools, skills, secrets, network. */
 function describeParts(manifest: ExtensionManifest): string[] {
-  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${commandLine(server)}, access ${server.access})`)
+  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${commandLine(server)}, access ${server.access}${toolRules(server.tools)})`)
   return [
     ...(servers.length > 0 ? [`tools: ${servers.join(', ')}`] : []),
     ...(manifest.skills.length > 0 ? [`skills: ${manifest.skills.join(', ')}`] : []),
@@ -2717,7 +2727,7 @@ function describeStaged(staged: StagedExtension): string {
     : `Update ${manifest.name} ${installed.version} (${installed.commit.slice(0, 7)}) to ${manifest.version} (${staged.commit.slice(0, 7)})?`
   const lines = [head, manifest.summary, '']
   const servers = Object.entries(manifest.mcp)
-  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}`).join('\n')}`)
+  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}${toolRules(server.tools)}`).join('\n')}`)
   lines.push(`Skills: ${manifest.skills.length === 0 ? 'none' : manifest.skills.join(', ')}`)
   if (manifest.bin.length > 0) lines.push(`Programs a project's shell can run (confined, with the usual approvals): ${manifest.bin.map((path) => `${path.split('/').pop()} (${path})`).join(', ')}`)
   if (Object.keys(manifest.env).length > 0) lines.push(`Sets for a project's commands: ${Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`).join(', ')}`)

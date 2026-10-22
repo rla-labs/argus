@@ -47,11 +47,11 @@ async function installNotes(dataDir: string): Promise<void> {
 }
 
 describe('an extension enabled in a project', () => {
-  it('layers its servers under the project’s mcp block, which may set their access only', () => {
+  it('layers its servers under the project’s mcp block, which may set who runs their tools only', () => {
     const notes: UsableExtension = {
       name: 'notes',
       dir: '/data/extensions/notes/1.0.0-abc',
-      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', timeout_s: 60 } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.', bin: [], env: {}, rules: [] },
+      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', tools: { 'write_*': 'ask', erase: 'deny' }, timeout_s: 60 } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.', bin: [], env: {}, rules: [] },
     }
     const parse = (own: Record<string, unknown>) =>
       parseProjectConfig({ id: 'site', cwd: '/data/projects/site', provider: 'p', model: 'm', ...own }, { sourcePath: 's', projectsRoot: '/data/projects', extensions: new Map([['notes', notes]]) })
@@ -60,10 +60,13 @@ describe('an extension enabled in a project', () => {
     expect(config.extensions).toEqual([{ name: 'notes', dir: notes.dir, skills: [`${notes.dir}/skills/a`], instructions: 'Be neat.', binDir: null, env: {} }])
     expect(config.extensionsMissing).toEqual(['gone'])
     expect(parse({ extensions: ['notes'], mcp: { probe: { access: 'ask' } } }).mcp['probe']?.access).toBe('ask')
-    expect(() => parse({ extensions: ['notes'], mcp: { probe: { command: 'sh' } } })).toThrow(/comes from the extension notes: only its access and timeout_s/)
+    // Its tool defaults, under the project's own: a key the project sets replaces the same key.
+    expect(config.mcp['probe']?.tools).toEqual({ 'write_*': 'ask', erase: 'deny' })
+    expect(parse({ extensions: ['notes'], mcp: { probe: { tools: { erase: 'ask', 'read_*': 'allow' } } } }).mcp['probe']?.tools).toEqual({ 'write_*': 'ask', erase: 'ask', 'read_*': 'allow' })
+    expect(() => parse({ extensions: ['notes'], mcp: { probe: { command: 'sh' } } })).toThrow(/comes from the extension notes: only its access, tools, timeout_s/)
     expect(parse({}).mcp['probe']).toBeUndefined()
     // Its access left in a project's file after the extension is gone: dropped, the project loads.
-    const orphan = parseProjectConfig({ id: 'site', cwd: '/data/projects/site', provider: 'p', model: 'm', extensions: ['notes'], mcp: { probe: { access: 'ask' } } }, { sourcePath: 's', projectsRoot: '/data/projects' })
+    const orphan = parseProjectConfig({ id: 'site', cwd: '/data/projects/site', provider: 'p', model: 'm', extensions: ['notes'], mcp: { probe: { access: 'ask', tools: { erase: 'ask' } } } }, { sourcePath: 's', projectsRoot: '/data/projects' })
     expect(orphan.mcp['probe']).toBeUndefined()
     expect(orphan.extensionsMissing).toEqual(['notes'])
   })

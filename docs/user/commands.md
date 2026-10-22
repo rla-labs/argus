@@ -860,7 +860,7 @@ the file stays as it was and the reply says why.
 | `approvals.mode`, `approvals.auto_allow`, `approvals.timeout_minutes` | Approvals |
 | `tools.read`, `tools.write`, `tools.shell`, `tools.web`, `tools.agents`, `tools.other`, `tools.web_hosts` | What the agent may use; see [`/tools`](#tools-project-id) |
 | `tools.exceptions.<tool>` | One tool's access over its group's, e.g. `tools.exceptions.web_search allow` |
-| `mcp.<server>.access`, `mcp.<server>.timeout_s`, ... | An MCP server's settings; `access` applies to the next call, the rest after `/reset` |
+| `mcp.<server>.access`, `mcp.<server>.tools.<tool>`, `mcp.<server>.timeout_s`, ... | An MCP server's settings; `access` and `tools` (a tool's name or a glob such as `read_*`, the most specific wins) apply to the next call, the rest at the project's next message |
 | `memory.user_profile`, `progress`, `preset` | The rest |
 | `template` | `none`: write the template's settings into the file and stop following it (nothing changes in how the project behaves); a name: follow that template |
 
@@ -985,7 +985,8 @@ even under `allow`. Change a group with `/set <project> tools.<group> <value>`; 
 groups are explained in [configuration](configuration.md#tools--what-the-agent-may-use).
 Then come the commands that run unasked (`approvals.auto_allow`), the tools that differ from their group (`tools.exceptions`, set with
 `/set <project> tools.exceptions.<tool> <value>`), and the project's MCP servers, each
-with its `access` (`/set <project> mcp.<server>.access allow`), and its extensions with
+with its `access` (`/set <project> mcp.<server>.access allow`) and its rules per tool
+(`/set <project> mcp.<server>.tools.read_* allow`), and its extensions with
 the programs each puts in its shell. In a project made from
 a template, a value that still comes from it is marked with the template's name:
 `shell   ask (devops)`.

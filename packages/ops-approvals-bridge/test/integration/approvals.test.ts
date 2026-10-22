@@ -644,6 +644,51 @@ describe('the gate', () => {
     expect(asked).toContain('#42')
     expect(ran).toEqual(['mcp__allow-srv__go'])
   }, 60_000)
+
+  it('follows the most specific of a server\'s tool rules before its access', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-tools-'))
+    dirs.push(dataDir)
+    const echo = JSON.stringify(fileURLToPath(new URL('../../../ops-projects/test/fixtures/echo-mcp.mjs', import.meta.url)))
+    const docs = `\n  docs:\n    command: ${JSON.stringify(process.execPath)}\n    args: [${echo}]\n    access: ask\n    tools:\n      read_*: allow\n      delete_*: deny\n      read_secret: deny`
+    const calls = ['read_doc', 'read_secret', 'delete_doc', 'update_doc']
+    const booted = await bootBridge({
+      dataDir,
+      projects: { alpha: `${projectDocument(dataDir, 'alpha')}\nmcp:${docs}` },
+      script: [{ text: 'working', toolCalls: calls.map((tool, index) => ({ name: `mcp__docs__${tool}`, arguments: '{}', id: `c${index}` })) }, { text: 'done' }],
+    })
+    await withConsole(booted)
+
+    const { defineTool } = await import('@deepseek-ai/dsh-tools')
+    const agent = await booted.projects.ensureAgent('alpha')
+    const ran: string[] = []
+    for (const tool of calls) {
+      agent.ctx.tools.register(
+        defineTool({
+          name: `mcp__docs__${tool}`,
+          description: tool,
+          parameters: {},
+          output: { schema: { type: 'string' }, render: (_a, v) => [{ type: 'text', text: v }] },
+          execute: async () => {
+            ran.push(tool)
+            return 'ok'
+          },
+        }),
+      )
+    }
+
+    booted.governor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'go' }], priority: 0 })
+    await waitFor(
+      () => {
+        consoleOf(booted).answer(DENY, 'dev')
+        return booted.store.approvals.recent(10).length === 1 && booted.governor.status().running.length === 0
+      },
+      { timeoutMs: 30_000, label: 'one question, run ended' },
+    )
+
+    // read_doc by read_*, read_secret refused by its own name, delete_doc by delete_*, update_doc asked by the server's access.
+    expect(ran).toEqual(['read_doc'])
+    expect(booted.store.approvals.recent(10).map((row) => row.request_json).join('\n')).toContain('mcp__docs__update_doc')
+  }, 60_000)
 })
 
 // ── mounting ───────────────────────────────────────────────────────────────

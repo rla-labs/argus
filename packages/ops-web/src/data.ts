@@ -88,7 +88,7 @@ export interface Overview {
 export interface Settings {
   readonly defaults: { readonly tasks: string; readonly frontDesk: string | null }
   readonly keys: ReadonlyArray<{ readonly provider: string; readonly configured: boolean; readonly writable: boolean }>
-  readonly projects: ReadonlyArray<{ readonly id: string; readonly model: string; readonly tools: ToolPolicy; readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string }>; readonly instructions: string | null; readonly dayUsd: number; readonly monthUsd: number }>
+  readonly projects: ReadonlyArray<{ readonly id: string; readonly model: string; readonly tools: ToolPolicy; readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string; readonly tools: Readonly<Record<string, string>> }>; readonly instructions: string | null; readonly dayUsd: number; readonly monthUsd: number }>
 }
 
 /** Who an owner is, in a word. */
@@ -210,7 +210,7 @@ export function settings(sources: DataSources): Settings {
       const config = sources.projects.configOf(id)
       return config === undefined
         ? []
-        : [{ id, model: `${config.provider}/${config.model}`, tools: config.tools, mcp: Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })), instructions: sources.memory()?.readInstructions(id) ?? null, dayUsd: config.budget.day_usd, monthUsd: config.budget.month_usd }]
+        : [{ id, model: `${config.provider}/${config.model}`, tools: config.tools, mcp: Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access, tools: server.tools })), instructions: sources.memory()?.readInstructions(id) ?? null, dayUsd: config.budget.day_usd, monthUsd: config.budget.month_usd }]
     }),
   }
 }
@@ -238,7 +238,7 @@ export interface RunView {
 /** One project, for its page. */
 export interface ProjectDetail extends ProjectRow {
   readonly tools: ToolPolicy | null
-  readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string }>
+  readonly mcp: ReadonlyArray<{ readonly name: string; readonly access: string; readonly tools: Readonly<Record<string, string>> }>
   readonly instructions: string | null
   readonly runs: readonly RunView[]
   readonly approvals: Overview['approvals']
@@ -298,7 +298,7 @@ export function projectDetail(sources: DataSources, id: string): ProjectDetail |
   return {
     ...row,
     tools: config?.tools ?? null,
-    mcp: config === undefined ? [] : Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access })),
+    mcp: config === undefined ? [] : Object.entries(config.mcp).map(([name, server]) => ({ name, access: server.access, tools: server.tools })),
     instructions: sources.memory()?.readInstructions(id) ?? null,
     runs: sources.store.runs.byOwner(`project:${id}`, PROJECT_RUNS).map((run) => runView(sources, run)),
     approvals: all.approvals.filter((approval) => approval.projectId === id),

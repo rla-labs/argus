@@ -12,7 +12,7 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import z from '@deepseek-ai/schemastery'
-import { MCP_SERVER_PATTERN, NEVER_UNASKED, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
+import { MCP_SERVER_PATTERN, MCP_TOOL_PATTERN, NEVER_UNASKED, OpsError, PROJECT_TOOL_DEFAULTS, parseModelRef, type McpServer, type ModelRef, type ToolPolicy } from '@argus-agent/types'
 import type { ProjectTemplate } from './templates.js'
 import { BIN_DIR, EXTENSION_NAME, type UsableExtension } from './extensions.js'
 import { parseGitBlock, type GitRemote } from './git-remotes.js'
@@ -162,7 +162,10 @@ function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
 }
 
 /** The keys one `mcp:` server may hold. */
-const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'timeout_s']
+const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'tools', 'timeout_s']
+
+/** What a project may set on a server an extension brings: who may run its tools, and how long they may take. */
+const EXTENSION_SERVER_OVERRIDES = ['access', 'tools', 'timeout_s']
 
 /** The `mcp:` block: server names to servers, each a local program (`command`) or a remote one (`url`). */
 const mcpSchema = z.dict(z.object({
@@ -172,6 +175,7 @@ const mcpSchema = z.dict(z.object({
   url: z.string(),
   headers: z.dict(z.string()).default({}),
   access: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default('ask'),
+  tools: z.dict(z.union([z.const('deny'), z.const('ask'), z.const('allow')])).default({}),
   timeout_s: z.number().min(1).default(60),
 }))
 
@@ -198,6 +202,25 @@ function mcpIssues(mcp: unknown): ProjectConfigIssue[] {
     if ((typeof fields['command'] === 'string') === (typeof fields['url'] === 'string')) {
       issues.push({ path: `mcp.${name}`, message: 'needs exactly one of command (a local program) or url (a remote server)' })
     }
+    issues.push(...toolKeyIssues(`mcp.${name}.tools`, fields['tools']))
+  }
+  return issues
+}
+
+/**
+ * Problems in a server's `tools`: each key a tool's name or a glob, each value an access.
+ *
+ * @param path where the block is, for the messages.
+ * @param tools the block as written.
+ * @returns one issue per problem.
+ */
+export function toolKeyIssues(path: string, tools: unknown): ProjectConfigIssue[] {
+  if (tools === undefined || tools === null) return []
+  if (!isMapping(tools)) return [{ path, message: 'must map tool names or globs (read_*) to allow, ask or deny' }]
+  const issues: ProjectConfigIssue[] = []
+  for (const [key, access] of Object.entries(tools)) {
+    if (!MCP_TOOL_PATTERN.test(key)) issues.push({ path: `${path}.${key}`, message: 'a tool name or a glob: letters, digits, _ - and the wildcards * and ?' })
+    if (access !== 'allow' && access !== 'ask' && access !== 'deny') issues.push({ path: `${path}.${key}`, message: 'allow, ask or deny' })
   }
   return issues
 }
@@ -430,7 +453,7 @@ export function parseProjectConfig(
   }
 
   // The enabled extensions' servers are a layer under the file's own `mcp:` block, which
-  // may set only their access and timeout.
+  // may set only who runs their tools and how long they take.
   const enabled: ProjectExtension[] = []
   const extensionsMissing: string[] = []
   const brought = new Map<string, UsableExtension>()
@@ -460,8 +483,8 @@ export function parseProjectConfig(
         for (const [server, spec] of Object.entries(manifest.mcp)) {
           const mine = ownMcp[server]
           if (brought.has(server)) issues.push({ path: `mcp.${server}`, message: `both ${brought.get(server)!.name} and ${name} bring a server named ${server}` })
-          else if (isMapping(mine) && Object.keys(mine).some((key) => key !== 'access' && key !== 'timeout_s')) {
-            issues.push({ path: `mcp.${server}`, message: `comes from the extension ${name}: only its access and timeout_s can be set here` })
+          else if (isMapping(mine) && Object.keys(mine).some((key) => !EXTENSION_SERVER_OVERRIDES.includes(key))) {
+            issues.push({ path: `mcp.${server}`, message: `comes from the extension ${name}: only its ${EXTENSION_SERVER_OVERRIDES.join(', ')} can be set here` })
           }
           brought.set(server, extension)
           servers[server] = {
@@ -470,6 +493,7 @@ export function parseProjectConfig(
             // The secrets it declares, filled from /key like any `${NAME}`.
             env: { ...Object.fromEntries(manifest.requires.secrets.map((secret) => [secret, `\${${secret}}`])), ...Object.fromEntries(Object.entries(spec.env).map(([key, value]) => [key, at(value)])) },
             access: spec.access,
+            tools: spec.tools,
             timeout_s: spec.timeout_s,
           }
         }
@@ -480,7 +504,7 @@ export function parseProjectConfig(
   // An access set for an extension's server that is no longer enabled (removed, or
   // disabled by hand) has nothing to apply to: dropped, so the project still loads.
   if (isMapping(document['mcp'])) {
-    const orphans = Object.entries(document['mcp']).filter(([name, server]) => !brought.has(name) && isMapping(server) && Object.keys(server).length > 0 && Object.keys(server).every((key) => key === 'access' || key === 'timeout_s'))
+    const orphans = Object.entries(document['mcp']).filter(([name, server]) => !brought.has(name) && isMapping(server) && Object.keys(server).length > 0 && Object.keys(server).every((key) => EXTENSION_SERVER_OVERRIDES.includes(key)))
     if (orphans.length > 0) document = { ...document, mcp: Object.fromEntries(Object.entries(document['mcp']).filter(([name]) => !orphans.some(([orphan]) => orphan === name))) }
   }
 

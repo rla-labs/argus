@@ -32,7 +32,7 @@ interface Overview {
 interface Settings {
   defaults: { tasks: string; frontDesk: string | null }
   keys: Array<{ provider: string; configured: boolean; writable: boolean }>
-  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string }>; instructions: string | null; dayUsd: number; monthUsd: number }>
+  projects: Array<{ id: string; model: string; tools: Record<string, string> & { web_hosts: string[] }; mcp: Array<{ name: string; access: string; tools: Record<string, string> }>; instructions: string | null; dayUsd: number; monthUsd: number }>
   system: { timezone: string; dayUsd: number; monthUsd: number }
 }
 
@@ -580,7 +580,8 @@ function SettingsView({ data, run, outcome, account }: { data: Settings; run: (l
                 (server) => html`<br /><label class="faint" for=${`m-${project.id}-${server.name}`}>${t('settings.mcp', { name: server.name })}</label>
                   <select id=${`m-${project.id}-${server.name}`} value=${server.access} onChange=${(e: Event) => run(`/set ${project.id} mcp.${server.name}.access ${(e.target as HTMLSelectElement).value}`)}>
                     ${['deny', 'ask', 'allow'].map((value) => html`<option value=${value}>${value}</option>`)}
-                  </select>`,
+                  </select>
+                  ${Object.keys(server.tools).length === 0 ? null : html`<br /><span class="faint">${Object.entries(server.tools).map(([tool, access]) => `${tool} ${access}`).join(', ')}</span>`}`,
               )}</td>
             ${GROUPS.map(
               (group) => html`<td><label class="sr" for=${`t-${project.id}-${group}`}>${project.id} ${group}</label>

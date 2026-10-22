@@ -3,6 +3,12 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.7.2 (in progress)
+
+- **Access per MCP tool.** `mcp.<server>.tools` gives a tool, or a glob such as
+  `read_*`, its own `allow`, `ask` or `deny`; the most specific match wins, and the
+  server's `access` covers the rest. An extension can ship such rules as defaults.
+
 ## 0.7.1
 
 **Settings that apply at once, web search from the provider you choose, three more

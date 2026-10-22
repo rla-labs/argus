@@ -17,7 +17,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { parse as parseYaml, stringify as toYaml } from 'yaml'
-import { MCP_SERVER_PATTERN, OpsError, isInside } from '@argus-agent/types'
+import { MCP_SERVER_PATTERN, MCP_TOOL_PATTERN, OpsError, isInside } from '@argus-agent/types'
 
 const run = promisify(execFile)
 
@@ -37,6 +37,8 @@ export interface ExtensionServer {
   readonly env: Readonly<Record<string, string>>
   /** The access the admin is asked to accept for its tools. */
   readonly access: 'deny' | 'ask' | 'allow'
+  /** Per tool, a name or a glob to its access: defaults a project's file can override. */
+  readonly tools: Readonly<Record<string, 'deny' | 'ask' | 'allow'>>
   readonly timeout_s: number
 }
 
@@ -184,7 +186,14 @@ export function parseManifest(raw: unknown): ExtensionManifest {
         continue
       }
       for (const key of Object.keys(value)) {
-        if (!['command', 'args', 'env', 'access', 'timeout_s'].includes(key)) problems.push(`${where}.${key}: not a server key; use command, args, env, access, timeout_s`)
+        if (!['command', 'args', 'env', 'access', 'tools', 'timeout_s'].includes(key)) problems.push(`${where}.${key}: not a server key; use command, args, env, access, tools, timeout_s`)
+      }
+      const tools = value['tools'] ?? {}
+      if (!isMapping(tools)) problems.push(`${where}.tools: tool names or globs to allow, ask or deny`)
+      else {
+        for (const [tool, toolAccess] of Object.entries(tools)) {
+          if (!MCP_TOOL_PATTERN.test(tool) || (toolAccess !== 'deny' && toolAccess !== 'ask' && toolAccess !== 'allow')) problems.push(`${where}.tools.${tool}: a tool name or a glob (* and ?) to allow, ask or deny`)
+        }
       }
       const env = value['env'] ?? {}
       const access = value['access'] ?? 'ask'
@@ -198,6 +207,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
         args: strings(value['args'], `${where}.args`),
         env: (isMapping(env) ? env : {}) as Record<string, string>,
         access: access as ExtensionServer['access'],
+        tools: (isMapping(tools) ? tools : {}) as ExtensionServer['tools'],
         timeout_s: Number(timeout),
       }
     }

@@ -89,8 +89,9 @@ progress finishes first):
   private temp folder, and nothing else; not the database, the keys, the conversations or
   another project. Its environment holds the secrets it declares, set with `/key`.
   Without the command sandbox it does not start. Its access is the one you saw at
-  install; `/tools <project>` shows it, and `/set <project> mcp.<server>.access ask`
-  changes it for that project.
+  install, with its rules per tool if it has any (`browser_snapshot allow`);
+  `/tools <project>` shows them, and `/set <project> mcp.<server>.access ask` or
+  `/set <project> mcp.<server>.tools.<tool> deny` changes them for that project.
 - **its programs**, by name in the agent's shell (`officecli`, `ffmpeg`): only the ones the
   extension names, run like any command of the project's (confined to its folder, and
   asking unless a rule allows them). A project that did not enable the extension cannot
@@ -140,6 +141,8 @@ mcp:
     command: node               # a local program, run in the project's folder
     args: ["${EXTENSION_DIR}/server/index.js"]   # ${EXTENSION_DIR}: the installed extension
     access: allow               # the access the admin is asked to accept: deny, ask, allow
+    tools:                      # optional, per tool (a name or a glob with * and ?)
+      delete_*: ask
     timeout_s: 60
 requires:
   secrets: []                   # NAMES its server reads; the admin sets them with /key
@@ -158,7 +161,7 @@ instructions: |                 # added to a project's instructions while it is 
 | `version` | Any short version string; shown and recorded |
 | `install` | Shell lines, run in order in the extension's folder; one that fails stops the install. Ten minutes in all. |
 | `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run. A skill is read through its parent folder, so keep an extension's skills side by side (`skills/<name>/`). |
-| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. |
+| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `tools`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. |
 | `requires.secrets` | `NAMES_LIKE_THIS` |
 | `bin` | Paths inside the repository, each an executable file once `install` has run (not a link); their names must differ. A project gets them, and only them, on its shell's `PATH`. |
 | `env` | `NAMES_LIKE_THIS` to strings; `${EXTENSION_DIR}` is the extension's folder. Not a secret (a name with KEY, TOKEN, SECRET, PASSWORD… is refused; secrets go in `requires.secrets`), and not `PATH`, `HOME`, `TMPDIR` or `LD_*`. |

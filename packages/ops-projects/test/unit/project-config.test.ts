@@ -288,8 +288,8 @@ describe('mcp', () => {
   it('has no servers by default, and fills a server\'s defaults', () => {
     expect(parse().mcp).toEqual({})
     expect(parse({ mcp: { github: { command: 'npx', args: ['-y', 'gh'] }, docs: { url: 'https://x.test/mcp' } } }).mcp).toEqual({
-      github: { command: 'npx', args: ['-y', 'gh'], env: {}, url: null, headers: {}, access: 'ask', timeout_s: 60 },
-      docs: { command: null, args: [], env: {}, url: 'https://x.test/mcp', headers: {}, access: 'ask', timeout_s: 60 },
+      github: { command: 'npx', args: ['-y', 'gh'], env: {}, url: null, headers: {}, access: 'ask', tools: {}, timeout_s: 60 },
+      docs: { command: null, args: [], env: {}, url: 'https://x.test/mcp', headers: {}, access: 'ask', tools: {}, timeout_s: 60 },
     })
   })
 
@@ -300,6 +300,15 @@ describe('mcp', () => {
     expect(paths({ neither: {} })).toContain('mcp.neither')
     expect(paths({ gh: { command: 'x', enviroment: {} } })).toContain('mcp.gh.enviroment')
     expect(() => parse({ mcp: { gh: { command: 'x', access: 'off' } } })).toThrow()
+  })
+
+  it('takes an access per tool, by name or glob, and refuses a bad key or value', () => {
+    expect(parse({ mcp: { gdocs: { url: 'https://x.test/mcp', tools: { 'read_*': 'allow', delete_doc: 'deny' } } } }).mcp['gdocs']?.tools).toEqual({ 'read_*': 'allow', delete_doc: 'deny' })
+    const paths = (tools: unknown): string[] => parseFails({ mcp: { gdocs: { url: 'https://x.test/mcp', tools } } }).issues.map((issue) => issue.path)
+    expect(paths({ 'read.doc': 'allow' })).toContain('mcp.gdocs.tools.read.doc')
+    expect(paths({ 'read[x]': 'allow' })).toContain('mcp.gdocs.tools.read[x]')
+    expect(paths({ read_doc: 'off' })).toContain('mcp.gdocs.tools.read_doc')
+    expect(paths(['read_doc'])).toContain('mcp.gdocs.tools')
   })
 })
 

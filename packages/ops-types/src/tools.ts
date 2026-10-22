@@ -168,8 +168,10 @@ export interface McpServer {
   /** A remote server, over Streamable HTTP. */
   readonly url: string | null
   readonly headers: Readonly<Record<string, string>>
-  /** Whether its tools run unasked, ask, or are refused. */
+  /** Whether its tools run unasked, ask, or are refused, unless `tools` says otherwise. */
   readonly access: Exclude<ToolAccess, 'off'>
+  /** Per tool: a name or a glob (`*`, `?`) to its access; see {@link mcpToolAccess}. */
+  readonly tools: Readonly<Record<string, Exclude<ToolAccess, 'off'>>>
   readonly timeout_s: number
   /** Set when an enabled extension brings it: it then runs confined, reading that folder. */
   readonly extension?: { readonly name: string; readonly dir: string }
@@ -177,6 +179,49 @@ export interface McpServer {
 
 /** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */
 export const MCP_SERVER_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+/** A key of a server's `tools`: a tool's name, or a glob of `*` and `?`. No dot: `/set` paths are dotted. */
+export const MCP_TOOL_PATTERN = /^[A-Za-z0-9_*?-]{1,128}$/
+
+const STRICTNESS = { allow: 0, ask: 1, deny: 2 } as const
+
+/**
+ * What decides one tool of an MCP server.
+ *
+ * The most specific key of `tools` that matches wins: the tool's exact name, then the
+ * glob with the most literal characters, then, on a tie, the stricter access. So it does
+ * not matter in which order an extension's defaults and the project's file list them.
+ *
+ * @param server the server's `access` and `tools`.
+ * @param tool the tool's own name, without `mcp__<server>__`.
+ * @returns the access, and the key that decided it (`null`: the server's `access`).
+ */
+export function mcpToolAccess(server: Pick<McpServer, 'access' | 'tools'>, tool: string): { access: Exclude<ToolAccess, 'off'>; pattern: string | null } {
+  let best: { access: Exclude<ToolAccess, 'off'>; pattern: string; rank: number } | undefined
+  for (const [pattern, access] of Object.entries(server.tools)) {
+    const exact = !/[*?]/.test(pattern)
+    if (exact ? pattern !== tool : !globMatches(pattern, tool)) continue
+    const rank = exact ? Number.MAX_SAFE_INTEGER : pattern.replace(/[*?]/g, '').length
+    if (best === undefined || rank > best.rank || (rank === best.rank && STRICTNESS[access] > STRICTNESS[best.access])) best = { access, pattern, rank }
+  }
+  return best === undefined ? { access: server.access, pattern: null } : { access: best.access, pattern: best.pattern }
+}
+
+/** Whether a glob of `*` (any run) and `?` (one character) matches the whole name. */
+function globMatches(glob: string, name: string): boolean {
+  const source = glob.replace(/[.+^${}()|[\]\\-]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
+  return new RegExp(`^${source}$`).test(name)
+}
+
+/**
+ * A tool's own name on its MCP server.
+ *
+ * @param name the tool's name, `mcp__<server>__<tool>`.
+ * @returns what follows the prefix, or `undefined` for any other tool.
+ */
+export function mcpToolOf(name: string): string | undefined {
+  return /^mcp__[a-z0-9][a-z0-9-]{0,31}__(.+)$/.exec(name)?.[1]
+}
 
 /**
  * The server an MCP tool comes from.

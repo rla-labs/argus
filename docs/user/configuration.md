@@ -630,7 +630,10 @@ mcp:
     url: https://mcp.example.com/mcp
     headers:
       Authorization: "Bearer ${DOCS_TOKEN}"
-    access: allow
+    access: ask
+    tools:
+      read_*: allow
+      delete_*: deny
     timeout_s: 120
 ```
 
@@ -639,8 +642,16 @@ mcp:
 | name (the key) | lowercase letters, digits and dashes, up to 32; the tools appear as `mcp__<name>__<tool>` | — |
 | `command`, `args`, `env` | a local program, started in the project's folder | — |
 | `url`, `headers` | a remote server (Streamable HTTP) | — |
-| `access` | `deny`, `ask` or `allow` for every tool of the server | `ask` |
+| `access` | `deny`, `ask` or `allow` for every tool of the server that `tools` does not name | `ask` |
+| `tools` | per tool: its name, or a glob with `*` and `?` (letters, digits, `_`, `-`), to `deny`, `ask` or `allow` | none |
 | `timeout_s` | how long one call may take | `60` |
+
+**Access per tool.** The most specific key of `tools` that matches a tool decides: its
+exact name, then the glob with the most letters, then, on a tie, the stricter access.
+Above, `read_doc` runs unasked, `delete_page` is refused, and anything else asks. The
+order does not matter, so an extension's defaults and your own keys mix predictably.
+`/set <project> mcp.docs.tools.update_doc allow` adds or changes one; `/tools <project>`
+lists them, and a refusal or a question names the key that decided.
 
 **Secrets are never written in the file.** Write `${NAME}` and save the value with
 `/key NAME value` in the chat (your message is deleted at once), or set `NAME` in the
@@ -649,8 +660,8 @@ the project runs without it.
 
 The agent connects when it is built. After you add a server or change how to reach it,
 the project's agent is rebuilt at its next message, in the same conversation (a run in
-progress finishes first). A change of `access` (`/set <project> mcp.github.access allow`)
-applies to the next call. `/tools <project>` lists the servers. One-off tasks and the
+progress finishes first). A change of `access` or `tools` (`/set <project>
+mcp.github.access allow`) applies to the next call. `/tools <project>` lists the servers. One-off tasks and the
 front desk have no MCP servers.
 
 A local server runs as Argus's own user, outside the shell sandbox, and is given only
@@ -744,8 +755,9 @@ extensions: [office]
 Each name is an [extension](extensions.md) the admin installed. The project's agent gets
 its MCP servers (run confined to the project's folder), its skills and its instructions.
 `/ext enable <project> <name>` and `/ext disable` write this list. Its servers appear under
-`mcp` with the extension's access; the project's file may set only their `access` and
-`timeout_s` (`/set <project> mcp.office.access ask`). A name that is not installed, or
+`mcp` with the extension's access and tool rules; the project's file may set only their
+`access`, `tools` and `timeout_s` (`/set <project> mcp.office.access ask`); a key of
+`tools` it sets replaces the extension's same key, and the others stay. A name that is not installed, or
 whose files changed, is left out, and `argus doctor` says so; the project still runs.
 A template may list extensions too.
 
