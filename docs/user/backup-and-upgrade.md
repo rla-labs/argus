@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.7.1
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.7.2
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -418,6 +418,31 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.7.2
+
+Nothing to do by hand, and no database migration. What changes for you:
+
+- **Every local MCP server now runs confined**, the ones you added yourself as well as
+  an extension's: it reads the system and the project's folder, and keeps its files in
+  `state/<project>/mcp/<server>/`. Without the sandbox it does not start. **A server
+  whose program lives outside `/usr` or `/opt` no longer starts**: run it through
+  `npx` or `uvx`, or package it as an extension. A server that kept a login in the
+  shared home signs in again once; `/mcp reset <project> <server>` empties its home.
+- **An extension's server may name in its `env` only the secrets it declares** in
+  `requires.secrets`, `${EXTENSION_DIR}` and `${ARGUS_EGRESS_PROXY}`. A manifest that
+  names anything else is refused at install; a third-party extension may need a new
+  version.
+- **Remote MCP servers can sign in with OAuth.** A server with an `oauth:` block waits
+  for `/mcp connect <project> <server>`, which needs the web interface and its
+  `public_url`; until then its tools answer that the admin must connect it
+  ([Configuration](configuration.md)).
+- `ARGUS_OAUTH_…` is a reserved prefix: `/key` refuses it, and an MCP server's `${NAME}`
+  and an extension's `requires.secrets` may not use it.
+- **The Docker image is about 8 MB larger:** the libraries Chromium loads and
+  `fonts-liberation`, for the `browser` extension and `office`'s screenshots. A native
+  install that wants them installs them with apt
+  ([Native install](install-native.md#1-what-you-need)).
 
 ### Upgrading to 0.7.1
 

@@ -3,7 +3,9 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.7.2 (in progress)
+## 0.7.2
+
+**A browser, MCP servers that sign in, and per-tool access.**
 
 - **Access per MCP tool.** `mcp.<server>.tools` gives a tool, or a glob such as
   `read_*`, its own `allow`, `ask` or `deny`; the most specific match wins, and the
@@ -23,6 +25,8 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   unasked, acting on it asks. The Docker image gains Chromium's libraries (about 8 MB).
 - **`office` 1.1.0:** screenshots of documents, so the agent checks its layout, and
   `office-pdf` for a PDF.
+
+[What changes](backup-and-upgrade.md#upgrading-to-072).
 
 ## 0.7.1
 
@@ -182,7 +186,7 @@ Telegram became optional.
 - **The native install, end to end, on a fresh Ubuntu 24.04 with systemd.** This covers
   install, crash recovery, upgrade and rollback from git, and uninstall
   (`pnpm test:native-vps`).
-- **Every upgrade, 0.2 to 0.6, in the image and on a fresh Ubuntu.** An older project's
+- **Every upgrade, 0.2 to 0.7, in the image and on a fresh Ubuntu.** An older project's
   file is left as it was, and users carry over (`pnpm test:native-vps --upgrade`).
 - **The command sandbox in the real image.** A project's shell cannot read the database,
   another project, a conversation, the keys or the application, nor write outside its
@@ -207,6 +211,13 @@ Telegram became optional.
 - **0.7.0's extensions:** `office` and `media` installed and run, confined, in the real
   image (`pnpm test:docker-extensions`) and on a fresh Ubuntu with systemd
   (`pnpm test:native-vps`).
+- **0.7.2's browser:** installed and run, confined, in the real image and on a fresh
+  Ubuntu; through the egress proxy it reaches a public page and is refused loopback,
+  the private network, the metadata service, a name that resolves to loopback and a
+  redirect to it. The agent's shell cannot read an MCP server's home.
+- **0.7.2's OAuth** end to end against a fake authorization server and a fake MCP
+  server: sign-in, a refresh in the middle of a run, a refused grant, revocation.
+  Notion, Slack and Google have not been signed in to yet.
 - **`web_fetch` never reaches a private address**: the server itself, the private
   network and the cloud metadata service are refused.
 
