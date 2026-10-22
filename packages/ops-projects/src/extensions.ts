@@ -222,6 +222,15 @@ export function parseManifest(raw: unknown): ExtensionManifest {
     else if (secret.startsWith('ARGUS_MAIL_')) problems.push(`requires.secrets: ${secret}: ARGUS_MAIL_ names are reserved for mail accounts`)
     else if (secret.startsWith('ARGUS_OAUTH_')) problems.push(`requires.secrets: ${secret}: ARGUS_OAUTH_ names are reserved for OAuth grants`)
   }
+  // A server's env names only what the admin was shown: its declared secrets, its own
+  // folder, the egress proxy. Any other ${NAME} would read a key saved for something else.
+  for (const [server, spec] of Object.entries(mcp)) {
+    for (const [key, value] of Object.entries(spec.env)) {
+      for (const [, name] of String(value).matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+        if (name !== 'EXTENSION_DIR' && name !== 'ARGUS_EGRESS_PROXY' && !secrets.includes(name as string)) problems.push(`mcp.${server}.env.${key}: \${${name}} is not in requires.secrets`)
+      }
+    }
+  }
   const network = needs['network'] ?? false
   if (typeof network !== 'boolean') problems.push('requires.network: true or false')
   const bin = strings(doc['bin'], 'bin')

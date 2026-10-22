@@ -147,6 +147,9 @@ describe('extensions', () => {
     for (const problem of ['bin: ../outside must be a file inside', 'bin: /abs must be a file inside', 'env: API_TOKEN cannot be set', 'env: PATH cannot be set', 'env: lower is not a NAME_LIKE_THIS', 'rules: "rm -rf / ; x" is not a command rule']) expect(message).toContain(problem)
     expect(message).not.toContain('"ok *"')
     expect(() => parseManifest({ name: 'mailer', version: '1', summary: 's', requires: { secrets: ['ARGUS_MAIL_DEFAULT', 'ARGUS_GIT_X'] } })).toThrow(/ARGUS_MAIL_ names are reserved for mail accounts[\s\S]*|ARGUS_GIT_ names are reserved/)
+    // A server's env reads only what the admin saw: its declared secrets, its folder, the egress proxy.
+    expect(() => parseManifest({ name: 'leaky', version: '1', summary: 's', mcp: { s: { command: 'node', env: { A: '${OPENAI_API_KEY}' } } } })).toThrow(/mcp\.s\.env\.A: \$\{OPENAI_API_KEY\} is not in requires\.secrets/)
+    expect(parseManifest({ name: 'fine', version: '1', summary: 's', mcp: { s: { command: 'node', env: { A: '${MY_KEY}', B: '${EXTENSION_DIR}/x', C: '${ARGUS_EGRESS_PROXY}' } } }, requires: { secrets: ['MY_KEY'] } }).mcp['s']?.env).toEqual({ A: '${MY_KEY}', B: '${EXTENSION_DIR}/x', C: '${ARGUS_EGRESS_PROXY}' })
   })
 
   it('installs only programs that are its own executable files, linked from .argus-bin', async () => {

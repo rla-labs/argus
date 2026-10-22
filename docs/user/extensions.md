@@ -161,7 +161,7 @@ instructions: |                 # added to a project's instructions while it is 
 | `version` | Any short version string; shown and recorded |
 | `install` | Shell lines, run in order in the extension's folder; one that fails stops the install. Ten minutes in all. |
 | `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run. A skill is read through its parent folder, so keep an extension's skills side by side (`skills/<name>/`). |
-| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `tools`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. |
+| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `tools`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. In `env`, `${NAME}` may name only a secret in `requires.secrets`, or `${ARGUS_EGRESS_PROXY}` (the [egress proxy](configuration.md#mcp--external-tools-through-mcp-servers)'s address). |
 | `requires.secrets` | `NAMES_LIKE_THIS` |
 | `bin` | Paths inside the repository, each an executable file once `install` has run (not a link); their names must differ. A project gets them, and only them, on its shell's `PATH`. |
 | `env` | `NAMES_LIKE_THIS` to strings; `${EXTENSION_DIR}` is the extension's folder. Not a secret (a name with KEY, TOKEN, SECRET, PASSWORD… is refused; secrets go in `requires.secrets`), and not `PATH`, `HOME`, `TMPDIR` or `LD_*`. |
