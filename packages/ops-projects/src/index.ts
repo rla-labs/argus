@@ -36,6 +36,7 @@ export * from './extensions.js'
 export * from './git-remotes.js'
 export * from './mail.js'
 export * from './oauth.js'
+export { EgressProxy, isPublicAddress } from './egress.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -117,7 +118,7 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => {
     void service.disposeAll()
-    void service.closeOAuth()
+    void service.closeProxies()
   })
 
   // ── extensions in the project's shell ────────────────────────────────────

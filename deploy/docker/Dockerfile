@@ -82,10 +82,13 @@ ENV ARGUS_AGENT_VERSION="$ARGUS_AGENT_VERSION"
 # `kill` that leaves the agent's subprocesses running is a leak, and a PID 1 that
 # does not reap is a slow failure. The second line: the libraries ImageMagick's official
 # Linux build loads from the system (the `images` extension), and a font for text drawn
-# on an image; about 15 MB.
+# on an image; about 15 MB. The rest: what Chromium's headless shell loads (the `browser`
+# extension, and `office` screenshots), Playwright's list for Debian 12, and fonts with
+# Arial's and Times's metrics; about 8 MB more.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ca-certificates curl zip git \
       libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core \
+      libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation \
  && rm -rf /var/lib/apt/lists/*
 
 # `uv` (and `uvx`), one static binary, for the Python MCP servers an extension may

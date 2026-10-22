@@ -156,7 +156,7 @@ check "backup-native.sh works without sqlite3" vps bash -c '! command -v sqlite3
 # and runs them: confined, under the native install's Landlock.
 if [ -d "${REPO}/../argus-extensions/.git" ]; then
   # What the images extension's README asks of a native install: ImageMagick's system libraries.
-  vps bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core' >/dev/null 2>&1
+  vps bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation' >/dev/null 2>&1
   docker cp "${REPO}/../argus-extensions" "${NAME}:/srv/argus-extensions"
   vps chown -R ops:ops /srv/argus-extensions
   docker cp "${REPO}/scripts/extension-check.mjs" "${NAME}:/tmp/extension-check.mjs"

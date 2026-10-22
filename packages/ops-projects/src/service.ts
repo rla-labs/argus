@@ -44,6 +44,7 @@ import type { Extensions } from './extensions.js'
 import { GitError, GitRemotes, isGitTokenName, type GitRemote, type PushPlan, type TokenStore } from './git-remotes.js'
 import { createTransport } from 'nodemailer'
 import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, type MailTransport } from './mail.js'
+import { EgressProxy } from './egress.js'
 import { McpOAuth, OAuthProxy, isOAuthSecretName, type OAuthClientSettings, type OAuthSecrets } from './oauth.js'
 
 /** What a delivery targets. */
@@ -68,6 +69,9 @@ interface LiveAgent {
   /** Its project's OAuth grants when it was built: a grant made or lost rebuilds it too. */
   authEpoch?: number
 }
+
+/** The name an MCP server's `env` uses for the egress proxy's address. */
+export const EGRESS_PROXY_NAME = 'ARGUS_EGRESS_PROXY'
 
 /** Options for creating an ephemeral agent. */
 export interface EphemeralOptions {
@@ -121,6 +125,8 @@ export class OpsProjects {
   readonly oauth: McpOAuth
   /** The loopback proxy those servers are reached through, with a fresh token. */
   private readonly oauthProxy: OAuthProxy
+  /** The forward proxy a project's browser reaches the public internet through (`${ARGUS_EGRESS_PROXY}`). */
+  private readonly egress = new EgressProxy()
   /** Bumped per project when one of its grants changes. */
   private readonly authEpochs = new Map<string, number>()
   private readonly projectsRoot: string
@@ -180,9 +186,9 @@ export class OpsProjects {
     })
   }
 
-  /** Stop the OAuth proxy; the plugin's unload calls it. */
-  async closeOAuth(): Promise<void> {
-    await this.oauthProxy.close()
+  /** Stop the loopback proxies; the plugin's unload calls it. */
+  async closeProxies(): Promise<void> {
+    await Promise.all([this.oauthProxy.close(), this.egress.close()])
   }
 
   // ── mail ─────────────────────────────────────────────────────────────────
@@ -909,6 +915,11 @@ export class OpsProjects {
         if (isGitTokenName(name as string)) throw new Error(`\${${name}} is a git token, which only Argus's git operations may use`)
         if (isMailSecretName(name as string)) throw new Error(`\${${name}} is a mail account, which only Argus's send_mail may use`)
         if (isOAuthSecretName(name as string)) throw new Error(`\${${name}} is an OAuth grant, which only Argus's proxy may use`)
+        // Not a secret: the egress proxy's address, for a browser's --proxy-server.
+        if (name === EGRESS_PROXY_NAME) {
+          filled = filled.replace(reference, await this.egress.url())
+          continue
+        }
         // Without the credentials service (a bare composition) only the environment is read.
         const secret =
           credentials === undefined

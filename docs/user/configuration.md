@@ -678,6 +678,13 @@ front desk have no MCP servers.
 - it gets only the variables in its `env` (dsh removes every inherited variable that
   looks like a key, token or password).
 
+**`${ARGUS_EGRESS_PROXY}`** in a server's `env` is the address of Argus's egress proxy,
+a proxy on `127.0.0.1` that reaches the public internet only: it refuses the server
+itself, the private network, link-local addresses and the cloud's metadata service,
+after resolving the name, as `web_fetch` does. A browser started with it as its proxy
+(the [`browser` extension](extensions.md#the-first-party-ones) does) cannot be steered by
+a page into your network.
+
 In the Docker image `npx` and `uvx` are available.
 
 #### A remote server that signs in (OAuth)

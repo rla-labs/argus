@@ -37,6 +37,7 @@ Step by step, from a fresh Linux server to a working bot on Telegram, with **no 
 | `zip` | Any | So `send_file` can send a folder or several files as one zip: `sudo apt-get install -y zip` (`sudo dnf install -y zip` on RHEL/Rocky/Fedora). The Docker image has it. |
 | `git` | Any | The install fetches Argus with it, and `/undo` records each project's folder with it before a run. |
 | For the `images` extension | x64 | ImageMagick's system libraries and a font: `sudo apt-get install -y libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core`. The Docker image has them. |
+| For the `browser` extension, and `office` screenshots | x64, arm64 | Chromium's system libraries and fonts. Ubuntu 24.04: `sudo apt-get install -y libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation`. Debian 12: the same without the `t64` endings. The Docker image has them. |
 | Optional | | whatever an [MCP server](configuration.md#mcp--external-tools-through-mcp-servers) needs (`npx` comes with Node; `uvx` for Python servers is yours to install); [Tailscale](https://tailscale.com), to open the [web interface](web.md) |
 
 Three things to collect before you start:

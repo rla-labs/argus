@@ -110,6 +110,12 @@ describe.skipIf(!landlock)('MCP servers', () => {
     expect(await toolOf(await projects.ensureAgent('site'), 'mcp__echo__echo')).toBeUndefined()
   }, 60_000)
 
+  it('gives a server the egress proxy\'s address for ${ARGUS_EGRESS_PROXY}', async () => {
+    const { dataDir, echo } = dataWithEcho('site')
+    const { projects } = await bootProjects({ dataDir, projects: { site: { mcp: { echo: { ...echo('site'), env: { ECHO_SECRET: '${ARGUS_EGRESS_PROXY}' } } } } }, entries: SANDBOX })
+    expect(await call(await toolOf(await projects.ensureAgent('site'), 'mcp__echo__echo'), { text: 'proxy' })).toMatch(/proxy \(http:\/\/127\.0\.0\.1:\d+\)/)
+  }, 60_000)
+
   it('never hands a server an OAuth grant, even one the environment holds', async () => {
     process.env['ARGUS_OAUTH_0123ABCD'] = '{"tokens":{}}'
     const { dataDir, echo } = dataWithEcho('site')
