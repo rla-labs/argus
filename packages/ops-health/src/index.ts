@@ -112,6 +112,14 @@ export function apply(ctx: Context): void {
     return undefined
   })
 
+  /** A provider refused an OAuth grant on a refresh: the admin is told, once per refusal. */
+  ctx.on('ops/mcp-auth', (payload) => {
+    if (payload.state !== 'failed') return
+    void service.noteGrantRefused(payload.projectId, payload.server, payload.reason ?? 'refused').catch(() => {
+      /* an alert must not become a second failure */
+    })
+  })
+
   /**
    * A Retry button from the startup report.
    *

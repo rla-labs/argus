@@ -1276,7 +1276,7 @@ describe('/new', () => {
     await run(booted, '/new store shop')
     expect(booted.projects.configOf('store')?.tools.web).toBe('deny')
     // argus doctor names the template that did not load.
-    expect(booted.projects.doctor().map((finding) => finding.detail)).toContain('templates/bad.yaml: cannot set model: /new decides them')
+    expect((await booted.projects.doctor()).map((finding) => finding.detail)).toContain('templates/bad.yaml: cannot set model: /new decides them')
   }, 30_000)
 
   it('writes only the template\'s name; the project follows the template until /set makes a value its own', async () => {

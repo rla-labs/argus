@@ -814,15 +814,25 @@ Who the project may write to is in its file: `/set <project> mail.allowed_recipi
 ## `/mcp`
 
 ```
+/mcp connect <project-id> <server>              (admin)
+/mcp disconnect <project-id> <server>           (admin)
 /mcp reset <project-id> <server>                (admin)
 ```
 
-A local MCP server keeps its logins and caches in a home of its own,
-`state/<project>/mcp/<server>/`, outside the project's folder: the agent and its shell
-cannot read it. **`/mcp reset`** empties it, for a login gone wrong or a broken cache.
-The project's agent is let go if it is idle, and its next message starts the server
-afresh, in the same conversation; a project in a run must finish first. `/tools
-<project>` lists the servers.
+- **`/mcp connect`** signs a remote server in with OAuth (its `oauth:` block, see
+  [configuration](configuration.md#a-remote-server-that-signs-in-oauth)). It answers with a
+  link to the web, valid ten minutes and once: open it signed in as the admin, sign in at
+  the provider with the account this project should use, and you come back to Argus. Argus
+  keeps the grant for that project and server and refreshes it; the agent never sees a
+  token. From the project's next message its agent has the server's tools.
+- **`/mcp disconnect`** revokes the grant at the provider when it says how, and forgets it.
+- **`/mcp reset`** empties a local server's own home, `state/<project>/mcp/<server>/`,
+  outside the project's folder, where it keeps its logins and caches out of the agent's
+  reach: for a login gone wrong or a broken cache. The project's agent is let go if it is
+  idle, and its next message starts the server afresh, in the same conversation; a
+  project in a run must finish first.
+
+`/tools <project>` lists the servers, and whether each one that signs in is connected.
 
 ---
 

@@ -15,6 +15,7 @@ import { parseModelRef, type ModelRef, type Owner } from '@argus-agent/types'
 import type {} from '@argus-agent/argus-agent'
 import { OpsProjects } from './service.js'
 import { Snapshots, snapshotsOf, snapshotsSchema } from './snapshots.js'
+import { oauthClientsOf, oauthClientsSchema } from './oauth.js'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProject, type SyncReport } from './project-loader.js'
 import type { BudgetDefaults, ProjectConfig, ProjectLimits } from './project-config.js'
@@ -34,6 +35,7 @@ export * from './templates.js'
 export * from './extensions.js'
 export * from './git-remotes.js'
 export * from './mail.js'
+export * from './oauth.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
@@ -72,6 +74,8 @@ export function apply(ctx: Context): void {
 
   const section = ctx.opsConfigRegistry.extend('snapshots', snapshotsSchema)
   ctx.effect(() => section)
+  const clients = ctx.opsConfigRegistry.extend('oauth_clients', oauthClientsSchema)
+  ctx.effect(() => clients)
   const settings = () => snapshotsOf(ctx.opsRawConfig)
   // `install` runs in the command sandbox, or not at all.
   const extensions = new Extensions(join(paths.dataDirAbs, 'extensions'), async (argv, root) => {
@@ -88,6 +92,7 @@ export function apply(ctx: Context): void {
     extensions,
     snapshots: new Snapshots(paths.stateDir, settings),
     snapshotSettings: settings,
+    oauthClients: () => oauthClientsOf(ctx.opsRawConfig),
   })
   // Expiry also runs at each snapshot; daily covers a project that no longer runs.
   ctx.effect(() => {
@@ -112,6 +117,7 @@ export function apply(ctx: Context): void {
   })
   ctx.effect(() => () => {
     void service.disposeAll()
+    void service.closeOAuth()
   })
 
   // ── extensions in the project's shell ────────────────────────────────────

@@ -90,6 +90,8 @@ export interface WebPort {
   loginLink(userId: string): string
   /** The same, valid 24 hours: an invitation or a password reset. */
   inviteLink(userId: string): string
+  /** Where the interface is opened, without a trailing slash: `/mcp connect`'s link. */
+  readonly publicUrl: string
 }
 
 /** What `/defaults` needs from `ops-orchestrator`. */

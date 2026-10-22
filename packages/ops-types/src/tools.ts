@@ -168,6 +168,8 @@ export interface McpServer {
   /** A remote server, over Streamable HTTP. */
   readonly url: string | null
   readonly headers: Readonly<Record<string, string>>
+  /** A remote server that signs in with OAuth: Argus holds the grant (`/mcp connect`). */
+  readonly oauth: { readonly client: string | null; readonly scopes: readonly string[] } | null
   /** Whether its tools run unasked, ask, or are refused, unless `tools` says otherwise. */
   readonly access: Exclude<ToolAccess, 'off'>
   /** Per tool: a name or a glob (`*`, `?`) to its access; see {@link mcpToolAccess}. */

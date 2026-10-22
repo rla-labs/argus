@@ -12,6 +12,11 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   it reads the system and the project's folder, and keeps its logins and caches in a
   home of its own that the agent's shell cannot read. `/mcp reset` empties it. A server
   whose program is outside `/usr` or `/opt` no longer starts: see the upgrade notes.
+- **MCP servers that sign in with OAuth** (Notion, Linear, Google Workspace, Slack…):
+  `/mcp connect <project> <server>` signs the server in through the web, per project and
+  per server. Argus keeps the grant and refreshes it; the agent reaches the server
+  through a local proxy and never sees a token. A provider that needs a client of yours
+  (Google, Slack) gets it under `oauth_clients` in `ops.yaml`.
 
 ## 0.7.1
 

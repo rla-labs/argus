@@ -317,6 +317,24 @@ describe('the web interface', () => {
     expect((await run('/projects')).text).toContain('alpha')
   }, 60_000)
 
+  it('starts an MCP server\'s sign-in for the admin only, and refuses a callback it did not start', async () => {
+    const booted = await bootWeb()
+    const start = `${booted.base}/oauth/start/${'k'.repeat(32)}`
+    expect((await fetch(start, { redirect: 'manual' })).status).toBe(401)
+    booted.store.users.create({ id: 'op-1', role: 'operator' }, Date.now())
+    const token = /token=([\w-]+)/.exec(booted.web.loginLink('op-1'))?.[1] ?? ''
+    const operator = ((await fetch(`${booted.base}/login?token=${token}`, { redirect: 'manual' })).headers.get('set-cookie') ?? '').split(';')[0] ?? ''
+    expect((await fetch(start, { redirect: 'manual', headers: { cookie: operator } })).status).toBe(401)
+    const admin = await signIn(booted)
+    const unknown = await fetch(start, { redirect: 'manual', headers: { cookie: admin } })
+    expect(unknown.status).toBe(400)
+    expect(await unknown.text()).toContain('This link is not valid')
+    // The provider's redirect carries no cookie; an unknown state is refused all the same.
+    const forged = await fetch(`${booted.base}/oauth/callback?state=forged&code=x`)
+    expect(forged.status).toBe(400)
+    expect(await forged.text()).toContain('This sign-in is not known')
+  }, 60_000)
+
   it('is one of the user\'s channels: a notice to the user reaches the web chat', async () => {
     const booted = await bootWeb()
     const cookie = await signIn(booted)

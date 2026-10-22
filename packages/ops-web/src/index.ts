@@ -56,6 +56,8 @@ export interface OpsWeb {
    * @returns the link.
    */
   loginLink(userId: string): string
+  /** Where the interface is opened, without a trailing slash. */
+  readonly publicUrl: string
   /**
    * A one-time sign-in link valid 24 hours, for an invitation or a password reset.
    *
@@ -155,6 +157,7 @@ export async function apply(ctx: Context): Promise<void> {
   })
   const web: { -readonly [K in keyof OpsWeb]: OpsWeb[K] } = {
     loginLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId)}`,
+    publicUrl: config.public_url,
     inviteLink: (userId: string) => `${config.public_url}/login?token=${auth.issueToken(userId, INVITE_TTL_MS)}`,
     port: undefined,
     downloadLink: (path, name, take) => (web.port === undefined ? undefined : `${config.public_url}/f/${links.create(path, name, take)}`),
@@ -292,6 +295,9 @@ export async function apply(ctx: Context): Promise<void> {
         return () => listeners.delete(listener)
       },
       projectDir: (id) => ctx.opsProjects.configOf(id)?.cwd,
+      isAdmin: (session) => ctx.opsStore.users.get(session.userId)?.role === 'admin',
+      oauth: ctx.opsProjects.oauth,
+      publicUrl: config.public_url,
       maxUploadBytes: config.max_upload_mb * 1024 * 1024,
       confineZip: async (argv, root, reads) => {
         const sandbox = ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined

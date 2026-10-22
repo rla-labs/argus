@@ -38,6 +38,7 @@ afterEach(() => {
   delete process.env['ECHO_SECRET']
   delete process.env['ARGUS_GIT_0123ABCD']
   delete process.env['ARGUS_MAIL_DEFAULT']
+  delete process.env['ARGUS_OAUTH_0123ABCD']
 })
 
 /** The tool an agent sees under a name, through the scope-aware lookup. */
@@ -106,6 +107,13 @@ describe.skipIf(!landlock)('MCP servers', () => {
     process.env['ARGUS_GIT_0123ABCD'] = 'ghp_secret'
     const { dataDir, echo } = dataWithEcho('site')
     const { projects } = await bootProjects({ dataDir, projects: { site: { mcp: { echo: { ...echo('site'), env: { ECHO_SECRET: '${ARGUS_GIT_0123ABCD}' } } } } }, entries: SANDBOX })
+    expect(await toolOf(await projects.ensureAgent('site'), 'mcp__echo__echo')).toBeUndefined()
+  }, 60_000)
+
+  it('never hands a server an OAuth grant, even one the environment holds', async () => {
+    process.env['ARGUS_OAUTH_0123ABCD'] = '{"tokens":{}}'
+    const { dataDir, echo } = dataWithEcho('site')
+    const { projects } = await bootProjects({ dataDir, projects: { site: { mcp: { echo: { ...echo('site'), env: { ECHO_SECRET: '${ARGUS_OAUTH_0123ABCD}' } } } } }, entries: SANDBOX })
     expect(await toolOf(await projects.ensureAgent('site'), 'mcp__echo__echo')).toBeUndefined()
   }, 60_000)
 

@@ -348,6 +348,15 @@ web:
 #   provider: tavily
 #   price_usd: 0
 
+# OAuth clients you registered at providers that need one (Google, Slack, Microsoft),
+# for MCP servers that sign in (mcp.<server>.oauth.client in a project). Redirect URI:
+# <web.public_url>/oauth/callback. The secret is ${NAME}, saved with /key NAME ….
+# oauth_clients:
+#   google:
+#     preset: google
+#     client_id: 1234-abc.apps.googleusercontent.com
+#     client_secret: ${GOOGLE_OAUTH_CLIENT_SECRET}
+
 # ── rate limits ─────────────────────────────────────────────────────────────────
 
 rate_limits: {}

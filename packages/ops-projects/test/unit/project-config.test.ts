@@ -288,8 +288,8 @@ describe('mcp', () => {
   it('has no servers by default, and fills a server\'s defaults', () => {
     expect(parse().mcp).toEqual({})
     expect(parse({ mcp: { github: { command: 'npx', args: ['-y', 'gh'] }, docs: { url: 'https://x.test/mcp' } } }).mcp).toEqual({
-      github: { command: 'npx', args: ['-y', 'gh'], env: {}, url: null, headers: {}, access: 'ask', tools: {}, timeout_s: 60 },
-      docs: { command: null, args: [], env: {}, url: 'https://x.test/mcp', headers: {}, access: 'ask', tools: {}, timeout_s: 60 },
+      github: { command: 'npx', args: ['-y', 'gh'], env: {}, url: null, headers: {}, oauth: null, access: 'ask', tools: {}, timeout_s: 60 },
+      docs: { command: null, args: [], env: {}, url: 'https://x.test/mcp', headers: {}, oauth: null, access: 'ask', tools: {}, timeout_s: 60 },
     })
   })
 
@@ -300,6 +300,17 @@ describe('mcp', () => {
     expect(paths({ neither: {} })).toContain('mcp.neither')
     expect(paths({ gh: { command: 'x', enviroment: {} } })).toContain('mcp.gh.enviroment')
     expect(() => parse({ mcp: { gh: { command: 'x', access: 'off' } } })).toThrow()
+  })
+
+  it('signs a remote server in with OAuth, and refuses what cannot work', () => {
+    expect(parse({ mcp: { notion: { url: 'https://mcp.notion.com/mcp', oauth: {} } } }).mcp['notion']?.oauth).toEqual({ client: null, scopes: [] })
+    expect(parse({ mcp: { gdocs: { url: 'https://x.test/mcp', oauth: { client: 'google', scopes: ['a', 'b'] } } } }).mcp['gdocs']?.oauth).toEqual({ client: 'google', scopes: ['a', 'b'] })
+    const paths = (server: unknown): string[] => parseFails({ mcp: { s: server } }).issues.map((issue) => issue.path)
+    expect(paths({ command: 'x', oauth: {} })).toContain('mcp.s.oauth')
+    expect(paths({ url: 'https://x.test', oauth: { client: 'Google Inc' } })).toContain('mcp.s.oauth.client')
+    expect(paths({ url: 'https://x.test', oauth: { scopes: ['a b'] } })).toContain('mcp.s.oauth.scopes')
+    expect(paths({ url: 'https://x.test', oauth: { secret: 'x' } })).toContain('mcp.s.oauth.secret')
+    expect(paths({ url: 'https://x.test', oauth: {}, headers: { Authorization: 'Bearer x' } })).toContain('mcp.s.headers.Authorization')
   })
 
   it('takes an access per tool, by name or glob, and refuses a bad key or value', () => {

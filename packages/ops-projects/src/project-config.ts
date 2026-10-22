@@ -162,7 +162,7 @@ function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
 }
 
 /** The keys one `mcp:` server may hold. */
-const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'access', 'tools', 'timeout_s']
+const MCP_KEYS = ['command', 'args', 'env', 'url', 'headers', 'oauth', 'access', 'tools', 'timeout_s']
 
 /** What a project may set on a server an extension brings: who may run its tools, and how long they may take. */
 const EXTENSION_SERVER_OVERRIDES = ['access', 'tools', 'timeout_s']
@@ -174,6 +174,7 @@ const mcpSchema = z.dict(z.object({
   env: z.dict(z.string()).default({}),
   url: z.string(),
   headers: z.dict(z.string()).default({}),
+  oauth: z.object({ client: z.string(), scopes: z.array(z.string()).default([]) }),
   access: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default('ask'),
   tools: z.dict(z.union([z.const('deny'), z.const('ask'), z.const('allow')])).default({}),
   timeout_s: z.number().min(1).default(60),
@@ -203,6 +204,17 @@ function mcpIssues(mcp: unknown): ProjectConfigIssue[] {
       issues.push({ path: `mcp.${name}`, message: 'needs exactly one of command (a local program) or url (a remote server)' })
     }
     issues.push(...toolKeyIssues(`mcp.${name}.tools`, fields['tools']))
+    const oauth = fields['oauth']
+    if (oauth !== undefined && oauth !== null) {
+      if (!isMapping(oauth)) issues.push({ path: `mcp.${name}.oauth`, message: 'a mapping: client (a name under oauth_clients in ops.yaml; none for a server that registers clients itself) and scopes' })
+      else {
+        if (typeof fields['url'] !== 'string') issues.push({ path: `mcp.${name}.oauth`, message: 'only a remote server (url) signs in with OAuth' })
+        for (const key of Object.keys(oauth)) if (key !== 'client' && key !== 'scopes') issues.push({ path: `mcp.${name}.oauth.${key}`, message: 'unknown; use client or scopes' })
+        if (oauth['client'] !== undefined && (typeof oauth['client'] !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,31}$/.test(oauth['client']))) issues.push({ path: `mcp.${name}.oauth.client`, message: 'the name of a client under oauth_clients in ops.yaml' })
+        if (oauth['scopes'] !== undefined && (!Array.isArray(oauth['scopes']) || oauth['scopes'].some((scope) => typeof scope !== 'string' || /\s/.test(scope)))) issues.push({ path: `mcp.${name}.oauth.scopes`, message: 'a list of scopes, each without spaces' })
+        if (isMapping(fields['headers']) && Object.keys(fields['headers']).some((header) => header.toLowerCase() === 'authorization')) issues.push({ path: `mcp.${name}.headers.Authorization`, message: 'Argus adds it for a server that signs in with OAuth' })
+      }
+    }
   }
   return issues
 }
@@ -634,6 +646,8 @@ export function parseProjectConfig(
           ...server,
           command: nonEmpty(server['command']),
           url: nonEmpty(server['url']),
+          // The schema fills an empty object in for a server with none: what the file says decides.
+          oauth: !isMapping(document['mcp']) || !isMapping(document['mcp'][name]) || !isMapping(document['mcp'][name]['oauth']) ? null : { client: nonEmpty((server['oauth'] as Record<string, unknown>)['client']), scopes: (server['oauth'] as Record<string, unknown>)['scopes'] as string[] },
           ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir } } : {}),
         } as McpServer,
       ]),

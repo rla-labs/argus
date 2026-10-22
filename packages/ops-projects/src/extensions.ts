@@ -220,6 +220,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
     if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(secret)) problems.push(`requires.secrets: ${secret} is not a NAME_LIKE_THIS`)
     else if (secret.startsWith('ARGUS_GIT_')) problems.push(`requires.secrets: ${secret}: ARGUS_GIT_ names are reserved for git tokens`)
     else if (secret.startsWith('ARGUS_MAIL_')) problems.push(`requires.secrets: ${secret}: ARGUS_MAIL_ names are reserved for mail accounts`)
+    else if (secret.startsWith('ARGUS_OAUTH_')) problems.push(`requires.secrets: ${secret}: ARGUS_OAUTH_ names are reserved for OAuth grants`)
   }
   const network = needs['network'] ?? false
   if (typeof network !== 'boolean') problems.push('requires.network: true or false')

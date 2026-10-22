@@ -1745,7 +1745,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         examples: ['/tools', '/tools site-firma'],
         mutating: false,
       },
-      run(input, context): CommandResult {
+      async run(input, context): Promise<CommandResult> {
         const projectId = projectOf(tokenize(input)[0], context)
         if (projectId === undefined) {
           return failWith({ syntax: this.spec.syntax } as CommandSpec, 'No project given and this chat has no active project.')
@@ -1769,8 +1769,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const commands = config.approvals.auto_allow.length > 0 ? `\nCommands unasked: ${config.approvals.auto_allow.join(', ')}${from('approvals.auto_allow')}` : ''
         const exceptions = Object.entries(tools.exceptions).map(([name, access]) => `${name} ${access}${from(`tools.exceptions.${name}`)}`)
         const named = exceptions.length > 0 ? `\nExceptions (over the group): ${exceptions.join(', ')}` : ''
+        const signIns = new Map<string, string>()
+        for (const [name, server] of Object.entries(config.mcp)) {
+          if (server.oauth === null) continue
+          const status = await projects.oauth.status(projectId, name)
+          signIns.set(name, status.state === 'connected' ? ', signed in' : status.state === 'failed' ? `, signed out: its provider refused the grant (/mcp connect ${projectId} ${name})` : `, not connected: left out (/mcp connect ${projectId} ${name})`)
+        }
         const servers = Object.entries(config.mcp).map(([name, server]) => {
-          const line = `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${from(`mcp.${name}.access`)}`
+          const line = `${name.padEnd(12)} ${server.access.padEnd(6)} ${server.extension === undefined ? (server.command ?? server.url ?? '') : `the ${server.extension.name} extension, confined`}${signIns.get(name) ?? ''}${from(`mcp.${name}.access`)}`
           const rules = Object.entries(server.tools).map(([tool, access]) => `${tool} ${access}${from(`mcp.${name}.tools.${tool}`)}`)
           return rules.length === 0 ? line : `${line}\n${' '.repeat(13)}tools: ${rules.join(', ')}`
         })
@@ -2133,25 +2139,42 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'mcp',
-        description: 'A project’s MCP servers: start one afresh (admin)',
-        syntax: '/mcp reset <project-id> <server>',
+        description: 'A project’s MCP servers: sign one in, out, or start it afresh (admin)',
+        syntax: '/mcp connect <project-id> <server> | /mcp disconnect <project-id> <server> | /mcp reset <project-id> <server>',
         detail:
-          'A local MCP server keeps its logins and caches in a home of its own, outside the ' +
-          'project’s folder, which the agent cannot read. reset empties it, for a login gone ' +
-          'wrong or a broken cache: the project’s agent is let go if it is idle, and the next ' +
-          'message starts the server afresh, in the same conversation. A project in a run ' +
-          'must finish first. /tools <project> lists the servers. Only the admin can run it.',
-        examples: ['/mcp reset site-firma browser'],
+          'connect signs a remote server in with OAuth (its oauth: block in the project’s ' +
+          'file): it answers with a link to the web, for the admin, which goes to the ' +
+          'provider and back; Argus keeps the grant, refreshes it, and the agent never sees ' +
+          'a token. Each project has its own grant for each server. disconnect revokes it ' +
+          'at the provider when it can, and forgets it. reset empties a local server’s own ' +
+          'home (its logins and caches, which the agent cannot read); the project’s agent ' +
+          'is let go if idle, and the next message starts the server afresh. /tools ' +
+          '<project> shows each server and whether it is connected. Only the admin.',
+        examples: ['/mcp connect site-firma notion', '/mcp disconnect site-firma notion', '/mcp reset site-firma browser'],
         mutating: true,
         adminOnly: true,
       },
       async run(input): Promise<CommandResult> {
         const [action, projectId, server] = tokenize(input)
-        if (action !== 'reset' || projectId === undefined || server === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'Which project, and which server?')
+        if (!['connect', 'disconnect', 'reset'].includes(action ?? '') || projectId === undefined || server === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'Which action, which project, and which server?')
         const config = projects.configOf(projectId)
         if (config === undefined) return errorResult(`No project "${projectId}". Send /projects to see them.`)
         const found = config.mcp[server]
         if (found === undefined) return errorResult(`${projectId} has no MCP server "${server}". /tools ${projectId} lists them.`)
+        if (action === 'connect') {
+          const web = options.web?.()
+          if (web === undefined) return errorResult('Connecting signs in through the web interface, which is not running (web.enabled in ops.yaml).')
+          const prepared = projects.oauth.prepare(projectId, server)
+          if (!prepared.ok) return errorResult(prepared.message)
+          return result(
+            `Open within 10 minutes, signed in to Argus as the admin, in the browser where you can sign in to ${new URL(found.url ?? 'https://x').host}; it works once:\n` +
+              `${web.publicUrl}/oauth/start/${prepared.key}\n` +
+              `The provider sends you back to ${web.publicUrl}/oauth/callback, which must be among the client's redirect URIs.`,
+          )
+        }
+        if (action === 'disconnect') {
+          return (await projects.oauth.disconnect(projectId, server)) ? result(`${projectId}: ${server} is signed out, and its grant forgotten. Its tools are gone from the project's next message.`) : errorResult(`${projectId}: ${server} is not connected.`)
+        }
         if (found.command === null) return errorResult(`${server} is a remote server: it keeps nothing here.`)
         if ((await projects.resetMcpHome(projectId, server)) === 'busy') return errorResult(`${projectId} is in a run. Try again when it ends, or /cancel ${projectId}.`)
         return result(`${projectId}: ${server}'s home is empty. The server starts afresh at the project's next message.`)

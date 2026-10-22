@@ -642,6 +642,7 @@ mcp:
 | name (the key) | lowercase letters, digits and dashes, up to 32; the tools appear as `mcp__<name>__<tool>` | — |
 | `command`, `args`, `env` | a local program, started in the project's folder | — |
 | `url`, `headers` | a remote server (Streamable HTTP) | — |
+| `oauth` | it signs in with OAuth: `client` (under `oauth_clients`; none when it registers Argus itself) and `scopes`; see [below](#a-remote-server-that-signs-in-oauth) | — |
 | `access` | `deny`, `ask` or `allow` for every tool of the server that `tools` does not name | `ask` |
 | `tools` | per tool: its name, or a glob with `*` and `?` (letters, digits, `_`, `-`), to `deny`, `ask` or `allow` | none |
 | `timeout_s` | how long one call may take | `60` |
@@ -678,6 +679,76 @@ front desk have no MCP servers.
   looks like a key, token or password).
 
 In the Docker image `npx` and `uvx` are available.
+
+#### A remote server that signs in (OAuth)
+
+Notion, Linear, Atlassian, Google Workspace, Slack and others sign in with OAuth rather
+than a fixed key. Give the server an `oauth:` block, then connect it once per project:
+
+```yaml
+mcp:
+  notion:
+    url: https://mcp.notion.com/mcp
+    oauth: {}                    # Notion registers Argus itself: nothing else to set
+  gdocs:
+    url: https://docsmcp.googleapis.com/mcp/v1
+    oauth:
+      client: google             # a client you registered, under oauth_clients in ops.yaml
+      scopes: [https://www.googleapis.com/auth/documents, https://www.googleapis.com/auth/drive.file]
+    tools: { read_doc: allow }
+```
+
+`/mcp connect <project> <server>` answers with a link to the web. Open it signed in as the
+admin: it goes to the provider, where you sign in with the account this project should
+use, and back to `<web.public_url>/oauth/callback`. From the project's next message its
+agent has the server's tools.
+
+- **Argus holds the grant**, per project and per server, in the credentials store. The
+  agent, its shell, its prompt and the conversation never see a token: dsh talks to a
+  proxy on `127.0.0.1` that adds a fresh one to each request, and refreshes it when it
+  expires, in the middle of a run too.
+- **A refused grant** (revoked at the provider, a password changed) signs the server out:
+  its tools tell the agent to ask you, Argus tells the admin, and `/mcp connect` again
+  fixes it. `/tools <project>` and `argus doctor` show each server's state.
+- **`/mcp disconnect <project> <server>`** revokes the grant at the provider when it says
+  how, and forgets it.
+- `scopes` are what the project may do; ask for the fewest. Without them, the provider's
+  default applies.
+- The `oauth:` block is for remote servers (`url`) only, and replaces an `Authorization`
+  header. A local server that signs in by itself (`npx …`) keeps its login in its own
+  home instead.
+
+**When the provider needs a client of yours.** Google, Slack and Microsoft do not let a
+client register itself. Register one there once, as a *web application*, with
+`<web.public_url>/oauth/callback` among its redirect URIs, and declare it in `ops.yaml`:
+
+```yaml
+oauth_clients:
+  google:
+    preset: google               # Google gives a refresh token only when asked: this asks
+    client_id: 1234-abc.apps.googleusercontent.com
+    client_secret: ${GOOGLE_OAUTH_CLIENT_SECRET}   # /key GOOGLE_OAUTH_CLIENT_SECRET …
+  slack:
+    client_id: "123.456"
+    client_secret: ${SLACK_OAUTH_CLIENT_SECRET}
+  entra:                         # a provider that does not publish its endpoints
+    client_id: …
+    client_secret: ${ENTRA_CLIENT_SECRET}
+    authorization_url: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize
+    token_url: https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token
+```
+
+| Field | Meaning |
+|---|---|
+| `client_id` | the client's id |
+| `client_secret` | `${NAME}`, the secret saved with `/key NAME …`; never written in the file |
+| `preset` | `google` (asks for offline access, so the grant lasts) or `slack` |
+| `authorization_url`, `token_url`, `revocation_url` | only for a provider that does not publish them; otherwise they are found from the server |
+
+Google's Workspace servers are for Workspace accounts (not personal Gmail), in its
+Developer Preview; Slack's need an app with MCP turned on. Neither has been checked live
+with Argus yet: the flow is the MCP standard's, tested against a fake provider and live
+with Notion.
 
 ### `git` — remotes Argus clones, pulls and pushes
 

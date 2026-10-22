@@ -44,6 +44,7 @@ import type { Extensions } from './extensions.js'
 import { GitError, GitRemotes, isGitTokenName, type GitRemote, type PushPlan, type TokenStore } from './git-remotes.js'
 import { createTransport } from 'nodemailer'
 import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, type MailTransport } from './mail.js'
+import { McpOAuth, OAuthProxy, isOAuthSecretName, type OAuthClientSettings, type OAuthSecrets } from './oauth.js'
 
 /** What a delivery targets. */
 export type AgentTarget =
@@ -64,6 +65,8 @@ interface LiveAgent {
   producing: boolean
   /** A project agent's configuration when it was built: a different one rebuilds it between runs. */
   config?: ProjectConfig
+  /** Its project's OAuth grants when it was built: a grant made or lost rebuilds it too. */
+  authEpoch?: number
 }
 
 /** Options for creating an ephemeral agent. */
@@ -114,6 +117,12 @@ export class OpsProjects {
   private readonly stateDir: string | undefined
   /** Where per-project state goes: `stateDir`, or `state/` next to the scratch folder. */
   private readonly stateRoot: string
+  /** Grants for MCP servers that sign in with OAuth. */
+  readonly oauth: McpOAuth
+  /** The loopback proxy those servers are reached through, with a fresh token. */
+  private readonly oauthProxy: OAuthProxy
+  /** Bumped per project when one of its grants changes. */
+  private readonly authEpochs = new Map<string, number>()
   private readonly projectsRoot: string
   private readonly snapshots: Snapshots | undefined
   /** The installed extensions (`/ext`); undefined in a bare composition. */
@@ -129,7 +138,7 @@ export class OpsProjects {
   constructor(
     ctx: Context,
     store: OpsStore,
-    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions; mailTransport?: MailTransport },
+    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions; mailTransport?: MailTransport; oauthClients?: () => Readonly<Record<string, OAuthClientSettings>>; oauthFetch?: typeof fetch },
   ) {
     this.ctx = ctx
     this.store = store
@@ -155,6 +164,25 @@ export class OpsProjects {
       (name) => credentialRef(name),
     )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
+    this.oauthProxy = new OAuthProxy(options.oauthFetch)
+    this.oauth = new McpOAuth({
+      secrets: () => ctx.get('credentials' as never) as unknown as OAuthSecrets | undefined,
+      ref: (name) => credentialRef(name),
+      clients: options.oauthClients ?? (() => ({})),
+      serverOf: (projectId, server) => this.configs.get(projectId)?.mcp[server],
+      expand: async (value) => (await this.expand({ value }))['value'] as string,
+      audit: (action, projectId, details) => store.audit.record({ actor: 'admin', action, target: projectId, details }, Date.now()),
+      changed: (projectId, server, state, reason) => {
+        this.authEpochs.set(projectId, (this.authEpochs.get(projectId) ?? 0) + 1)
+        ctx.emit('ops/mcp-auth', { projectId, server, state, ...(reason === undefined ? {} : { reason }) })
+      },
+      ...(options.oauthFetch === undefined ? {} : { fetch: options.oauthFetch }),
+    })
+  }
+
+  /** Stop the OAuth proxy; the plugin's unload calls it. */
+  async closeOAuth(): Promise<void> {
+    await this.oauthProxy.close()
   }
 
   // ── mail ─────────────────────────────────────────────────────────────────
@@ -478,7 +506,7 @@ export class OpsProjects {
    *
    * @returns the findings.
    */
-  doctor(): DoctorFinding[] {
+  async doctor(): Promise<DoctorFinding[]> {
     // A page the agent reads can steer the commands it runs, unasked.
     const risky: DoctorFinding[] = this.configuredIds().flatMap((id) => {
       const tools = this.configOf(id)?.tools
@@ -495,6 +523,14 @@ export class OpsProjects {
     }
     for (const problem of this.templateProblems) {
       risky.push({ ok: true, warn: true, check: 'the templates', detail: problem, fix: 'fix the template file, then send /reload' })
+    }
+    // A server that signs in, not signed in: the project runs without its tools.
+    for (const id of this.configuredIds()) {
+      for (const [name, server] of Object.entries(this.configOf(id)?.mcp ?? {})) {
+        if (server.oauth === null) continue
+        const status = await this.oauth.status(id, name)
+        if (status.state !== 'connected') risky.push({ ok: true, warn: true, check: `project ${id}`, detail: `the MCP server ${name} is ${status.state === 'failed' ? `signed out: its provider refused the grant (${status.reason ?? ''})` : 'not connected'}; it is left out`, fix: `/mcp connect ${id} ${name}` })
+      }
     }
     if (this.snapshotSettings().enabled && !this.undoAvailable()) {
       risky.push({ ok: true, warn: true, check: 'undo', detail: 'git is not installed: no snapshots are taken, /undo is off', fix: 'apt-get install git (or your distribution\'s equivalent)' })
@@ -583,7 +619,8 @@ export class OpsProjects {
     }
 
     const existing = this.live.get(projectId)
-    const changed = existing === undefined ? [] : changedKeys(existing.config, config)
+    const regranted = existing !== undefined && (existing.authEpoch ?? 0) !== (this.authEpochs.get(projectId) ?? 0)
+    const changed = existing === undefined ? [] : [...changedKeys(existing.config, config), ...(regranted ? ['mcp.oauth'] : [])]
     // A changed setting reaches the agent between runs: the same session, resumed by an
     // agent built from the new settings. One in a run keeps its agent until the run ends.
     if (existing !== undefined && (changed.length === 0 || existing.runId !== undefined || existing.handle.agent.status === 'running')) {
@@ -785,10 +822,19 @@ export class OpsProjects {
         // extension's, its install; it works in the project's folder; it keeps what it
         // stores in a home of its own, which the agent's shell cannot read.
         const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args])
-        const options =
-          server.command !== null
-            ? { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env: await this.expand(server.env), cwd: config.cwd }
-            : { ...common, transport: 'streamable-http' as const, url: server.url ?? '', headers: await this.expand(server.headers) }
+        let options
+        if (server.command !== null) {
+          options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env: await this.expand(server.env), cwd: config.cwd }
+        } else if (server.oauth !== null) {
+          // Through the loopback proxy, which adds a fresh token: dsh never holds one.
+          const status = await this.oauth.status(config.id, name)
+          if (status.state !== 'connected') throw new Error(status.state === 'failed' ? `its sign-in was refused (${status.reason ?? ''}): /mcp connect ${config.id} ${name}` : `it is not connected: /mcp connect ${config.id} ${name}`)
+          const route = await this.oauthProxy.add(server.url ?? '', (force) => this.oauth.accessToken(config.id, name, force))
+          agentCtx.effect(() => route.remove)
+          options = { ...common, transport: 'streamable-http' as const, url: route.url, headers: await this.expand(server.headers) }
+        } else {
+          options = { ...common, transport: 'streamable-http' as const, url: server.url ?? '', headers: await this.expand(server.headers) }
+        }
         await agentCtx.plugin(mcpClient, options)
       } catch (error) {
         logger.warn('project %s: MCP server %s is left out: %s', config.id, name, (error as Error).message)
@@ -862,6 +908,7 @@ export class OpsProjects {
         // A git token is for Argus's own git, on its own remote: never handed to a server.
         if (isGitTokenName(name as string)) throw new Error(`\${${name}} is a git token, which only Argus's git operations may use`)
         if (isMailSecretName(name as string)) throw new Error(`\${${name}} is a mail account, which only Argus's send_mail may use`)
+        if (isOAuthSecretName(name as string)) throw new Error(`\${${name}} is an OAuth grant, which only Argus's proxy may use`)
         // Without the credentials service (a bare composition) only the environment is read.
         const secret =
           credentials === undefined
@@ -990,7 +1037,7 @@ export class OpsProjects {
       runId: undefined,
       runEvents: [],
       producing: false,
-      ...(config === undefined ? {} : { config }),
+      ...(config === undefined ? {} : { config, authEpoch: this.authEpochs.get(config.id) ?? 0 }),
     }
     this.live.set(key, entry)
     this.entryBySession.set(sessionId, entry)

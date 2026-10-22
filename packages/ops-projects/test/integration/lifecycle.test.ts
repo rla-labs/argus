@@ -821,7 +821,7 @@ describe('tool visibility', () => {
 describe('doctor', () => {
   it('warns about a project that allows both the web and the shell unasked', async () => {
     const { projects } = await bootProjects({ projects: { safe: {}, open: { tools: { web: 'allow', shell: 'allow' } } } })
-    const findings = projects.doctor()
+    const findings = await projects.doctor()
     expect(findings.every((finding) => finding.ok)).toBe(true)
     const warnings = findings.filter((finding) => finding.warn === true)
     expect(warnings.map((finding) => finding.check)).toEqual(['project open'])

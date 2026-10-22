@@ -238,6 +238,18 @@ export class OpsHealth {
    * @param code the error code.
    * @returns whether an alert was sent.
    */
+  /**
+   * A provider refused a project's OAuth grant on a refresh: its MCP server's tools are
+   * gone until the admin connects it again.
+   *
+   * @param projectId the project.
+   * @param server the server's name.
+   * @param reason the provider's refusal.
+   */
+  async noteGrantRefused(projectId: string, server: string, reason: string): Promise<void> {
+    await this.notify(`${projectId}: the sign-in of the MCP server ${server} was refused by its provider (${reason}). Its tools are unavailable until you connect it again: /mcp connect ${projectId} ${server}`)
+  }
+
   async noteProviderError(code: string): Promise<boolean> {
     this.providerErrors.set(code, (this.providerErrors.get(code) ?? 0) + 1)
     const total = [...this.providerErrors.values()].reduce((sum, count) => sum + count, 0)

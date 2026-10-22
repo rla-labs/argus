@@ -82,6 +82,15 @@ export interface ServerDeps {
   readonly zipScratch: string
   /** The one-time download links. */
   readonly links: DownloadLinks
+  /** Whether a session's user is the admin. */
+  readonly isAdmin: (session: Session) => boolean
+  /** OAuth for MCP servers: the admin's sign-in at a provider, and its answer. */
+  readonly oauth?: {
+    begin(key: string, redirectUri: string): Promise<{ ok: true; url: string } | { ok: false; message: string }>
+    finish(params: URLSearchParams): Promise<{ ok: boolean; message: string }>
+  }
+  /** The address the interface is opened at, without a trailing slash. */
+  readonly publicUrl: string
   /** Record an upload. */
   readonly uploaded: (session: Session, projectId: string, path: string, bytes: number) => void
   /** Subscribe to "something changed"; returns the unsubscribe. */
@@ -246,9 +255,35 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       return
     }
 
+    // The provider's answer to an MCP server's sign-in. A cross-site redirect carries no
+    // SameSite=Strict cookie: the one-time state, made for the admin, is what binds it.
+    if (method === 'GET' && path === '/oauth/callback' && deps.oauth !== undefined) {
+      const outcome = await deps.oauth.finish(new URL(request.url ?? '/', 'http://x').searchParams)
+      response.writeHead(outcome.ok ? 200 : 400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      response.end(messagePage(`${escapeHtml(outcome.message)} <a href="/" style="color:#7fd4ff">Back to Argus</a>.`))
+      return
+    }
+
     // ── a session from here on ───────────────────────────────────────────
     const sessionId = cookieOf(request)
     const session = deps.auth.session(sessionId)
+    const start = /^\/oauth\/start\/([A-Za-z0-9_-]{20,})$/.exec(path)
+    if (method === 'GET' && start !== null && deps.oauth !== undefined) {
+      if (session === undefined || !deps.isAdmin(session)) {
+        response.writeHead(401, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(messagePage('Sign in as the admin first, in this browser, then open the link again. <a href="/" style="color:#7fd4ff">Sign in</a>.'))
+        return
+      }
+      const begun = await deps.oauth.begin(start[1] as string, `${deps.publicUrl}/oauth/callback`)
+      if (!begun.ok) {
+        response.writeHead(400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+        response.end(messagePage(escapeHtml(begun.message)))
+        return
+      }
+      response.writeHead(303, { location: begun.url, 'cache-control': 'no-store' })
+      response.end()
+      return
+    }
     const link = /^\/f\/([A-Za-z0-9_-]{20,})$/.exec(path)
     if (method === 'GET' && link !== null) {
       // A link is used only by someone signed in, and only once; opening it signed out
@@ -508,6 +543,11 @@ function loginPage(reason: 'limited' | 'invalid'): string {
 }
 
 /** A page with one message. */
+/** Text safe inside HTML. */
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string)
+}
+
 function messagePage(text: string): string {
   return `<!doctype html><meta charset="utf-8"><title>Argus</title><body style="font:16px system-ui;background:#04070d;color:#dcebfa;padding:40px"><p>${text}</p></body>`
 }

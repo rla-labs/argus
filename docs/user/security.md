@@ -185,6 +185,8 @@ tools from other systems, and as trusted as the programs behind them:
 |---|---|
 | A local server runs **in the command sandbox**, or not at all | It reads the system and the project's folder, writes the project's folder and a home of its own; not the database, the keys, the conversations or another project. It has the network. |
 | Its home (`state/<project>/mcp/<server>/`) is its own | Logins and caches it keeps there are out of the agent's reach: the agent's shell cannot read outside the project's folder. |
+| A remote server that signs in (OAuth): Argus holds the grant | Per project and per server, in the credentials store. The agent reaches the server through a proxy on `127.0.0.1` that adds the token; no token is in its tools, shell, prompt or conversation. `ARGUS_OAUTH_…` is reserved: `/key` refuses it, and no server's `${NAME}` may use it. |
+| The sign-in starts only from the admin | `/mcp connect`'s link works once, ten minutes, in an admin's web session; the provider's answer is accepted only with the one-time `state` that link made, and its PKCE verifier. |
 | It gets only the variables in its `env` | dsh drops every inherited variable that looks like a key, token or password. |
 | Its tools follow `access` (default `ask`) | Every call is a question until you allow the server. |
 | What it returns goes to the model | A server that reads e-mail or web pages can carry instructions in its answers; keep `access: ask` for such a server unless the project's other tools are harmless. |

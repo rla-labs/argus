@@ -56,6 +56,19 @@ declare module '@deepseek-ai/cordis' {
     'ops/agent-running'(payload: { readonly owner: Owner; readonly sessionId: string }): void
 
     /**
+     * A project's grant for an MCP server that signs in with OAuth was made, removed, or
+     * refused by the provider on a refresh. The project's agent is rebuilt at its next
+     * message; `ops-health` tells the admin about a refusal.
+     *
+     * @param payload.projectId the project.
+     * @param payload.server the server's name.
+     * @param payload.state what happened.
+     * @param payload.reason the provider's refusal, for `failed`.
+     * @mode emit
+     */
+    'ops/mcp-auth'(payload: { readonly projectId: string; readonly server: string; readonly state: 'connected' | 'disconnected' | 'failed'; readonly reason?: string }): void
+
+    /**
      * An agent returned to idle.
      *
      * Emitted after the run has been closed, so a listener that reads the run

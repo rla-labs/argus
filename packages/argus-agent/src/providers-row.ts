@@ -376,6 +376,7 @@ export class OpsProviders {
   private async setSecret(name: string, value: string): Promise<KeyChange> {
     if (name.startsWith(GIT_TOKEN_PREFIX)) return { ok: false, message: `${GIT_TOKEN_PREFIX} names are reserved for git tokens: /git token <project> <remote> <token>.` }
     if (name.startsWith(MAIL_PREFIX)) return { ok: false, message: `${MAIL_PREFIX} names are reserved for mail accounts: /mail <project|default> set <url>.` }
+    if (name.startsWith(OAUTH_PREFIX)) return { ok: false, message: `${OAUTH_PREFIX} names are reserved for OAuth grants: /mcp connect <project> <server>.` }
     if (value.length === 0 || /\s/.test(value)) return { ok: false, message: 'A secret is one word with no spaces.' }
     try {
       await this.keys.set(name, value)
@@ -447,6 +448,7 @@ export class OpsProviders {
   private async removeSecret(name: string): Promise<KeyChange> {
     if (name.startsWith(GIT_TOKEN_PREFIX)) return { ok: false, message: `${GIT_TOKEN_PREFIX} names are reserved for git tokens: /git forget <project> <remote>.` }
     if (name.startsWith(MAIL_PREFIX)) return { ok: false, message: `${MAIL_PREFIX} names are reserved for mail accounts: /mail <project|default> remove.` }
+    if (name.startsWith(OAUTH_PREFIX)) return { ok: false, message: `${OAUTH_PREFIX} names are reserved for OAuth grants: /mcp disconnect <project> <server>.` }
     try {
       await this.keys.unset(name)
     } catch (error) {
@@ -485,6 +487,8 @@ const SECRET_NAME = /^[A-Z][A-Z0-9_]{1,63}$/
 const GIT_TOKEN_PREFIX = 'ARGUS_GIT_'
 /** Mail accounts' names (`@argus-agent/projects` `MAIL_SECRET_PREFIX`): only `/mail` manages them. */
 const MAIL_PREFIX = 'ARGUS_MAIL_'
+/** OAuth grants' names (`@argus-agent/projects` `OAUTH_SECRET_PREFIX`): only `/mcp` manages them. */
+const OAUTH_PREFIX = 'ARGUS_OAUTH_'
 
 /** An error's message, never its stack. */
 function errorText(error: unknown): string {
