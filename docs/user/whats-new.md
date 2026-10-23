@@ -3,7 +3,7 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.7.3 (in progress)
+## 0.7.3
 
 **The web interface, first-class.**
 
