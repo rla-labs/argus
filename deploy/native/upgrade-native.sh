@@ -181,7 +181,9 @@ fi
 
 # A unit from before 0.7.3 lacks the line that lets /restart stop the service.
 if [ -z "${ROLLBACK_REASON:-}" ] && [ -f "${UNIT_PATH}" ] && ! grep -q '^Environment=ARGUS_SUPERVISED=' "${UNIT_PATH}"; then
-  sed -i 's|^Environment=HOME=.*|&\nEnvironment=ARGUS_SUPERVISED=systemd|' "${UNIT_PATH}" && systemctl daemon-reload || true
+  if sed -i 's|^Environment=HOME=.*|&\nEnvironment=ARGUS_SUPERVISED=systemd|' "${UNIT_PATH}"; then
+    systemctl daemon-reload || true
+  fi
 fi
 
 if [ -z "${ROLLBACK_REASON:-}" ]; then
