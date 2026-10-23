@@ -94,8 +94,11 @@ export function apply(ctx: Context): void {
   options.validateConfig = (raw) => void ctx.opsConfigRegistry.validate(raw)
   options.bootConfig = () => ctx.opsRawConfig
   // Something starts Argus again after it stops: the image and the systemd unit say so
-  // (ARGUS_SUPERVISED). Run by hand, a restart would be a stop.
-  if ((process.env['ARGUS_SUPERVISED'] ?? '') !== '') {
+  // (ARGUS_SUPERVISED), and a unit from before 0.7.3 is a service systemd started itself
+  // (its INVOCATION_ID, and systemd as the parent; a shell in a desktop session has one
+  // too, but is not PID 1). Run by hand, a restart would be a stop.
+  const supervised = (process.env['ARGUS_SUPERVISED'] ?? '') !== '' || (process.env['INVOCATION_ID'] !== undefined && process.ppid === 1)
+  if (supervised) {
     let restarting = false
     options.restart = () => {
       if (restarting) return

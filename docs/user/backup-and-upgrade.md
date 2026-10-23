@@ -432,8 +432,9 @@ Nothing to do by hand. What changes for you:
   until the restart; its folder stayed for good, and folders left over are now removed
   after a day.
 - **`/restart` and Restart now** restart Argus once the runs in progress finish, where
-  something starts it again: the image says so (`ARGUS_SUPERVISED=docker`), and the
-  native upgrade adds `ARGUS_SUPERVISED=systemd` to the service's unit.
+  something starts it again: the image says so (`ARGUS_SUPERVISED=docker`); on a native
+  install, a service systemd started is recognised, and a later upgrade also writes
+  `ARGUS_SUPERVISED=systemd` into its unit.
 - **Sign in with Tailscale** is off until you turn it on (`web.tailscale_identity`) and
   link a login (`/users tailscale`).
 

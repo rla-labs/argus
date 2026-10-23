@@ -132,7 +132,9 @@ if [ "${MODE}" = "--upgrade" ]; then
   check "the old project's file is untouched" test "${before}" = "$(vps sha256sum /srv/argus-agent/data/config/projects/oldsite.yaml)"
   check "git is there, for the /undo snapshots" vps bash -c 'git --version >/dev/null'
   check "the upgrade brought 0.5 (extensions)" vps test -f /opt/argus-agent/packages/ops-projects/lib/extensions.js
-  check "the unit lets /restart restart it (ARGUS_SUPERVISED)" vps grep -q '^Environment=ARGUS_SUPERVISED=systemd' /etc/systemd/system/argus-agent.service
+  # From 0.7.3 the unit says so; a unit from before is a process systemd started itself.
+  # shellcheck disable=SC2016  # evaluated on the VPS, not here
+  check "/restart may restart it: the unit says so, or systemd is its parent" vps bash -c 'grep -q "^Environment=ARGUS_SUPERVISED=" /etc/systemd/system/argus-agent.service || [ "$(ps -o ppid= -p "$(systemctl show -p MainPID --value argus-agent)" | tr -d " ")" = 1 ]'
   check "the database has the users' language (migration 0006)" vps su -s /bin/bash ops -c "cd /opt/argus-agent/packages/ops-store && node -e \"const D=require('better-sqlite3');const d=new D('/srv/argus-agent/data/ops.sqlite',{readonly:true});process.exit(d.prepare('PRAGMA table_info(users)').all().some((c)=>c.name==='language')?0:1)\""
   echo
   if [ "${FAILED}" = "0" ]; then echo "native VPS test (upgrade): PASSED"; else echo "native VPS test (upgrade): FAILED"; exit 1; fi
