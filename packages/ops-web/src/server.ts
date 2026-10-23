@@ -111,7 +111,11 @@ const TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
 }
+
+/** The fonts the page uses, from their `@fontsource` packages: a family, its script, a weight. */
+const FONT = /^(space-grotesk|ibm-plex-sans|jetbrains-mono)-latin(?:-ext)?-[1-9]00-normal\.woff2$/
 
 /** The bare module names the import map resolves, and where each one's file is. */
 const VENDOR: Record<string, string> = {
@@ -138,6 +142,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     `script-src 'self' 'sha256-${createHash('sha256').update(importMap).digest('base64')}'`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
+    "font-src 'self'",
     "connect-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'none'",
@@ -246,6 +251,14 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     }
     if (method === 'GET' && path.startsWith('/static/')) return serveFile(response, publicDir, path.slice('/static/'.length))
     if (method === 'GET' && path.startsWith('/client/')) return serveFile(response, clientDir, path.slice('/client/'.length))
+    if (method === 'GET' && path.startsWith('/fonts/')) {
+      const file = path.slice('/fonts/'.length)
+      const family = FONT.exec(file)?.[1]
+      if (family === undefined) return send(response, 404, { error: 'not found' })
+      response.writeHead(200, { 'content-type': TYPES['.woff2'] as string, 'cache-control': 'max-age=604800, immutable' })
+      response.end(readFileSync(fileURLToPath(import.meta.resolve(`@fontsource/${family}/files/${file}`))))
+      return
+    }
     if (method === 'GET' && path.startsWith('/vendor/')) {
       const specifier = VENDOR[path.slice('/vendor/'.length)]
       if (specifier === undefined) return send(response, 404, { error: 'not found' })

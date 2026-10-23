@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@argus-agent/approvals-bridge": "workspace:*",
+    "@argus-agent/argus-agent": "workspace:*",
     "@argus-agent/channel": "workspace:*",
     "@argus-agent/commands": "workspace:*",
     "@argus-agent/governor": "workspace:*",
@@ -32,9 +33,11 @@
     "@argus-agent/store": "workspace:*",
     "@argus-agent/types": "workspace:*",
     "@deepseek-ai/schemastery": "3.18.4",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/space-grotesk": "5.3.0",
     "htm": "3.1.1",
-    "preact": "10.29.8",
-    "@argus-agent/argus-agent": "workspace:*"
+    "preact": "10.29.8"
   },
   "devDependencies": {
     "@argus-agent/memory": "workspace:^",

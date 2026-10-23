@@ -111,6 +111,18 @@ async function signIn(booted: Booted): Promise<string> {
 }
 
 describe('the web interface', () => {
+  it('serves the page\'s fonts without a session, and nothing else from /fonts/', async () => {
+    const booted = await bootWeb()
+    const font = await fetch(`${booted.base}/fonts/space-grotesk-latin-ext-600-normal.woff2`)
+    expect(font.status).toBe(200)
+    expect(font.headers.get('content-type')).toBe('font/woff2')
+    expect((await font.arrayBuffer()).byteLength).toBeGreaterThan(1000)
+    for (const path of ['/fonts/space-grotesk-cyrillic-600-normal.woff2', '/fonts/..%2Fpackage.json', '/fonts/index.css']) {
+      expect((await fetch(`${booted.base}${path}`)).status, path).toBe(404)
+    }
+    expect(font.headers.get('content-security-policy')).toContain("font-src 'self'")
+  })
+
   it('with no admin, the one-time setup link creates the admin and signs them in', async () => {
     const booted = await bootWeb({ noAdmin: true })
     const file = join(booted.dataDir, 'state', 'setup-link')
