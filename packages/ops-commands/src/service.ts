@@ -17,10 +17,11 @@ import type { OpsMeter } from '@argus-agent/meter'
 import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
 import { describeSchema, pendingRestart, systemApply, type SchemaNode, type SettingField } from './settings.js'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { parse as parseYaml } from 'yaml'
 import { buildHandlers } from './handlers.js'
-import { loadTemplates } from '@argus-agent/projects'
+import { BUILT_IN_TEMPLATES, loadTemplates } from '@argus-agent/projects'
 import {
   errorResult,
   result,
@@ -237,9 +238,19 @@ export class OpsCommands {
    *
    * @returns each template's name and one-line summary, by name.
    */
-  templates(): Array<{ name: string; summary: string }> {
+  templates(): Array<{ name: string; summary: string; description: string; instructions: string; settings: Readonly<Record<string, unknown>>; builtIn: boolean; file: boolean; followers: string[] }> {
+    const projects = this.options.projects
     return [...loadTemplates(this.options.templatesDir).templates.values()]
-      .map((template) => ({ name: template.name, summary: template.summary }))
+      .map((template) => ({
+        name: template.name,
+        summary: template.summary,
+        description: template.description,
+        instructions: template.instructions,
+        settings: template.settings,
+        builtIn: BUILT_IN_TEMPLATES.some((each) => each.name === template.name),
+        file: existsSync(join(this.options.templatesDir, `${template.name}.yaml`)),
+        followers: projects.configuredIds().filter((id) => projects.configOf(id)?.template === template.name),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
 

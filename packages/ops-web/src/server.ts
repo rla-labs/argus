@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import type { WebAuth, Session } from './auth.js'
 import type { SetupGate } from './setup.js'
 import { ownsChat, threadChat, threadOf, type WebChannelAdapter } from './web-channel.js'
+import type { Locales } from './locales.js'
 import { FileRefusal, listFolder, receiveUpload, sendFile, sendZip, type DownloadLinks } from './files.js'
 
 /** The session cookie's name. */
@@ -74,6 +75,14 @@ export interface ServerDeps {
   readonly settings: () => unknown
   /** Every `ops.yaml` setting, described; `undefined` when the file is not known. */
   readonly systemSettings: () => unknown
+  /** The interface's languages, and the packs the admin adds. */
+  readonly locales: Locales
+  /** Keep the language a user reads the interface in; null follows the browser. */
+  readonly setLanguage: (userId: string, code: string | null) => void
+  /** The installed extensions, with what each asks and which projects use it. */
+  readonly extensions: () => unknown
+  /** Every secret something needs, grouped, for the admin; never a value. */
+  readonly secrets: () => Promise<unknown>
   /** A project's settings, described; `undefined` when there is no such project. */
   readonly projectSettings: (id: string) => Promise<unknown>
   /** Every model a provider names, with its price and whether it can run. */
@@ -260,6 +269,15 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       return
     }
     if (method === 'GET' && path.startsWith('/static/')) return serveFile(response, publicDir, path.slice('/static/'.length))
+    // A language's texts: the sign-in page needs them too.
+    const localeFile = /^\/locales\/([^/]+)\.json$/.exec(path)
+    if (method === 'GET' && localeFile !== null) {
+      const file = deps.locales.file(decodeURIComponent(localeFile[1] as string))
+      if (file === undefined) return send(response, 404, { error: 'no such language' })
+      response.writeHead(200, { 'content-type': TYPES['.json'] as string, 'cache-control': 'no-cache' })
+      response.end(readFileSync(file))
+      return
+    }
     if (method === 'GET' && path.startsWith('/client/')) return serveFile(response, clientDir, path.slice('/client/'.length))
     if (method === 'GET' && path.startsWith('/fonts/')) {
       const file = path.slice('/fonts/'.length)
@@ -419,6 +437,27 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       return described === undefined ? send(response, 404, { error: 'no such project' }) : send(response, 200, described)
     }
     if (method === 'GET' && path === '/api/models') return send(response, 200, { models: deps.models() })
+    if (method === 'GET' && path === '/api/locales') return send(response, 200, { locales: deps.locales.list() })
+    if (method === 'GET' && path === '/api/extensions') return send(response, 200, { extensions: deps.extensions() })
+    if (method === 'POST' && path === '/api/me/language') {
+      const body = await readJson(request)
+      const code = body['code'] === null ? null : String(body['code'] ?? '')
+      if (code !== null && !deps.locales.list().some((locale) => locale.code === code)) return send(response, 400, { error: 'no such language' })
+      deps.setLanguage(session.userId, code)
+      return send(response, 200, { ok: true })
+    }
+    const locale = /^\/api\/locales\/([^/]+?)(\/remove)?$/.exec(path)
+    if (method === 'POST' && locale !== null) {
+      if (!deps.isAdmin(session)) return send(response, 403, { error: 'only the admin' })
+      const code = decodeURIComponent(locale[1] as string)
+      if (locale[2] !== undefined) return deps.locales.remove(code) ? send(response, 200, { ok: true }) : send(response, 404, { error: 'no such pack' })
+      const why = deps.locales.save(code, await readJson(request, 512 * 1024))
+      return why === undefined ? send(response, 200, { ok: true }) : send(response, 400, { error: why })
+    }
+    if (method === 'GET' && path === '/api/secrets') {
+      if (!deps.isAdmin(session)) return send(response, 403, { error: 'only the admin' })
+      return send(response, 200, { groups: await deps.secrets() })
+    }
     const projectPath = /^\/api\/projects\/([^/]+)$/.exec(path)
     if (method === 'GET' && projectPath !== null) {
       const project = deps.project(decodeURIComponent(projectPath[1] as string))
@@ -571,12 +610,12 @@ function serveFile(response: ServerResponse, root: string, relative: string): vo
 }
 
 /** A JSON request body, at most {@link MAX_BODY} bytes. */
-async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(request: IncomingMessage, limit = MAX_BODY): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of request) {
     size += (chunk as Buffer).length
-    if (size > MAX_BODY) throw new Error('request body too large')
+    if (size > limit) throw new Error('request body too large')
     chunks.push(chunk as Buffer)
   }
   try {

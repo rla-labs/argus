@@ -230,6 +230,8 @@ export interface UserRow {
   readonly role: UserRole
   readonly created_at: number
   readonly disabled_at: number | null
+  /** The web interface's language (`en`, `ro`, a pack's code); null follows the browser. */
+  readonly language?: string | null
 }
 
 /**

@@ -12,6 +12,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DoctorFinding } from '@argus-agent/types'
@@ -27,6 +28,7 @@ import { startWebServer, type CommandOutcome } from './server.js'
 import { DownloadLinks } from './files.js'
 import { SETUP_TTL_MS, SetupGate } from './setup.js'
 import { threadChat, WebChannelAdapter } from './web-channel.js'
+import { Locales } from './locales.js'
 
 export * from './auth.js'
 export * from './config.js'
@@ -259,6 +261,7 @@ export async function apply(ctx: Context): Promise<void> {
           // Which buttons to show: what the role may not run is not offered.
           adminOnly: ctx.opsCommands.specs().filter((spec) => spec.adminOnly === true).map((spec) => spec.name),
           channels: ctx.opsStore.users.identities(session.userId).filter((identity) => identity.channel !== 'web').map((identity) => `${identity.channel}:${identity.external_id}`),
+          language: user?.language ?? null,
           expiresAt: session.expiresAt,
         }
       },
@@ -284,6 +287,33 @@ export async function apply(ctx: Context): Promise<void> {
       settings: () => ({ ...settings(sources), system }),
       systemSettings: () => ctx.opsCommands.systemSettings(),
       projectSettings: (id) => projectSettings(ctx, id),
+      locales: new Locales(fileURLToPath(new URL('../public/locales/', import.meta.url)), join(pathsOf(ctx.opsRawConfig).configDirAbs, 'locales')),
+      setLanguage: (userId, code) => void ctx.opsStore.users.setLanguage(userId, code),
+      secrets: () => secretsInventory(ctx),
+      extensions: () => {
+        const extensions = ctx.opsProjects.extensions
+        const configs = ctx.opsProjects.configuredIds().flatMap((id) => {
+          const config = ctx.opsProjects.configOf(id)
+          return config === undefined ? [] : [config]
+        })
+        return (extensions?.installed() ?? []).map((entry) => {
+          const manifest = extensions?.manifestOf(entry.name)
+          return {
+            name: entry.name,
+            version: entry.version,
+            source: entry.source,
+            ref: entry.ref,
+            commit: entry.commit.slice(0, 12),
+            installedAt: entry.installed_at,
+            summary: manifest?.summary ?? null,
+            network: manifest?.requires.network ?? false,
+            secrets: manifest?.requires.secrets ?? [],
+            tools: Object.keys(manifest?.mcp ?? {}),
+            skills: manifest?.skills ?? [],
+            projects: configs.filter((config) => config.extensions.some((each) => each.name === entry.name)).map((config) => config.id),
+          }
+        })
+      },
       models: () => {
         const providers = ctx.get('opsProviders' as never) as unknown as { models?: () => Array<{ provider: string; model: string; ready: boolean }> } | undefined
         return (providers?.models?.() ?? []).map((entry) => {
@@ -425,4 +455,84 @@ async function projectSettings(ctx: Context, id: string): Promise<unknown> {
     memory: memory?.sections?.(id) ?? [],
     undo: undo.slice(0, 10),
   }
+}
+
+/** One secret in the inventory: never its value. */
+interface SecretRow {
+  readonly name: string
+  readonly used: string
+  /** `set` here, from the server's `env`, or `missing`. */
+  readonly state: 'set' | 'env' | 'missing'
+  /** The command that sets it, without the value. */
+  readonly set: string | null
+  /** The command that removes it. */
+  readonly remove: string | null
+}
+
+/**
+ * Every secret something needs, grouped: the model providers', the search provider's,
+ * Telegram's, the `${NAME}`s of MCP servers and extensions, git tokens, mail accounts and
+ * OAuth grants. The store cannot list what nothing needs, so that is not here.
+ *
+ * @param ctx the plugin's context.
+ * @returns the groups.
+ */
+async function secretsInventory(ctx: Context): Promise<Array<{ group: string; secrets: SecretRow[] }>> {
+  const providers = ctx.get('opsProviders' as never) as unknown as
+    | { keyStatus(): Array<{ provider: string; name: string; configured: boolean; writable: boolean; source?: string }>; secretInfo?(name: string): { configured: boolean; writable: boolean } }
+    | undefined
+  const state = (info: { configured: boolean; writable: boolean } | undefined): SecretRow['state'] => (info?.configured !== true ? 'missing' : info.writable ? 'set' : 'env')
+  const status = providers?.keyStatus() ?? []
+  const ids = ctx.opsProjects.configuredIds()
+  const configs = ids.flatMap((id) => {
+    const config = ctx.opsProjects.configOf(id)
+    return config === undefined ? [] : [config]
+  })
+  const used = new Set(configs.map((config) => config.provider))
+  const search = ((ctx.opsRawConfig['web_search'] as { provider?: string } | undefined)?.provider ?? 'deepseek').toLowerCase()
+  const SEARCH = ['tavily', 'brave', 'serper']
+  const models = status
+    .filter((entry) => entry.provider !== 'telegram' && !SEARCH.includes(entry.provider) && (entry.configured || used.has(entry.provider)))
+    .map((entry): SecretRow => ({ name: entry.name, used: `${entry.provider}${used.has(entry.provider) ? ` · ${configs.filter((config) => config.provider === entry.provider).map((config) => config.id).join(', ')}` : ''}`, state: state(entry), set: `/key ${entry.provider}`, remove: `/key remove ${entry.provider}` }))
+  const searchKeys = status
+    .filter((entry) => SEARCH.includes(entry.provider) && (entry.configured || entry.provider === search))
+    .map((entry): SecretRow => ({ name: entry.name, used: `web_search: ${entry.provider}${entry.provider === search ? ' (in use)' : ''}`, state: state(entry), set: `/key ${entry.provider}`, remove: `/key remove ${entry.provider}` }))
+  const telegram = status.filter((entry) => entry.provider === 'telegram').map((entry): SecretRow => ({ name: entry.name, used: 'Telegram', state: state(entry), set: '/key telegram', remove: '/key remove telegram' }))
+  // ${NAME} in a project's MCP servers, and what extensions declare.
+  const named = new Map<string, Set<string>>()
+  const note = (name: string, user: string): void => void (named.get(name) ?? named.set(name, new Set()).get(name))?.add(user)
+  for (const config of configs) {
+    for (const [server, entry] of Object.entries(config.mcp)) {
+      for (const text of [...Object.values(entry.env), ...Object.values(entry.headers)]) for (const match of text.matchAll(/\$\{([A-Z][A-Z0-9_]*)\}/g)) if (match[1] !== 'EXTENSION_DIR' && match[1] !== 'ARGUS_EGRESS_PROXY') note(match[1] as string, `${config.id} · ${server}`)
+    }
+  }
+  const extensions = ctx.opsProjects.extensions
+  for (const entry of extensions?.installed() ?? []) for (const name of extensions?.manifestOf(entry.name)?.requires.secrets ?? []) note(name, `extension ${entry.name}`)
+  const mcp = [...named.entries()].map(([name, users]): SecretRow => ({ name, used: [...users].join('; '), state: state(providers?.secretInfo?.(name)), set: `/key ${name}`, remove: `/key remove ${name}` }))
+  const git: SecretRow[] = []
+  const mail: SecretRow[] = []
+  const oauth: SecretRow[] = []
+  for (const config of configs) {
+    for (const [remote, entry] of Object.entries(config.git.remotes)) {
+      git.push({ name: `${config.id} · ${remote}`, used: entry.url, state: (await ctx.opsProjects.git.hasToken(config.id, remote)) ? 'set' : 'missing', set: `/git token ${config.id} ${remote}`, remove: `/git forget ${config.id} ${remote}` })
+    }
+    const account = await ctx.opsProjects.mail.accountOf(config.id).catch(() => undefined)
+    if (account?.own === true) mail.push({ name: `${config.id}`, used: `${account.account.user} @ ${account.account.host}`, state: 'set', set: `/mail set ${config.id}`, remove: `/mail remove ${config.id}` })
+    for (const [server, entry] of Object.entries(config.mcp)) {
+      if (entry.oauth === null) continue
+      const grant = await ctx.opsProjects.oauth.status(config.id, server)
+      oauth.push({ name: `${config.id} · ${server}`, used: entry.url ?? '', state: grant.state === 'connected' ? 'set' : 'missing', set: `/mcp connect ${config.id} ${server}`, remove: grant.state === 'connected' ? `/mcp disconnect ${config.id} ${server}` : null })
+    }
+  }
+  const shared = await ctx.opsProjects.mail.accountOf(null).catch(() => undefined)
+  if (shared !== undefined) mail.unshift({ name: 'default', used: `${shared.account.user} @ ${shared.account.host}`, state: 'set', set: '/mail set default', remove: '/mail remove default' })
+  return [
+    { group: 'models', secrets: models },
+    { group: 'search', secrets: searchKeys },
+    { group: 'channels', secrets: telegram },
+    { group: 'mcp', secrets: mcp },
+    { group: 'git', secrets: git },
+    { group: 'mail', secrets: mail },
+    { group: 'oauth', secrets: oauth },
+  ].filter((group) => group.secrets.length > 0)
 }

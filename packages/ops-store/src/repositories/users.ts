@@ -92,6 +92,16 @@ export class UsersRepository {
   }
 
   /**
+   * Set the language a user reads the web interface in.
+   * @param id the user id.
+   * @param language a language's code, or `null` to follow the browser.
+   * @returns whether the user exists.
+   */
+  setLanguage(id: string, language: string | null): boolean {
+    return this.db.prepare('UPDATE users SET language = ? WHERE id = ?').run(language, id).changes > 0
+  }
+
+  /**
    * Rename a user.
    * @param id the user id.
    * @param name the new name, or `null`.

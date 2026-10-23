@@ -18,17 +18,14 @@ import { ProjectSpace } from './pages/project.js'
 import { SessionsView } from './pages/sessions.js'
 import { HomeView } from './pages/home.js'
 import { InboxView } from './pages/inbox.js'
-import { RunsView, SchedulesView, SystemSection } from './pages/work.js'
+import { RunsView, SchedulesView } from './pages/work.js'
+import { SettingsPage } from './pages/system.js'
 import {
-  ChannelsSection,
   ChatView,
   CreateAdmin,
-  PasswordSection,
-  SettingsView,
   SetupView,
   SignIn,
   TotpSection,
-  UsersView,
   type Me,
   type Overview,
   type Settings,
@@ -254,7 +251,22 @@ function App(): VNode {
     }
   }, [])
 
-  const switchLanguage = (next: Language): void => void loadLanguage(next).then(() => setLang(next))
+  const [languages, setLanguages] = useState<Array<{ code: string; name: string }>>(LANGUAGES.map((code) => ({ code, name: code === 'en' ? 'English' : 'Română' })))
+  const switchLanguage = (next: Language, keep = true): void =>
+    void loadLanguage(next).then(() => {
+      setLang(next)
+      // Kept with the user, so it is the same on every device.
+      if (keep && signedIn === true) void post('/api/me/language', { code: next }).catch(() => undefined)
+    })
+  // The languages there are, and the one this user chose elsewhere.
+  useEffect(() => {
+    if (signedIn !== true) return
+    void get<{ locales: Array<{ code: string; name: string }> }>('/api/locales').then((body) => setLanguages(body.locales), () => undefined)
+  }, [signedIn])
+  useEffect(() => {
+    const chosen = (me as { language?: string | null } | undefined)?.language
+    if (chosen !== undefined && chosen !== null && chosen !== lang()) switchLanguage(chosen, false)
+  }, [me])
   const signOut = (): void => void post('/api/logout', {}).then(() => setSignedIn(false))
   const admin = me?.role === 'admin'
   const can = (name: string): boolean => admin || !(me?.adminOnly ?? []).includes(name)
@@ -267,7 +279,7 @@ function App(): VNode {
 
   const languageSelect = html`<label class="sr" for="lang">${t('lang.label')}</label>
     <select id="lang" value=${lang()} onChange=${(event: Event) => switchLanguage((event.target as HTMLSelectElement).value as Language)}>
-      ${LANGUAGES.map((code) => html`<option value=${code}>${t(`lang.${code}`)}</option>`)}
+      ${languages.map((each) => html`<option value=${each.code}>${each.name}</option>`)}
     </select>`
 
   if (signedIn === undefined) return html`<p class="empty" style="padding:40px">${t('common.loading')}</p>`
@@ -378,11 +390,8 @@ function pageFor(route: Route, context: PageContext): VNode | null {
     case 'setup':
       return admin && settings !== undefined && me !== undefined ? html`<${SetupView} data=${settings} me=${me} run=${run} outcome=${null} version=${page.version} onFinish=${() => go({ name: 'home' })} />` : loading
     case 'settings':
-      if (settings === undefined || me === undefined) return loading
-      return html`<${SettingsView} key=${JSON.stringify(settings.defaults)} data=${settings} run=${run} outcome=${null}
-          account=${html`<${PasswordSection} me=${me} onChanged=${loadMe} /><${TotpSection} me=${me} onChanged=${loadMe} /><${ChannelsSection} me=${me} run=${run} />`} />
-        <${SystemSection} ...${page} panic=${overview?.panic === true} />
-        ${admin ? html`<${UsersView} ...${page} />` : null}`
+      if (me === undefined) return loading
+      return html`<${SettingsPage} ...${page} sec=${route.sec} me=${me} admin=${admin} panic=${overview?.panic === true} loadMe=${loadMe} refresh=${context.bump} />`
   }
 }
 

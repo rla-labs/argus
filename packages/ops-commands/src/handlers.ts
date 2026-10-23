@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { GIT_REMOTE_PATTERN, describeAccount, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
+import { BUILT_IN_TEMPLATES, GIT_REMOTE_PATTERN, describeAccount, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 import { describeSchema, FIXED_SYSTEM_KEYS, LIVE_SYSTEM_KEYS, schemaAt, systemApply, type SchemaNode } from './settings.js'
 
@@ -257,6 +257,104 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       return `${projectId} is running. Stop it first with /stop ${projectId}.`
     }
     return undefined
+  }
+
+  /**
+   * `/template set|new|remove`: write a template's file in config/templates/, checked as it
+   * is loaded and against the projects that follow it, else put back.
+   */
+  function changeTemplate(verb: 'set' | 'new' | 'remove', input: string): CommandResult {
+    const [, rawName, third, fourth] = tokenize(input)
+    const name = rawName?.toLowerCase()
+    if (name === undefined || !/^[a-z0-9][a-z0-9-]{0,40}$/.test(name)) return errorResult('A template name is lowercase letters, digits and dashes.')
+    const dir = options.templatesDir
+    const file = join(dir, `${name}.yaml`)
+    const { templates } = loadTemplates(dir)
+    const following = projects.configuredIds().filter((id) => projects.configOf(id)?.template === name)
+    const builtIn = BUILT_IN_TEMPLATES.some((template) => template.name === name)
+    const original = existsSync(file) ? readFileSync(file, 'utf8') : undefined
+    const restore = (): void => {
+      if (original === undefined) rmSync(file, { force: true })
+      else writeFileSync(file, original)
+    }
+    const check = (): string | undefined => {
+      const problem = loadTemplates(dir).problems.find((line) => line.startsWith(`${name}.`))
+      if (problem !== undefined) return problem
+      try {
+        options.reloadProjects()
+      } catch (err) {
+        return (err as Error).message
+      }
+      const broken = following.find((id) => projects.invalidOf(id) !== undefined)
+      return broken === undefined ? undefined : `${broken} would not validate:\n${projects.invalidOf(broken)?.reason ?? ''}`
+    }
+    const whole = (template: { summary: string; description: string; instructions: string; settings: Readonly<Record<string, unknown>> }): Record<string, unknown> => ({
+      summary: template.summary,
+      ...(template.description.length === 0 ? {} : { description: template.description }),
+      ...(template.instructions.length === 0 ? {} : { instructions: template.instructions }),
+      ...template.settings,
+    })
+
+    if (verb === 'remove') {
+      if (original === undefined) return errorResult(builtIn ? `${name} is built in and has no file of its own to remove.` : `No template "${name}".`)
+      if (!builtIn && following.length > 0) return errorResult(`${following.join(', ')} follow${following.length === 1 ? 's' : ''} ${name}: give ${following.length === 1 ? 'it' : 'them'} another template first (/set <project> template <name>).`)
+      rmSync(file)
+      const why = check()
+      if (why !== undefined) {
+        restore()
+        options.reloadProjects()
+        return errorResult(`Not removed. ${why}`)
+      }
+      return result(builtIn ? `${name} is the built-in template again.` : `${name} is removed.`)
+    }
+
+    if (verb === 'new') {
+      if (templates.has(name)) return errorResult(`There is a template "${name}" already.`)
+      let content: Record<string, unknown> = { summary: name }
+      if (third === 'from' && fourth !== undefined) {
+        const source = templates.get(fourth.toLowerCase())
+        if (source === undefined) return errorResult(`No template "${fourth}".`)
+        content = { ...whole(source), summary: `${source.summary} (copy)` }
+      } else if (third === 'project' && fourth !== undefined) {
+        const config = projects.configOf(fourth)
+        if (config === undefined) return errorResult(`No project "${fourth}".`)
+        const own = (parseYaml(readFileSync(config.sourcePath, 'utf8')) ?? {}) as Record<string, unknown>
+        const { id: _id, cwd: _cwd, provider: _provider, model: _model, template: _template, ...settings } = own
+        const instructions = options.memory?.()?.readInstructions(config.id) ?? ''
+        content = { summary: config.description ?? `Like ${config.id}`, ...settings, ...(instructions.trim().length === 0 ? {} : { instructions }) }
+      } else if (third !== undefined) return errorResult('new takes from <template> or project <project-id>, or nothing for a blank one.')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(file, toYaml(content))
+      const why = check()
+      if (why !== undefined) {
+        restore()
+        return errorResult(`Not made. ${why}`)
+      }
+      return result(`Template ${name} made: ${file}. A project from it: /new <id> ${name}.`)
+    }
+
+    // set
+    const template = templates.get(name)
+    if (template === undefined) return errorResult(`No template "${name}".`)
+    const key = third
+    const text = restAfter(input, 3).trim()
+    if (key === undefined || text.length === 0) return errorResult('set needs a key and a value.')
+    const top = key.split('.')[0] ?? ''
+    if (['id', 'cwd', 'provider', 'model', 'template'].includes(top)) return errorResult(`A template cannot set ${top}: /new decides it.`)
+    const value = settingValue(text)
+    if (!value.ok) return errorResult(`"${text}" is not a valid value: ${value.message}`)
+    const doc = original === undefined ? parseDocument(toYaml(whole(template))) : parseDocument(original)
+    doc.setIn(key.split('.'), value.value)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(file, doc.toString())
+    const why = check()
+    if (why !== undefined) {
+      restore()
+      options.reloadProjects()
+      return errorResult(`Not changed. ${why}`)
+    }
+    const reach = following.length === 0 ? 'No project follows it.' : `${following.join(', ')} follow${following.length === 1 ? 's' : ''} it, from ${following.length === 1 ? 'its' : 'their'} next message, where ${following.length === 1 ? 'its' : 'their'} own file does not set ${key}.`
+    return result(`${name}: ${key} = ${JSON.stringify(value.value)}. ${reach}${['instructions', 'description'].includes(key) ? ' Instructions and the description are a new project\'s start; the projects that exist keep theirs.' : ''}`)
   }
 
   /**
@@ -2007,17 +2105,27 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'template',
-        description: 'Show the project templates, or one',
-        syntax: '/template [name]',
+        description: 'Show the project templates, or change one (admin)',
+        syntax: '/template [name] | set <name> <key> <value> | new <name> [from <template> | project <project-id>] | remove <name>',
         detail:
           'Without a name, lists the templates: the built-in ones and those in config/templates/. ' +
           'With one, shows its settings, the instructions a new project starts with, and the ' +
           'projects that follow it. A project follows its template in what its own file does ' +
-          'not set, so an edit to a template file reaches them at /reload.',
-        examples: ['/template', '/template devops'],
-        mutating: false,
+          'not set. The admin changes one with set (a key: summary, description, instructions, ' +
+          'or a setting such as budget.day_usd; a built-in one gets a file of its own in ' +
+          'config/templates/ that stands for it), which reaches the projects that follow it at ' +
+          'their next message; makes one with new (blank, a copy of another, or from a project\'s ' +
+          'file); and removes one with remove, refused while a project follows it (removing the ' +
+          'file of a built-in brings the built-in back).',
+        examples: ['/template', '/template devops', '/template set research budget.day_usd 2', '/template new shop from site', '/template remove shop'],
+        mutating: true,
       },
-      run(input): CommandResult {
+      run(input, context): CommandResult {
+        const [verb] = tokenize(input)
+        if (verb === 'set' || verb === 'new' || verb === 'remove') {
+          if (context.isAdmin !== true) return errorResult('Only the admin can change the templates.')
+          return changeTemplate(verb, input)
+        }
         const name = tokenize(input)[0]?.toLowerCase()
         const { templates, problems } = loadTemplates(options.templatesDir)
         if (name === undefined) {

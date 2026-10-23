@@ -1377,6 +1377,30 @@ describe('/new', () => {
     expect((await booted.projects.doctor()).map((finding) => finding.detail)).toContain('templates/bad.yaml: cannot set model: /new decides them')
   }, 30_000)
 
+  it('changes a template from a command, reaching the projects that follow it; makes and removes one', async () => {
+    const admin = (): CommandContext => contextFor({ isAdmin: true })
+    const booted = await bootCommands()
+    await run(booted, '/new alpha research', admin())
+    const file = join(booted.dataDir, 'config', 'templates', 'research.yaml')
+    expect((await booted.commands.runCommand('/template set research budget.day_usd 2', contextFor({ isAdmin: false }))).text).toContain('Only the admin')
+    expect(await run(booted, '/template set research budget.day_usd 2', admin())).toContain('alpha follows it')
+    expect(existsSync(file)).toBe(true)
+    expect(booted.projects.configOf('alpha')?.budget.day_usd).toBe(2)
+    // A value no project can have is put back.
+    expect((await booted.commands.runCommand('/template set research tools.mail allow', admin())).text).toContain('Not changed')
+    expect(booted.projects.configOf('alpha')?.tools.mail).not.toBe('allow')
+    expect((await booted.commands.runCommand('/template set research model x/y', admin())).text).toContain('/new decides it')
+
+    expect(await run(booted, '/template new shop from research', admin())).toContain('Template shop made')
+    expect(booted.commands.templates().find((template) => template.name === 'shop')).toMatchObject({ builtIn: false, file: true, followers: [] })
+    expect(await run(booted, '/template new likealpha project alpha', admin())).toContain('made')
+    expect((await booted.commands.runCommand('/template remove research', admin())).text).toContain('built-in template again')
+    expect(existsSync(file)).toBe(false)
+    expect(booted.projects.configOf('alpha')?.budget.day_usd).not.toBe(2)
+    await run(booted, '/set alpha template shop', admin())
+    expect((await booted.commands.runCommand('/template remove shop', admin())).text).toContain('alpha follows shop')
+  }, 30_000)
+
   it('writes only the template\'s name; the project follows the template until /set makes a value its own', async () => {
     const booted = await bootCommands()
     instructionsIn(booted)

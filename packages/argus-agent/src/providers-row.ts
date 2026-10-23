@@ -283,6 +283,17 @@ export class OpsProviders {
       .sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model))
   }
 
+  /**
+   * Whether a secret is set, and where from: any name a project's MCP server or an
+   * extension needs (`${NAME}`), or a provider's key variable.
+   *
+   * @param name the secret's name.
+   * @returns its status; never its value.
+   */
+  secretInfo(name: string): KeyInfo {
+    return this.keys.info(name)
+  }
+
   /** Every route, sorted, with whether its key is set. */
   list(): Array<{ provider: string; declared: boolean; hasKey: boolean }> {
     return [...this.routes.values()]

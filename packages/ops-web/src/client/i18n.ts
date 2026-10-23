@@ -4,31 +4,41 @@
  * keys (a test checks). A missing key shows the English text, then the key.
  */
 
-/** The languages the interface ships. */
+/** The languages the interface ships; packs the admin adds come from the server. */
 export const LANGUAGES = ['en', 'ro'] as const
-export type Language = (typeof LANGUAGES)[number]
+/** A language's code: `en`, `ro`, or a pack's (`de`, `pt-BR`). */
+export type Language = string
 
 let english: Record<string, string> = {}
 let current: Record<string, string> = {}
 let language: Language = 'en'
 
-/** The language to start in: the viewer's last choice, else the browser's, else English. */
+/** The language to start in: this browser's last choice, else the browser's own, else English. */
 export function initialLanguage(): Language {
   try {
     const saved = localStorage.getItem('argus.lang')
-    if (saved !== null && (LANGUAGES as readonly string[]).includes(saved)) return saved as Language
+    if (saved !== null && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/.test(saved)) return saved
   } catch {
     // Storage can be unavailable (a private window); the browser's language decides.
   }
   const browser = (navigator.language || 'en').slice(0, 2)
-  return (LANGUAGES as readonly string[]).includes(browser) ? (browser as Language) : 'en'
+  return (LANGUAGES as readonly string[]).includes(browser) ? browser : 'en'
 }
 
-/** Load a language, remembering the choice. */
+/** Load a language, remembering the choice; one that cannot be loaded leaves English. */
 export async function loadLanguage(next: Language): Promise<void> {
-  const load = async (code: string): Promise<Record<string, string>> => (await fetch(`/static/locales/${code}.json`)).json() as Promise<Record<string, string>>
+  const load = async (code: string): Promise<Record<string, string>> => {
+    const response = await fetch(`/locales/${encodeURIComponent(code)}.json`)
+    if (!response.ok) throw new Error(`no language ${code}`)
+    return (await response.json()) as Record<string, string>
+  }
   if (Object.keys(english).length === 0) english = await load('en')
-  current = next === 'en' ? english : await load(next)
+  try {
+    current = next === 'en' ? english : await load(next)
+  } catch {
+    current = english
+    next = 'en'
+  }
   language = next
   document.documentElement.lang = next
   try {

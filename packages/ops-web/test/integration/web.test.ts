@@ -190,6 +190,33 @@ describe('the web interface', () => {
     expect(Array.isArray((await get('/api/models'))['models'])).toBe(true)
   }, 60_000)
 
+  it('serves the languages, takes a pack, keeps a user\'s language, and lists the secrets and extensions to the admin', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const post = (path: string, body: unknown): Promise<Response> => fetch(`${booted.base}${path}`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify(body) })
+    const get = async (path: string): Promise<Record<string, unknown>> => (await (await fetch(`${booted.base}${path}`, { headers: { cookie } })).json()) as Record<string, unknown>
+    // The sign-in page reads its language before anyone signs in.
+    expect((await fetch(`${booted.base}/locales/ro.json`)).status).toBe(200)
+    expect((await fetch(`${booted.base}/locales/..%2Fen.json`)).status).toBe(404)
+    expect(((await get('/api/locales'))['locales'] as Array<{ code: string }>).map((locale) => locale.code)).toEqual(['en', 'ro'])
+
+    expect((await post('/api/locales/de', { 'nav.inbox': 'Posteingang', _name: 'Deutsch' })).status).toBe(200)
+    expect((await post('/api/locales/de', { 'not.a.key': 'x' })).status).toBe(400)
+    expect((await post('/api/locales/ro', { 'nav.inbox': 'x' })).status).toBe(400)
+    expect((await post('/api/locales/<script>', { 'nav.inbox': 'x' })).status).toBe(400)
+    const de = ((await get('/api/locales'))['locales'] as Array<{ code: string; name: string; keys: number }>).find((locale) => locale.code === 'de')
+    expect(de).toMatchObject({ name: 'Deutsch', keys: 1 })
+    expect(await (await fetch(`${booted.base}/locales/de.json`)).json()).toMatchObject({ 'nav.inbox': 'Posteingang' })
+
+    expect((await post('/api/me/language', { code: 'de' })).status).toBe(200)
+    expect((await get('/api/me'))['language']).toBe('de')
+    expect((await post('/api/me/language', { code: 'xx' })).status).toBe(400)
+    expect((await post('/api/locales/de/remove', {})).status).toBe(200)
+
+    expect(Array.isArray((await get('/api/secrets'))['groups'])).toBe(true)
+    expect((await get('/api/extensions'))['extensions']).toEqual([])
+  }, 60_000)
+
   it('describes every ops.yaml setting to the admin, web\'s own included', async () => {
     const booted = await bootWeb()
     const cookie = await signIn(booted)
