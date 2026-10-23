@@ -12,6 +12,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { IncomingMessage } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import type { Context } from '@deepseek-ai/cordis'
@@ -287,6 +288,27 @@ export async function apply(ctx: Context): Promise<void> {
       settings: () => ({ ...settings(sources), system }),
       systemSettings: () => ctx.opsCommands.systemSettings(),
       projectSettings: (id) => projectSettings(ctx, id),
+      ...(config.tailscale_identity && !config.public
+        ? {
+            tailscaleUser: (request: IncomingMessage) => {
+              const login = request.headers['tailscale-user-login']
+              if (typeof login !== 'string' || login.length === 0 || !trustedSource(request.socket.remoteAddress, config.trusted_proxies)) return undefined
+              const identity = ctx.opsStore.users.identity('tailscale', login.toLowerCase())
+              const user = identity === undefined ? undefined : ctx.opsStore.users.get(identity.user_id)
+              return user === undefined || user.disabled_at !== null ? undefined : user.id
+            },
+          }
+        : {}),
+      signedIn: (session, address, userAgent, how) => {
+        ctx.opsStore.audit.record({ actor: session.userId, action: 'web.signin', target: how, details: { address, userAgent: userAgent ?? null } }, Date.now())
+        // Exposed to the internet, every new sign-in is told: one that was not them is ended in Security.
+        if (!config.public) return
+        const user = ctx.opsStore.users.get(session.userId)
+        const text = `New sign-in to the web as ${user?.name ?? session.userId} (${how}), from ${address}${userAgent === undefined ? '' : `, ${userAgent.slice(0, 120)}`}. Not you? Settings > Security: sign out everywhere, and change the password.`
+        void ctx.opsChannel.send({ channel: 'user', chatId: session.userId }, { text }).catch(() => undefined)
+        const admin = ctx.opsStore.users.admin()
+        if (admin !== undefined && admin.id !== session.userId) void ctx.opsChannel.send({ channel: 'user', chatId: admin.id }, { text }).catch(() => undefined)
+      },
       locales: new Locales(fileURLToPath(new URL('../public/locales/', import.meta.url)), join(pathsOf(ctx.opsRawConfig).configDirAbs, 'locales')),
       setLanguage: (userId, code) => void ctx.opsStore.users.setLanguage(userId, code),
       secrets: () => secretsInventory(ctx),
@@ -535,4 +557,31 @@ async function secretsInventory(ctx: Context): Promise<Array<{ group: string; se
     { group: 'mail', secrets: mail },
     { group: 'oauth', secrets: oauth },
   ].filter((group) => group.secrets.length > 0)
+}
+
+/**
+ * Whether a request carrying a Tailscale identity came from where `tailscale serve`
+ * connects from: loopback, an address the admin trusts, or, in a container, its gateway
+ * (where the host's published port is forwarded from).
+ *
+ * @param address the request's source.
+ * @param trusted `web.trusted_proxies`.
+ */
+function trustedSource(address: string | undefined, trusted: readonly string[]): boolean {
+  if (address === undefined) return false
+  const plain = address.replace(/^::ffff:/, '')
+  if (plain === '127.0.0.1' || plain === '::1' || trusted.includes(plain)) return true
+  return process.env['ARGUS_SUPERVISED'] === 'docker' && plain === dockerGateway()
+}
+
+/** The container's default gateway, from the routing table; `undefined` elsewhere. */
+function dockerGateway(): string | undefined {
+  try {
+    const row = readFileSync('/proc/net/route', 'utf8').split('\n').slice(1).map((line) => line.trim().split(/\s+/)).find((fields) => fields[1] === '00000000')
+    const hex = row?.[2]
+    if (hex === undefined || hex.length !== 8) return undefined
+    return [6, 4, 2, 0].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)).join('.')
+  } catch {
+    return undefined
+  }
 }

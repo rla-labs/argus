@@ -147,6 +147,15 @@ export class WebAuthRepository {
   }
 
   /**
+   * A user's sessions, newest first.
+   * @param userId the user.
+   * @returns the rows; the cookie's value is never kept, only its hash.
+   */
+  userSessions(userId: string): WebSessionRow[] {
+    return this.db.prepare('SELECT * FROM web_sessions WHERE user_id = ? ORDER BY last_seen_at DESC').all(userId) as WebSessionRow[]
+  }
+
+  /**
    * End every session of a user but one.
    * @param userId the user id.
    * @param exceptIdHash the session to keep (the one asking), or `''` for none.

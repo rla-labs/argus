@@ -13,7 +13,7 @@ import { Icon, Modal, PageHead, Seg, StateChip, Toggle, toast } from '../kit.js'
 import { href } from '../router.js'
 import { useData, type PageProps } from '../ui.js'
 import { when } from './home.js'
-import { ChannelsSection, PasswordSection, TotpSection, UsersView, type Me } from './legacy.js'
+import { ChannelsSection, PasswordSection, TotpSection, type Me } from './legacy.js'
 import { encode, FieldEditor, runAll, showOutcome, type Field } from './project-settings.js'
 import { SystemSection } from './work.js'
 
@@ -73,7 +73,16 @@ function Access({ ctx }: { ctx: Ctx }): VNode {
       <span class="radio" aria-hidden="true"></span><span><b>${t(`sys.mode.${each}`)}</b>${each === mode ? html` <span class="chip st-running" style="padding:0 7px;line-height:18px">${t('sys.now')}</span>` : null}<br /><span class="muted" style="font-size:12.5px">${t(`sys.modeHelp.${each}`)}</span></span>
     </button>`)}</div>
     ${shown === 'private' ? html`<div class="stack" style="gap:8px"><p>${t('sys.privateHow')}</p><code class="action">ssh -N -L 3091:127.0.0.1:3091 user@server</code></div>` : null}
-    ${shown === 'tailscale' ? html`<div class="stack" style="gap:8px"><p>${t('sys.tailscaleHow')}</p><code class="action">sudo tailscale serve --bg 3091</code><p class="help">${t('sys.tailscaleUrl')}</p></div>` : null}
+    ${shown === 'tailscale'
+      ? html`<div class="stack" style="gap:10px">
+          <ol class="steps">
+            <li><b>${t('sys.ts1')}</b><code class="action">argus tailscale</code><span class="help">${t('sys.ts1Help')}</span></li>
+            <li><b>${t('sys.ts2')}</b><span class="help">${t('sys.ts2Help')}</span></li>
+            <li><b>${t('sys.ts3')}</b><span class="help">${t('sys.ts3Help')}</span> <a href=${href({ name: 'settings', sec: 'users' })}>${t('sys.sec.users')}</a></li>
+          </ol>
+          <div class="panel" style="box-shadow:none"><${ConfigRows} keys=${['web.tailscale_identity', 'web.trusted_proxies']} ctx=${ctx} labels=${{ 'web.tailscale_identity': t('sys.tsIdentity'), 'web.trusted_proxies': t('sys.trustedProxies') }} /></div>
+        </div>`
+      : null}
     ${shown === 'public' ? html`<div class="callout"><span class="warn"><${Icon} name="shield" /></span><div class="stack" style="gap:6px"><b>${t('sys.publicWarnTitle')}</b><span>${t('sys.publicWarn')}</span><a href="https://github.com/rla-labs/argus/blob/main/docs/user/web.md" target="_blank" rel="noopener noreferrer">${t('sys.publicGuide')}</a></div></div>` : null}
     <${ConfigRows} keys=${['web.public_url', 'web.public', 'web.session_hours', 'web.idle_minutes']} ctx=${ctx} labels=${{ 'web.public_url': t('sys.publicUrl'), 'web.public': t('sys.publicMode'), 'web.session_hours': t('sys.sessionHours'), 'web.idle_minutes': t('sys.idleMinutes') }} />
   </section>`
@@ -455,8 +464,8 @@ export function SettingsPage({ sec, version, run, can, me, admin, panic, loadMe,
         ${section === 'templates' ? html`<${Templates} ctx=${ctx} version=${version} />` : null}
         ${section === 'budgets' ? html`<section class="panel"><div class="pad" style="padding-bottom:8px"><h2>${t('sys.budgets')}</h2><p class="help">${t('sys.budgetsHelp')}</p></div><${ConfigRows} keys=${(system?.fields ?? []).filter((field) => field.key.startsWith('budgets.')).map((field) => field.key)} ctx=${ctx} /></section>` : null}
         ${section === 'channels' ? html`<${ChannelsSection} me=${me} run=${run} /><section class="panel"><div class="pad" style="padding-bottom:8px"><h2>Telegram</h2><p class="help">${t('sys.telegramHelp')}</p></div><${ConfigRows} keys=${(system?.fields ?? []).filter((field) => field.key.startsWith('telegram.') || field.key.startsWith('access.')).map((field) => field.key)} ctx=${ctx} /></section>` : null}
-        ${section === 'users' ? html`<${UsersView} version=${version} run=${run} outcome=${null} />` : null}
-        ${section === 'security' ? html`<${TotpSection} me=${me} onChanged=${loadMe} />` : null}
+        ${section === 'users' ? html`<${Users} ctx=${ctx} version=${version} />` : null}
+        ${section === 'security' ? html`<${TotpSection} me=${me} onChanged=${loadMe} /><${Sessions} version=${version} />` : null}
         ${section === 'language' ? html`<${Language} ctx=${ctx} version=${version} />` : null}
         ${section === 'health' ? html`<${SystemSection} version=${version} run=${run} can=${can} outcome=${null} panic=${panic} />` : null}
         ${section === 'advanced' ? html`<${AdvancedSystem} ctx=${ctx} />` : null}
@@ -472,4 +481,79 @@ function AdvancedSystem({ ctx }: { ctx: Ctx }): VNode {
       <input class="in" aria-label=${t('ps.findKey')} placeholder=${t('sys.findKey')} value=${query} onInput=${(event: Event) => setQuery((event.target as HTMLInputElement).value)} /></div>
     <${ConfigRows} keys=${keys} ctx=${ctx} />
   </section>`
+}
+
+// ── users ──────────────────────────────────────────────────────────────────
+
+interface UserRow {
+  readonly id: string
+  readonly name: string | null
+  readonly role: 'admin' | 'operator'
+  readonly disabled: boolean
+  readonly login: string | null
+  readonly channels: readonly string[]
+}
+
+function Users({ ctx, version }: { ctx: Ctx; version: number }): VNode {
+  const data = useData<{ users: UserRow[] }>('/api/users', version)
+  const [invite, setInvite] = useState('')
+  const [linking, setLinking] = useState<UserRow | undefined>()
+  const [login, setLogin] = useState('')
+  return html`<section class="panel">
+      <div class="pad" style="padding-bottom:8px"><h2>${t('sys.sec.users')}</h2><p class="help">${t('sys.usersHelp')}</p></div>
+      ${(data?.users ?? []).map((user) => {
+        const tailscale = user.channels.find((channel) => channel.startsWith('tailscale:'))?.slice('tailscale:'.length)
+        return html`<div class="ri" key=${user.id}>
+          <div class="avatar" aria-hidden="true">${(user.name ?? user.login ?? '?').slice(0, 2).toUpperCase()}</div>
+          <div style="flex:1 1 220px;min-width:0"><b>${user.name ?? user.login ?? user.id}</b> <span class="chip" style="padding:0 7px;line-height:18px">${t(`users.${user.role}`)}</span>${user.disabled ? html` <span class="chip st-broken" style="padding:0 7px;line-height:18px">${t('users.disabled')}</span>` : null}
+            <div class="faint" style="font-size:12.5px">${[user.login === null ? null : `web: ${user.login}`, ...user.channels.filter((channel) => !channel.startsWith('tailscale:')), tailscale === undefined ? t('sys.noTailscale') : `Tailscale: ${tailscale}`].filter((part) => part !== null).join(' · ')}</div></div>
+          <button type="button" class="btn sm" onClick=${() => { setLinking(user); setLogin(tailscale ?? '') }}>${tailscale === undefined ? t('sys.linkTailscale') : t('sys.changeTailscale')}</button>
+          ${user.role === 'admin' ? null : user.disabled
+            ? html`<button type="button" class="btn sm" onClick=${() => ctx.act(`/users enable ${user.id}`)}>${t('users.enable')}</button>`
+            : html`<button type="button" class="btn sm" onClick=${() => ctx.act(`/users reset ${user.id}`)}>${t('users.reset')}</button><button type="button" class="btn sm danger" onClick=${() => ctx.act(`/users remove ${user.id}`)}>${t('users.remove')}</button>`}
+        </div>`
+      })}
+      <form class="ri" onSubmit=${(event: Event) => { event.preventDefault(); if (invite.trim().length > 0) { ctx.act(`/users invite ${invite.trim()}`); setInvite('') } }}>
+        <div class="field" style="flex:1 1 240px"><label for="u-invite">${t('users.invite')}</label><input id="u-invite" maxlength="64" placeholder=${t('users.name')} value=${invite} onInput=${(event: Event) => setInvite((event.target as HTMLInputElement).value)} /><p class="help">${t('users.inviteHint')}</p></div>
+        <button type="submit" class="btn sm primary" style="align-self:center">${t('users.inviteButton')}</button>
+      </form>
+    </section>
+    ${linking === undefined
+      ? null
+      : html`<${Modal} title=${t('sys.tailscaleFor', { name: linking.name ?? linking.login ?? linking.id })} onClose=${() => setLinking(undefined)}>
+          <form class="stack" onSubmit=${(event: Event) => { event.preventDefault(); ctx.act(`/users tailscale ${linking.id} ${login.trim() || 'none'}`); setLinking(undefined) }}>
+            <div class="field"><label for="u-ts">${t('sys.tailscaleLogin')}</label><input id="u-ts" class="mono" placeholder="you@github" value=${login} onInput=${(event: Event) => setLogin((event.target as HTMLInputElement).value)} /><p class="help">${t('sys.tailscaleLoginHelp')}</p></div>
+            <div class="cluster" style="justify-content:flex-end"><button type="button" class="btn" onClick=${() => setLinking(undefined)}>${t('common.cancel')}</button><button type="submit" class="btn primary">${t('settings.save')}</button></div>
+          </form>
+        <//>`}`
+}
+
+// ── where I am signed in ───────────────────────────────────────────────────
+
+function Sessions({ version }: { version: number }): VNode {
+  const [tick, setTick] = useState(0)
+  const data = useData<{ sessions: Array<{ id: string; current: boolean; via: string; createdAt: number; lastSeenAt: number; userAgent: string | null }> }>('/api/me/sessions', version + tick)
+  const end = async (id: string): Promise<void> => {
+    const result = await post<{ ended?: number }>(`/api/me/sessions/${id}/end`, {})
+    toast(t('sys.sessionsEnded', { count: result.body.ended ?? 0 }))
+    setTick((n) => n + 1)
+  }
+  const sessions = data?.sessions ?? []
+  return html`<section class="panel">
+    <div class="pad cluster" style="padding-bottom:8px"><div style="flex:1"><h2>${t('sys.sessions')}</h2><p class="help">${t('sys.sessionsHelp')}</p></div>
+      ${sessions.length > 1 ? html`<button type="button" class="btn sm danger" onClick=${() => void end('others')}>${t('sys.signOutOthers')}</button>` : null}</div>
+    ${sessions.map((session) => html`<div class="ri" key=${session.id}>
+      <div style="flex:1 1 240px;min-width:0"><b>${browserOf(session.userAgent)}</b>${session.current ? html` <span class="chip st-running" style="padding:0 7px;line-height:18px">${t('sys.thisOne')}</span>` : null}
+        <div class="faint" style="font-size:12.5px">${t('sys.sessionLine', { via: session.via, since: when(session.createdAt), seen: when(session.lastSeenAt) })}</div></div>
+      ${session.current ? null : html`<button type="button" class="btn sm" onClick=${() => void end(session.id)}>${t('sys.endSession')}</button>`}
+    </div>`)}
+  </section>`
+}
+
+/** A browser and its system, in a few words, from its user agent. */
+function browserOf(agent: string | null): string {
+  if (agent === null) return '?'
+  const browser = /Edg\//.test(agent) ? 'Edge' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\//.test(agent) ? 'Chrome' : /Safari\//.test(agent) ? 'Safari' : 'Browser'
+  const system = /iPhone|iPad/.test(agent) ? 'iOS' : /Android/.test(agent) ? 'Android' : /Mac OS X/.test(agent) ? 'macOS' : /Windows/.test(agent) ? 'Windows' : /Linux/.test(agent) ? 'Linux' : ''
+  return system === '' ? browser : `${browser} · ${system}`
 }

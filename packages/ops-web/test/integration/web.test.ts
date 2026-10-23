@@ -36,7 +36,7 @@ interface Booted {
   readonly dataDir: string
 }
 
-async function bootWeb(options: { noAdmin?: boolean; public?: boolean; maxUploadMb?: number; sandbox?: boolean } = {}): Promise<Booted> {
+async function bootWeb(options: { noAdmin?: boolean; public?: boolean; maxUploadMb?: number; sandbox?: boolean; tailscale?: boolean } = {}): Promise<Booted> {
   const dataDir = mkdtempSync(join(tmpdir(), 'ops-web-'))
   dirs.push(dataDir)
   mkdirSync(join(dataDir, 'projects', 'alpha'), { recursive: true })
@@ -62,6 +62,7 @@ async function bootWeb(options: { noAdmin?: boolean; public?: boolean; maxUpload
         `channel:\n  default_address: console:default-chat\n` +
         `web:\n  port: 0\n` +
         (options.maxUploadMb === undefined ? '' : `  max_upload_mb: ${options.maxUploadMb}\n`) +
+        (options.tailscale === true ? `  tailscale_identity: true\n` : '') +
         (options.public === true ? `  public: true\n  public_url: https://argus.example\n` : ''),
     },
     replaceEntries: [
@@ -215,6 +216,39 @@ describe('the web interface', () => {
 
     expect(Array.isArray((await get('/api/secrets'))['groups'])).toBe(true)
     expect((await get('/api/extensions'))['extensions']).toEqual([])
+  }, 60_000)
+
+  it('signs in a linked Tailscale login through tailscale serve, no one else, and only when it is on', async () => {
+    const booted = await bootWeb({ tailscale: true })
+    const me = (headers: Record<string, string>): Promise<Response> => fetch(`${booted.base}/api/me`, { headers })
+    expect((await me({ 'tailscale-user-login': 'romeo@github' })).status).toBe(401)
+    const linked = await booted.commands.runCommand(`/users tailscale ${booted.admin} Romeo@GitHub`, { address: { channel: 'web', chatId: booted.admin }, userId: booted.admin, user: { id: booted.admin, role: 'admin' }, isAdmin: true, now: Date.now() })
+    expect(linked.text).toContain('romeo@github')
+    const signed = await me({ 'tailscale-user-login': 'romeo@github' })
+    expect(signed.status).toBe(200)
+    expect(signed.headers.get('set-cookie')).toContain('HttpOnly')
+    expect(((await signed.json()) as { role: string }).role).toBe('admin')
+    expect((await me({ 'tailscale-user-login': 'someone@github' })).status).toBe(401)
+    expect(booted.store.audit.recent(20).some((row) => row.action === 'web.signin' && row.target === 'tailscale')).toBe(true)
+  }, 60_000)
+
+  it('ignores a Tailscale identity unless web.tailscale_identity is on', async () => {
+    const off = await bootWeb()
+    await off.commands.runCommand(`/users tailscale ${off.admin} romeo@github`, { address: { channel: 'web', chatId: off.admin }, userId: off.admin, user: { id: off.admin, role: 'admin' }, isAdmin: true, now: Date.now() })
+    expect((await fetch(`${off.base}/api/me`, { headers: { 'tailscale-user-login': 'romeo@github' } })).status).toBe(401)
+  }, 60_000)
+
+  it('lists where the user is signed in and ends the other sessions', async () => {
+    const booted = await bootWeb()
+    const first = await signIn(booted)
+    const second = await signIn(booted)
+    const list = ((await (await fetch(`${booted.base}/api/me/sessions`, { headers: { cookie: second } })).json()) as { sessions: Array<{ id: string; current: boolean }> }).sessions
+    expect(list).toHaveLength(2)
+    expect(list.filter((each) => each.current)).toHaveLength(1)
+    const end = await fetch(`${booted.base}/api/me/sessions/others/end`, { method: 'POST', headers: { cookie: second, 'content-type': 'application/json', 'x-argus': '1' }, body: '{}' })
+    expect(((await end.json()) as { ended: number }).ended).toBe(1)
+    expect((await fetch(`${booted.base}/api/me`, { headers: { cookie: first } })).status).toBe(401)
+    expect((await fetch(`${booted.base}/api/me`, { headers: { cookie: second } })).status).toBe(200)
   }, 60_000)
 
   it('describes every ops.yaml setting to the admin, web\'s own included', async () => {

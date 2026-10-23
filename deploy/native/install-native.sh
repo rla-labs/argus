@@ -56,6 +56,7 @@ Usage: install-native.sh [options]
   --non-interactive   take every value from the environment; never prompt
   --skip-build        do not build the TypeScript (assume lib/ is present)
   --dry-run           check prerequisites and print the plan; change nothing
+  --tailscale         then put the web interface on your Tailscale network
   --yes               assume yes for confirmations
   --help              this message
 
@@ -93,6 +94,7 @@ while [ $# -gt 0 ]; do
     --non-interactive) NON_INTERACTIVE=1; shift ;;
     --skip-build)      SKIP_BUILD=1; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
+    --tailscale)       TAILSCALE=1; shift ;;
     --yes|-y)          ASSUME_YES=1; export ASSUME_YES; shift ;;
     --help|-h)         usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
@@ -589,8 +591,8 @@ cat >&2 <<EOF
   The web listens on this server's loopback only. From your computer, open a tunnel
   first, then the link:
     ssh -L 3091:127.0.0.1:3091 $(id -un)@$(hostname 2>/dev/null || echo this-server)
-  or, with Tailscale on the server: sudo tailscale serve --bg 3091
-  (then set web.public_url in ops.yaml to the https://….ts.net address it prints).
+  or put it on your Tailscale network: argus tailscale
+  (installs Tailscale after asking, and publishes Argus there with HTTPS).
 
 EOF
 fi
@@ -613,3 +615,8 @@ cat >&2 <<EOF
   Keep the bot token and the setup link secret.
 
 EOF
+
+# --tailscale: the web interface on the tailnet, now that Argus runs.
+if [ "${TAILSCALE:-0}" = 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/argus.sh" tailscale --yes || echo "Tailscale was not set up; run 'argus tailscale' later." >&2
+fi

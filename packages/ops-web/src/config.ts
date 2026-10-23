@@ -38,6 +38,17 @@ export interface WebSection {
   readonly max_upload_mb: number
   /** How long a download link for a file too big for a chat stays valid. */
   readonly download_link_hours: number
+  /**
+   * Sign in by Tailscale identity: a request through `tailscale serve` carries the
+   * person's Tailscale login, and a user linked to it (`/users tailscale`) is signed in
+   * with no password. Never in public mode.
+   */
+  readonly tailscale_identity: boolean
+  /**
+   * Addresses a Tailscale identity is trusted from besides loopback (and, in Docker, the
+   * container's gateway, where the host's `tailscale serve` connects from).
+   */
+  readonly trusted_proxies: readonly string[]
 }
 
 /** The `web` schema. */
@@ -52,6 +63,8 @@ export const webSchema: Schema = z
     idle_minutes: z.number().min(5).max(24 * 60).default(30),
     max_upload_mb: z.number().min(1).max(100_000).default(2048),
     download_link_hours: z.number().min(1).max(24 * 7).default(24),
+    tailscale_identity: z.boolean().default(false).description('Sign in by Tailscale identity through tailscale serve, for users with a linked login'),
+    trusted_proxies: z.array(z.string()).default([]).description('Addresses a Tailscale identity is trusted from, besides loopback and the Docker gateway'),
   })
   .default({})
 

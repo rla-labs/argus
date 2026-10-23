@@ -21,7 +21,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/session`](#session-id-text--close-id) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/config`](#config-key-value--reset-key--admin) · [`/restart`](#restart--admin-asks-first) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--tailscale-user-login--admin) · [`/set`](#set-project-id-key-value--admin) · [`/config`](#config-key-value--reset-key--admin) · [`/restart`](#restart--admin-asks-first) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -1109,11 +1109,11 @@ budgets; they cannot create projects, change models, budgets or settings, or add
 `access.allowed_users`; `/allow <id>` enables them again. The admin cannot be removed:
 change `access.admin` in `ops.yaml` to hand the role over. Users are kept in the
 database (and in a backup). To invite someone who has no Telegram account, or to manage
-users by name, see [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin).
+users by name, see [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--tailscale-user-login--admin).
 
 ---
 
-## `/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name>]`  *(admin)*
+## `/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name> | tailscale <user> <login>]`  *(admin)*
 
 Every user: name, role, channels, web login, and whether they are disabled. The web
 interface's **Users** page shows the same, with buttons.
@@ -1134,6 +1134,10 @@ interface's **Users** page shows the same, with buttons.
   **`enable`** takes them back.
 - **`reset`** removes a user's web password, signs them out, and gives a new 24-hour
   link to set another.
+- **`tailscale <user> <login>`** links a Tailscale login (`you@github`) to a user; `none`
+  removes it. With `web.tailscale_identity` on, opening the interface through
+  `tailscale serve` (`argus tailscale` sets it up) signs that person in with no
+  password. Never in public mode.
 - A `<user>` is a name, a web login name, an id, or `channel:id`.
 
 The admin is `access.admin` in `ops.yaml`; it cannot be removed or reset here.

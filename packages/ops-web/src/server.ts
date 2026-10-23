@@ -108,6 +108,10 @@ export interface ServerDeps {
     begin(key: string, redirectUri: string): Promise<{ ok: true; url: string } | { ok: false; message: string }>
     finish(params: URLSearchParams): Promise<{ ok: boolean; message: string }>
   }
+  /** The Argus user a request through `tailscale serve` is, when that sign-in is on and trusted. */
+  readonly tailscaleUser?: (request: IncomingMessage) => string | undefined
+  /** Told of every new sign-in, for the alert in public mode. */
+  readonly signedIn: (session: Session, address: string, userAgent: string | undefined, how: string) => void
   /** The address the interface is opened at, without a trailing slash. */
   readonly publicUrl: string
   /** Record an upload. */
@@ -211,6 +215,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
         response.end(loginPage(outcome.reason))
         return
       }
+      deps.signedIn(outcome.session, address, userAgent, 'link')
       response.writeHead(303, { location: '/', 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
       response.end()
       return
@@ -225,6 +230,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
         return
       }
       if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
+      deps.signedIn(outcome.session, address, userAgent, 'password')
       response.writeHead(204, { 'set-cookie': cookie(outcome.sessionId), 'cache-control': 'no-store' })
       response.end()
       return
@@ -234,6 +240,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       const body = await readJson(request)
       const outcome = deps.auth.verifyTicket(cookieOf(request, TICKET_COOKIE) ?? '', String(body['code'] ?? ''), address, userAgent)
       if (!outcome.ok) return send(response, outcome.reason === 'limited' ? 429 : 401, { error: outcome.reason })
+      deps.signedIn(outcome.session, address, userAgent, 'code')
       response.writeHead(204, { 'set-cookie': [cookie(outcome.sessionId), ticketCookie('', 0)], 'cache-control': 'no-store' })
       response.end()
       return
@@ -307,7 +314,19 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
 
     // ── a session from here on ───────────────────────────────────────────
     const sessionId = cookieOf(request)
-    const session = deps.auth.session(sessionId)
+    let session = deps.auth.session(sessionId)
+    // Through tailscale serve, a linked Tailscale login is a sign-in: no password on one's own devices.
+    if (session === undefined && deps.tailscaleUser !== undefined) {
+      const userId = deps.tailscaleUser(request)
+      if (userId !== undefined) {
+        const opened = deps.auth.open(userId, 'link', userAgent)
+        if (opened.ok) {
+          response.setHeader('set-cookie', cookie(opened.sessionId))
+          session = opened.session
+          deps.signedIn(opened.session, address, userAgent, 'tailscale')
+        }
+      }
+    }
     const start = /^\/oauth\/start\/([A-Za-z0-9_-]{20,})$/.exec(path)
     if (method === 'GET' && start !== null && deps.oauth !== undefined) {
       if (session === undefined || !deps.isAdmin(session)) {
@@ -439,6 +458,9 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     if (method === 'GET' && path === '/api/models') return send(response, 200, { models: deps.models() })
     if (method === 'GET' && path === '/api/locales') return send(response, 200, { locales: deps.locales.list() })
     if (method === 'GET' && path === '/api/extensions') return send(response, 200, { extensions: deps.extensions() })
+    if (method === 'GET' && path === '/api/me/sessions') return send(response, 200, { sessions: deps.auth.sessionsOf(sessionId ?? '') })
+    const endSession = /^\/api\/me\/sessions\/([a-f0-9]{16}|others)\/end$/.exec(path)
+    if (method === 'POST' && endSession !== null) return send(response, 200, { ended: deps.auth.endSessions(sessionId ?? '', endSession[1] as string) })
     if (method === 'POST' && path === '/api/me/language') {
       const body = await readJson(request)
       const code = body['code'] === null ? null : String(body['code'] ?? '')

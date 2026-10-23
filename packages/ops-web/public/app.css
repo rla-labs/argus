@@ -263,6 +263,8 @@ a.pcard:hover { border-color: var(--line2); transform: translateY(-2px); color: 
 .ri.wide { flex-direction: column; align-items: stretch; gap: 10px; }
 .ri.wide > div { flex: none !important; }
 .ri.wide .ri-control { width: 100%; }
+.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.steps li { display: flex; flex-direction: column; gap: 4px; }
 .savebar { position: sticky; bottom: 16px; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; background: var(--panel2); border: 1px solid var(--accent-line); border-radius: var(--radius); box-shadow: var(--glow); animation: in-up 0.2s ease-out; }
 .chip-x { border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 0 0 0 2px; display: inline-flex; }
 .chip-x:hover { color: var(--bad); }

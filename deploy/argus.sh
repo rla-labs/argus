@@ -30,6 +30,8 @@ Usage: argus [--docker|--native] <command> [options]
   setup-link the one-time link that creates the admin on the web; with
              --admin, a sign-in link for the admin who lost the password
              (restarts the service)
+  tailscale  put the web interface on your Tailscale network: installs Tailscale
+             (asks first), signs the server in, runs tailscale serve
   backup     back up the database and the data
   restore    restore from a backup
   upgrade    upgrade, rolling back if the new version does not start
@@ -134,8 +136,39 @@ setup_link() {
   exit 1
 }
 
+# Tailscale: install it (its official script, after asking), sign this server in to the
+# tailnet, and publish the web interface on it with HTTPS. Nothing is opened to the
+# internet. --yes installs without asking.
+tailscale_setup() {
+  local port="${ARGUS_AGENT_WEB_PORT:-3091}" answer="" name=""
+  if ! command -v tailscale >/dev/null 2>&1; then
+    if [ "${1:-}" != "--yes" ]; then
+      printf 'Tailscale is not installed. Install it with its official script (https://tailscale.com/install.sh)? [y/N] ' >&2
+      read -r answer || true
+      case "${answer}" in y|Y|yes) ;; *) echo "Not installed. Install it yourself, then run 'argus tailscale' again." >&2; exit 1 ;; esac
+    fi
+    curl -fsSL https://tailscale.com/install.sh | as_root sh
+  fi
+  if ! as_root tailscale status >/dev/null 2>&1; then
+    echo "Sign this server in to your Tailscale account: open the link below." >&2
+    as_root tailscale up
+  fi
+  as_root tailscale serve --bg "${port}"
+  name="$(as_root tailscale status --json | sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n 1)"
+  cat >&2 <<EOF
+
+Argus is on your tailnet: https://${name}
+  1. Open it from a device signed in to the same Tailscale account (the Tailscale app
+     on a phone or laptop).
+  2. In Argus, Settings > Web access: set the public address to https://${name}
+     and turn on sign-in with Tailscale.
+  3. Settings > Users: link each person's Tailscale login, then they need no password.
+EOF
+}
+
 case "${COMMAND}" in
   setup-link) setup_link "$@" ;;
+  tailscale) tailscale_setup "$@" ;;
   init)    script install.sh install-native.sh "$@" ;;
   doctor)  script smoke.sh smoke-native.sh --doctor "$@" ;;
   backup)  script backup.sh backup-native.sh "$@" ;;

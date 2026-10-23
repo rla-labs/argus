@@ -2610,14 +2610,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'users',
         description: 'List, invite, disable and reset users (admin)',
-        syntax: '/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name>]',
+        syntax: '/users [invite <name> | remove <user> | enable <user> | reset <user> | name <user> <name> | tailscale <user> <login|none>]',
         detail:
           'With no argument, lists the users: name, role, channels, web login, disabled. ' +
           '`invite <name>` creates an operator and gives a sign-in link valid 24 hours, to send ' +
           'them; with it they set a web password. `remove` disables a user on every channel and ' +
           'signs them out; `enable` takes them back. `reset` removes their web password and authenticator code, signs ' +
           'them out and gives a new 24-hour link. A <user> is a name, a web login name, an id, ' +
-          'or channel:id (telegram:123456789). The admin cannot be removed.',
+          'or channel:id (telegram:123456789). The admin cannot be removed. `tailscale` links a ' +
+          'Tailscale login (you@github) to a user: with web.tailscale_identity on, opening the ' +
+          'interface through tailscale serve signs them in, no password.',
         examples: ['/users', '/users invite Ana', '/users reset Ana', '/users remove telegram:123456789'],
         mutating: true,
         adminOnly: true,
@@ -2655,7 +2657,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
               'On Telegram, they can then connect with /link from the web.',
           )
         }
-        if (!['remove', 'enable', 'reset', 'name'].includes(verb)) return failWith(this.spec, `Unknown /users ${verb}.`)
+        if (!['remove', 'enable', 'reset', 'name', 'tailscale'].includes(verb)) return failWith(this.spec, `Unknown /users ${verb}.`)
         const reference = tokens[1]
         const user = reference === undefined ? undefined : findUser(reference)
         if (user === undefined) return errorResult(`No user ${reference ?? ''}. /users lists them.`.replace('  ', ' '))
@@ -2668,6 +2670,17 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         }
         if (verb === 'enable') {
           return store.users.enable(user.id) ? result(`${label} can use Argus again.`) : result(`${label} is not disabled.`)
+        }
+        if (verb === 'tailscale') {
+          const login = tokens[2]?.toLowerCase()
+          if (login === undefined) return failWith(this.spec, 'tailscale needs a Tailscale login (you@github, you@example.com) or none.')
+          for (const identity of store.users.identities(user.id).filter((each) => each.channel === 'tailscale')) store.users.unlink('tailscale', identity.external_id)
+          if (login === 'none') return result(`${label} has no Tailscale login now.`)
+          if (!/^[^\s@]+@[^\s@]+$/.test(login)) return errorResult(`"${login}" is not a Tailscale login: it looks like you@github or you@example.com.`)
+          const owner = store.users.identity('tailscale', login)
+          if (owner !== undefined && owner.user_id !== user.id) return errorResult(`${login} is ${userLabel(store.users.get(owner.user_id) ?? user)}'s already.`)
+          store.users.link({ channel: 'tailscale', external_id: login, user_id: user.id }, options.now())
+          return result(`${label} signs in as ${login} on Tailscale, where web.tailscale_identity is on: no password on their own devices.`)
         }
         if (user.role === 'admin') return errorResult(`The admin cannot be ${verb === 'remove' ? 'removed' : 'reset'} here.`)
         if (verb === 'remove') {

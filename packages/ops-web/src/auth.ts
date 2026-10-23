@@ -278,6 +278,44 @@ export class WebAuth {
     return { userId: row.user_id, expiresAt: row.expires_at, createdAt: row.created_at, via: row.via }
   }
 
+  /**
+   * The signed-in user's sessions, this one marked: where else they are signed in.
+   *
+   * @param sessionId the cookie of the session asking.
+   * @returns each session by a short id (part of its hash), never the cookie.
+   */
+  sessionsOf(sessionId: string): Array<{ id: string; current: boolean; via: WebSessionVia; createdAt: number; lastSeenAt: number; userAgent: string | null }> {
+    const session = this.session(sessionId)
+    if (session === undefined) return []
+    const mine = hashOf(sessionId)
+    return this.store.webAuth.userSessions(session.userId).map((row) => ({
+      id: row.id_hash.slice(0, 16),
+      current: row.id_hash === mine,
+      via: row.via,
+      createdAt: row.created_at,
+      lastSeenAt: row.last_seen_at,
+      userAgent: row.user_agent,
+    }))
+  }
+
+  /**
+   * End one of the signed-in user's other sessions, or all of them.
+   *
+   * @param sessionId the cookie of the session asking; it stays.
+   * @param id the short id from {@link sessionsOf}, or `others`.
+   * @returns how many ended.
+   */
+  endSessions(sessionId: string, id: string): number {
+    const session = this.session(sessionId)
+    if (session === undefined) return 0
+    const mine = hashOf(sessionId)
+    if (id === 'others') return this.store.webAuth.deleteUserSessions(session.userId, mine)
+    const row = this.store.webAuth.userSessions(session.userId).find((each) => each.id_hash.startsWith(id) && each.id_hash !== mine)
+    if (row === undefined || id.length < 16) return 0
+    this.store.webAuth.deleteSession(row.id_hash)
+    return 1
+  }
+
   /** End a session. */
   logout(sessionId: string | undefined): void {
     if (sessionId !== undefined) this.store.webAuth.deleteSession(hashOf(sessionId))

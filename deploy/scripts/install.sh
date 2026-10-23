@@ -15,7 +15,7 @@
 # environment (see --help), which is what CI and a scripted install use.
 #
 # Usage:
-#   install.sh [--non-interactive] [--build] [--data-path DIR] [--yes] [--dry-run]
+#   install.sh [--non-interactive] [--build] [--data-path DIR] [--yes] [--dry-run] [--tailscale]
 
 # --data-path is taken before lib.sh, which resolves DATA_PATH and makes it readonly.
 _prev=""
@@ -52,6 +52,7 @@ Usage: ${SCRIPT_NAME} [options]
   --image IMAGE       the image to pull (default ${V_IMAGE})
   --yes               assume yes for confirmations
   --dry-run           check prerequisites and print the plan; change nothing
+  --tailscale         then put the web interface on your Tailscale network
   --help              this message
 
 Environment (all optional; used instead of prompting):
@@ -90,6 +91,7 @@ while [ $# -gt 0 ]; do
     --image)           V_IMAGE="${2:?--image needs a reference}"; shift 2 ;;
     --yes|-y)          ASSUME_YES=1; export ASSUME_YES; shift ;;
     --dry-run)         DRY_RUN=1; shift ;;
+    --tailscale)       TAILSCALE=1; shift ;;
     --help|-h)         usage; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
@@ -605,8 +607,8 @@ cat >&2 <<EOF
   The web listens on this server's loopback only. From your computer, open a tunnel
   first, then the link:
     ssh -L 3091:127.0.0.1:3091 $(id -un)@$(hostname 2>/dev/null || echo this-server)
-  or, with Tailscale on the server: sudo tailscale serve --bg 3091
-  (then set web.public_url in ops.yaml to the https://….ts.net address it prints).
+  or put it on your Tailscale network: argus tailscale
+  (installs Tailscale after asking, and publishes Argus there with HTTPS).
 
 EOF
 fi
@@ -625,3 +627,8 @@ cat >&2 <<EOF
     argus backup
 
 EOF
+
+# --tailscale: the web interface on the tailnet, now that Argus runs.
+if [ "${TAILSCALE:-0}" = 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then
+  bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/argus.sh" tailscale --yes || echo "Tailscale was not set up; run 'argus tailscale' later." >&2
+fi
