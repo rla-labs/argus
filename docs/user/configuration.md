@@ -17,9 +17,11 @@ Configuration lives in these files:
 | `deploy/compose/.env` (`secrets.env` on a native install) | Secrets and deployment settings | **600** |
 | `.credentials.yaml` in the dsh home | Keys and secrets saved with `/key` | **600** |
 
-Most of it changes from the chat: `/set` writes a project's file, `/defaults` the two
-default models in `ops.yaml`, `/instructions` a project's instructions, `/key` the
-credentials. Each keeps the file's comments.
+**None of it needs an editor.** The web's **Settings** pages have a form for every key,
+and the chat has the same commands: `/config` writes any `ops.yaml` key (checked
+against the whole file; what applies only after a restart says so, and `/restart`
+restarts Argus), `/set` a project's file, `/template set` a template, `/instructions` a
+project's instructions, `/key` the credentials. Each keeps the file's comments.
 
 **Secrets are never in `ops.yaml`.** The bot token (`TELEGRAM_BOT_TOKEN`) and the provider
 keys (`<PROVIDER>_API_KEY`) are read from the environment or from dsh's credentials
@@ -359,6 +361,8 @@ The [web interface](web.md).
 | `idle_minutes` | int | `30` | In public mode, how long an unused session lasts (5 to 1440). |
 | `max_upload_mb` | int | `2048` | The largest file a project's page [uploads](web.md#large-files) into its `inbox/`. |
 | `download_link_hours` | int | `24` | How long the link for a file too big for a chat stays valid (1 to 168). |
+| `tailscale_identity` | boolean | `false` | [Sign in by Tailscale identity](web.md#reach-it): a request through `tailscale serve` carrying a Tailscale login linked to a user (`/users tailscale`) signs them in, no password. Ignored in public mode. |
+| `trusted_proxies` | list of addresses | `[]` | Where a Tailscale identity is trusted from, besides the server itself and, in Docker, the container's gateway. |
 
 ## `web_search` — who answers the agents' searches
 

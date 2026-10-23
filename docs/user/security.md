@@ -260,6 +260,19 @@ Argus's own interface (the dashboard, approvals, settings and chat) is for a
     `web.public_url` is `https://`. The database keeps a hash of it, not the cookie, so
     a copy of the database signs nobody in. Sessions survive a restart; changing the
     password ends the others.
+- **Sign in with Tailscale** (`web.tailscale_identity`, off by default) takes the
+  login `tailscale serve` adds to a request (`Tailscale-User-Login`) as a sign-in, for a
+  user the admin linked to it. It is trusted only from what `tailscale serve` connects
+  from: the server itself, the container's gateway under Docker, or an address in
+  `web.trusted_proxies`; never in public mode, where a proxy in front of the internet
+  could pass anything. Someone with a shell on the server could forge the header;
+  that person controls the server already.
+- **Every sign-in is in the audit log** (`web.signin`: how, the address, the browser);
+  in public mode the person and the admin are also told at once. **Settings → Security**
+  lists a user's sessions and ends any of them, or all but the one in use.
+- **Files a project made are shown so that nothing in them runs in the page**: they
+  come with a sandboxing CSP, HTML and SVG as text, never sniffed, and a link outside the
+  project's folder is refused.
 - **An authenticator code (TOTP, RFC 6238)** may follow the password or the link:
   optional on a private network, required for everyone in public mode. A code works
   once; ten recovery codes, stored as hashes, work once each.

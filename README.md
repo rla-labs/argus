@@ -68,7 +68,7 @@ The installer asks for what it needs and prints a setup link. With Telegram, sen
 `argus backup` and `argus upgrade` work the same for both installs.
 
 The web interface listens only on the server (port 3091). Reach it
-[through Tailscale or an SSH tunnel](docs/user/web.md#reach-it-tailscale-recommended).
+[through Tailscale or an SSH tunnel](docs/user/web.md#reach-it).
 
 ## Documentation
 

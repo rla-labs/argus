@@ -23,7 +23,7 @@ your timezone, and a daily and monthly budget for each project. It starts the se
 and sends you a first message on Telegram.
 
 **Without Telegram**, it ends with a one-time setup link instead. Open it through an SSH
-tunnel or Tailscale ([how](web.md#reach-it-tailscale-recommended)): the page creates
+tunnel or Tailscale ([how](web.md#reach-it)): the page creates
 your admin account, then asks for the API key, the models and a first project
 ([the setup link](web.md#without-telegram-the-setup-link)). The steps below work the
 same in the web's **Chat**.
@@ -117,17 +117,20 @@ Not everything needs a project:
 /task what is the difference between cron and systemd timers? Short answer.
 ```
 
-A task runs once in a scratch folder, with no memory, on the cheap model in `tasks.model`.
+A task runs in a scratch folder of its own, on the model in `tasks.model`; you can go on
+with it for a day ([`/session`](commands.md#session-id-text--close-id)), and it remembers
+only that conversation.
 You can also write without a command when no project is active (`/p none`). The front
 desk answers questions about the system itself, and sends work to the project it fits,
 or runs it as a task.
 
 ## 8. Optional: a browser
 
-Everything above also works from a browser: an overview of the projects and the
-spending, the approvals, the settings and the chat. It stays on a private network: with
-[Tailscale](https://tailscale.com) on the server, `sudo tailscale serve --bg 3091`, then
-send `/web` for a sign-in link. [The web interface](web.md) has the steps.
+Everything above also works from a browser, and more: your projects, each with its
+conversation, schedules and files, the approvals, the costs, and every setting with a
+form. It stays on a private network: `argus tailscale` on the server puts it on your
+[Tailscale](https://tailscale.com) network, then send `/web` for a sign-in link (or
+turn on sign-in with Tailscale). [The web interface](web.md) has the steps.
 
 ## Where next
 

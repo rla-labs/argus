@@ -18,7 +18,7 @@ import { ProjectSpace } from './pages/project.js'
 import { SessionsView } from './pages/sessions.js'
 import { HomeView } from './pages/home.js'
 import { InboxView } from './pages/inbox.js'
-import { RunsView, SchedulesView } from './pages/work.js'
+import { CostsPage, SchedulesPage } from './pages/global.js'
 import { SettingsPage } from './pages/system.js'
 import {
   ChatView,
@@ -384,9 +384,9 @@ function pageFor(route: Route, context: PageContext): VNode | null {
     case 'chat':
       return html`<${ChatView} version=${context.chatVersion} />`
     case 'schedules':
-      return html`<${SchedulesView} ...${page} />`
+      return html`<${SchedulesPage} ...${page} />`
     case 'costs':
-      return html`<${RunsView} ...${page} />`
+      return html`<${CostsPage} ...${page} overview=${overview} />`
     case 'setup':
       return admin && settings !== undefined && me !== undefined ? html`<${SetupView} data=${settings} me=${me} run=${run} outcome=${null} version=${page.version} onFinish=${() => go({ name: 'home' })} />` : loading
     case 'settings':

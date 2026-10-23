@@ -6,28 +6,40 @@ settings, and a chat. It is built for **one person on a private network**.
 
 ## What is on it
 
-| Page | What you see and do |
+| Place | What you see and do |
 |---|---|
-| **Overview** | Your projects around the front desk: which are running, which wait for you, how much of today's budget each used. Spending today and this month, with the last 14 days. The runs going on now (with a Stop button), the approvals waiting, the next 24 hours of schedules, and the latest actions. It updates by itself. |
-| **Approvals** | Every pending approval, whichever chat asked it, with Approve, Deny, "All of this kind, this run" and, for the admin, "Always allow" where the rule can be named. An answer here closes the question in Telegram: its buttons give way to who answered. A run the loop checker found in a loop, under `on_loop: ask`, is here too, with its reason, Continue and Stop. |
-| **Projects** | Every project: state, model, today's and this month's spending against its budget. **New project** (an id, a template, a model). A project's own page: its status with Stop, Reset and Archive; spending and its day/month budget; its model; what it may use (tools, MCP servers); its runs; its schedules; its instructions; its memory (and forgetting a section); its files, with a download, a folder as a zip, and an upload into `inbox/`; Undo; its [extensions](extensions.md) (Enable/Disable here); its [git remotes](configuration.md#git--remotes-argus-clones-pulls-and-pushes) and their tokens (admin). |
-| **Tasks** | Run a one-off task, see what tasks have cost (Estimate), and the recent tasks with a Stop button for one that is running. |
-| **Schedules** | Every schedule with its next run: Run now, Enable/Disable, Remove; and a form for a new one (a project or a task, a cron expression, the text). |
-| **Runs & costs** | Spending today and this month for everything, tasks, the front desk and each project, against their budgets, with a form to set a limit; the recent runs; the audit log. |
-| **Chat** | The same chat as Telegram: plain text goes to the active project or the front desk, `/commands` run, approval buttons and files appear in it. |
-| **Users** (admin) | Every user: role, channels, web login. Invite someone (a 24-hour link to send them), reset a password, disable or enable. The same as [`/users`](commands.md#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin). |
-| **Settings** | The models for tasks and the front desk, the API keys (checked before they are saved), what each project may use (`read`, `write`, `shell`, `web`, `agents`, `other`, its MCP servers), and each project's [instructions](commands.md#instructions-project-id--project-id-text). Your web password, and your channels (**Connect Telegram**). **System**: Panic and Resume all, allowing a free remote model, and the health report. |
+| **Projects** (the start page) | What waits for you first (approvals, a possible loop, a project paused by its budget or with settings that do not validate), answered in place. A box to ask for something: **Where** picks a project (the message goes to its conversation) or none (a one-off task). A card per project: its state, today's spend against its budget, what it did last, its next scheduled run; the ones that need you come first. **New project**: a name, what it is for, a template. |
+| **A project's space** | Under a header with its state, model, today's spend and Stop: **Conversation** (its own thread; files dropped or attached go into `inbox/`; approvals answered in place; what it is doing now), **Schedules** (run now, on/off, remove; a new one from plain choices, hourly to monthly or a cron line, with its next five runs), **Files** (folders, a preview of text, images and PDFs, upload by drag and drop, download, a folder as a zip), **Activity** (its runs, with cost, steps and why each stopped) and **Settings** (below). |
+| **Inbox** | Everything waiting for a decision, from every project, oldest first: approvals (Approve, Deny, "All of this kind, this run", and for the admin "Always allow" where the rule can be named), possible loops (Continue, Stop) and alerts. An answer here closes the question on Telegram too. |
+| **Sessions** | Conversations with no project, on the default model ([`/session`](commands.md#session-id-text--close-id)). Each remembers only while it is open and closes a day after its last message, with its folder. |
+| **Schedules** | Every schedule, from every project, with the next 24 hours on a line. |
+| **Costs** | Today and this month against the budgets, the last 14 days, this month by project (with its budget), and the recent runs. |
+| **Settings** | Your account; and for the admin everything that is Argus's: web access, models and providers, keys and secrets, web search, extensions, templates, budgets, channels, users, security, language, system health, and every `ops.yaml` key under **Advanced**. |
 
-The interface is in English and Romanian; the buttons at the top switch. It changes
-nothing in its own way: each action runs the same command you would type in Telegram
-(`/new`, `/model`, `/budget`, `/set`, `/stop`, `/get`…), so the checks and the audit log are the
-same; a button for something your role may not do is not shown.
-It runs as you, with your role: what an operator may not do in Telegram, they may not
-do here either. The chat is one of your channels: notices and approvals meant for you
-arrive in it as they do in Telegram. Its history (the last 500 messages, with their
-files) survives a restart, and **Chat** in the menu shows how many messages from Argus
-you have not seen yet. A question still waiting when Argus restarts shows "No answer
-in time": ask again, or answer the new one.
+**A project's settings**, in sections and plain words: General (what it is for, the
+model picked from a list with prices, a fallback, standing instructions), Tools and
+access (each group Off, Ask or Allowed; widening access says what it means before you
+save), Extensions, Connections (MCP servers added by URL or command and signed in with
+**Connect**; git remotes and their tokens; the mail account and who it may write to),
+Budget and limits, Memory and history (forget a section, go back to a point), the
+danger zone, and Advanced (every key of its file, marked when it no longer follows its
+template). A change waits in a bar until **Save**.
+
+**Nothing to write in a file.** Every setting has a form; what applies only after a
+restart says so, and **Restart now** restarts Argus once the runs in progress finish
+(under Docker or systemd). Each action runs the same command you could type in the
+chat (`/set`, `/config`, `/key`, `/ext`, `/template`, `/cron`…), so the checks and the
+audit log are the same, and a button your role may not use is not shown.
+
+**Finding your way.** **Ctrl+K** (⌘K) searches projects, pages and actions. Every place
+has its own address (`#/p/site-firma/settings/tools`), so the back button and a link
+work. On a phone the menu is a bar at the bottom.
+
+**Look and language.** Dark or light, as your system, or chosen in the account menu.
+English and Romanian ship with Argus; the admin adds a language pack in **Settings →
+Language** (a JSON file of the English texts, translated; what it lacks shows in
+English). Each person's choice is kept for them, on every device. What Argus writes
+itself (answers to commands, Telegram notices) stays in English for now.
 
 ## Large files
 
@@ -49,29 +61,32 @@ none of them:
 For a codebase, use [git](configuration.md#git--remotes-argus-clones-pulls-and-pushes)
 rather than uploads: a project clones and pushes it itself.
 
-## Reach it: Tailscale (recommended)
+## Reach it
 
-The interface listens only on the server itself (`127.0.0.1:3091`). Nothing is
-opened to the internet, and it must stay that way: Argus can run commands on your
-server. [Tailscale](https://tailscale.com) gives your own devices a private,
-encrypted path to it.
+Any install starts **private**: the interface listens only on the server
+(`127.0.0.1:3091`), nothing is opened to the internet. Three ways in, each also in
+**Settings → Web access**:
 
-1. Install Tailscale on the server and on your laptop or phone, signed in to the
-   same account.
-2. On the server:
+**Tailscale (recommended).** [Tailscale](https://tailscale.com) gives your own devices
+a private, encrypted path to the server, with a real HTTPS certificate. On the server:
 
-   ```sh
-   sudo tailscale serve --bg 3091
-   ```
+```sh
+argus tailscale
+```
 
-   It prints an address like `https://argus.tail1234.ts.net`. That address works
-   only for devices on your tailnet, with a real HTTPS certificate.
-3. Put that address in `ops.yaml`, so sign-in links point there, and restart:
+It installs Tailscale (asking first; or install it yourself), signs the server in to
+your account (open the link it prints), and publishes Argus on your tailnet with
+`tailscale serve`. It prints the address, like `https://argus.tail1234.ts.net`. Then,
+in **Settings → Web access**, set it as the public address. On your phone and laptop,
+install the Tailscale app and sign in to the same account. A new install does all of
+this with `argus init --tailscale`.
 
-   ```yaml
-   web:
-     public_url: https://argus.tail1234.ts.net
-   ```
+**No password on your own devices.** Turn on **Sign in with Tailscale**
+(`web.tailscale_identity`) and link each person's Tailscale login in **Settings →
+Users** (or `/users tailscale <user> you@github`). Opening Argus through
+`tailscale serve` then signs them in. The login is trusted only from what `tailscale
+serve` connects from (the server itself, or, in Docker, the container's gateway; more
+with `web.trusted_proxies`), and never in public mode.
 
 **Without Tailscale:** an SSH tunnel works from any computer that can SSH to the
 server:
@@ -98,6 +113,10 @@ a VPN, public mode adds what that takes:
 - **HTTPS only:** the cookie is always `Secure`, and the browser is told to use HTTPS
   from then on (HSTS).
 - **An unused session ends after 30 minutes** (`web.idle_minutes`).
+- **You are told of every new sign-in**, on Telegram and in the web chat (the person and
+  the admin): how, from where, which browser. One that was not you: **Settings →
+  Security** lists where you are signed in, ends any of them or all the others; then
+  change the password.
 - The failed sign-in limits count the client's own address, from the proxy.
 - `argus doctor` **fails** while `web.public_url` is not `https://` or the admin has no
   code yet.
@@ -223,13 +242,16 @@ the same you.
 
 ```yaml
 web:
-  enabled: true            # false turns it off
+  enabled: true              # false turns it off
   port: 3091
   public_url: https://argus.tail1234.ts.net
   session_hours: 24
-  public: false            # true: public mode, behind a proxy with HTTPS
-  idle_minutes: 30         # public mode: an unused session ends
+  public: false              # true: public mode, behind a proxy with HTTPS
+  idle_minutes: 30           # public mode: an unused session ends
+  tailscale_identity: false  # true: a linked Tailscale login signs in, no password
+  trusted_proxies: []        # where else a Tailscale identity is trusted from
 ```
 
-See [configuration](configuration.md#web) for the details and
+All of them are in **Settings → Web access** and **Advanced**. See
+[configuration](configuration.md#web) for the details and
 [security](security.md#the-web-interface) for what protects it.

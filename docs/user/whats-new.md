@@ -3,6 +3,35 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.7.3 (in progress)
+
+**The web interface, first-class.**
+
+- **Projects first.** The start page is your projects, the ones that need you first,
+  with what waits for a decision answered in place and a box to ask for something in a
+  project or as a one-off task. A project opens on its own space: its conversation,
+  schedules, files, activity and settings.
+- **Every setting in the web, nothing to write in a file.** A project's settings in
+  sections and plain words; Argus's own (web access, models and providers, keys and
+  secrets, web search, extensions, templates, budgets, users, language…), and every
+  `ops.yaml` key under Advanced. What applies only after a restart says so, and
+  **Restart now** restarts Argus once the runs finish. The chat gets the same:
+  `/config`, `/restart`, `/template set|new|remove`, `/session`.
+- **A conversation per project, and sessions.** A project's conversation is its own
+  thread in the web. A one-off task is a session you can go on with for a day after its
+  last message (`/session`); before, a task's agent stayed until the restart.
+- **Schedules from plain choices** (weekdays at 9, the 1st of the month…) with their
+  next runs; **files** with a preview, drag and drop and a zip; **costs** by project.
+- **Reach it without SSH.** `argus tailscale` (or `argus init --tailscale`) puts the
+  web on your Tailscale network; with **sign in with Tailscale**, a person whose login
+  is linked comes in with no password. Private stays the default.
+- **Public mode, safer.** Every new sign-in is told to the person and the admin; you
+  see where you are signed in and end the rest.
+- **A new look** (dark and light), its own fonts, Ctrl+K to jump anywhere, a menu at the
+  bottom on a phone, and English, Romanian or a language pack you add.
+
+[What changes](backup-and-upgrade.md#upgrading-to-073).
+
 ## 0.7.2
 
 **A browser, MCP servers that sign in, and per-tool access.**

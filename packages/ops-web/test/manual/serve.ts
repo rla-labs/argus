@@ -69,6 +69,7 @@ const link = async (): Promise<void> => {
 }
 if (process.env['SETUP'] === '1') console.log(readFileSync(join(dataDir, 'state', 'setup-link'), 'utf8'))
 else {
-  await link()
+  // LINKS=n prints n links: one each for a few browsers (a headless screenshot uses one).
+  for (let i = 0; i < Number(process.env['LINKS'] ?? '1'); i++) await link()
   setInterval(() => void link(), 9 * 60_000)
 }
