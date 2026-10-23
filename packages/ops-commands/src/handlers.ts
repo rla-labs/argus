@@ -1591,7 +1591,9 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         const known = loaded === undefined ? undefined : settingKeys(loaded)
         // A tool's exception is a new key by nature: any tool name may get one; so is a
         // rule for one tool of a server the project has.
-        const exception = /^tools\.exceptions\.[a-z0-9_-]+$/i.test(key) || (/^mcp\.[a-z0-9-]+\.tools\.[A-Za-z0-9_*?-]+$/.test(key) && loaded?.mcp[path[1] ?? ''] !== undefined)
+        // A whole MCP server is added with its map and removed with null.
+        const server = /^mcp\.[a-z0-9][a-z0-9-]{0,40}$/.test(key)
+        const exception = server || /^tools\.exceptions\.[a-z0-9_-]+$/i.test(key) || (/^mcp\.[a-z0-9-]+\.tools\.[A-Za-z0-9_*?-]+$/.test(key) && loaded?.mcp[path[1] ?? ''] !== undefined)
         if (known !== undefined && key !== 'model' && !exception && !known.includes(key)) {
           return errorResult(`"${key}" is not a project setting. Known: ${known.join(', ')}.`)
         }
@@ -1609,7 +1611,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         } else {
           const value = settingValue(text)
           if (!value.ok) return errorResult(`"${text}" is not a valid value: ${value.message}`)
-          doc.setIn(path, value.value)
+          if (server && value.value === null) {
+            if (!doc.hasIn(path)) return errorResult(`${projectId} has no MCP server ${path[1]} in its file${loaded?.mcp[path[1] ?? '']?.extension === undefined ? '' : `: it comes with the ${loaded.mcp[path[1] ?? '']?.extension?.name} extension (/ext disable)`}.`)
+            doc.deleteIn(path)
+          } else if (server && (value.value === null || typeof value.value !== 'object' || Array.isArray(value.value))) {
+            return errorResult(`An MCP server is a map: {url: https://…} or {command: npx, args: [...]}; null removes it.`)
+          } else doc.setIn(path, value.value)
           shown = JSON.stringify(value.value)
         }
 

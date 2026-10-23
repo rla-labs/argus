@@ -939,6 +939,9 @@ importers:
       preact:
         specifier: 10.29.8
         version: 10.29.8
+      yaml:
+        specifier: 2.6.1
+        version: 2.6.1
     devDependencies:
       '@argus-agent/memory':
         specifier: workspace:^

@@ -176,6 +176,20 @@ describe('the web interface', () => {
     expect((await get('/api/projects/nope/files')).status).toBe(404)
   }, 60_000)
 
+  it('describes a project\'s settings, whose own each is, and its servers, extensions and remotes; and the models with their prices', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const get = async (path: string): Promise<Record<string, unknown>> => (await (await fetch(`${booted.base}${path}`, { headers: { cookie } })).json()) as Record<string, unknown>
+    const body = await get('/api/projects/alpha/settings')
+    const fields = body['fields'] as Array<{ key: string; own: boolean; value: unknown }>
+    expect(fields.find((field) => field.key === 'description')).toMatchObject({ own: true, value: 'The test site' })
+    expect(fields.find((field) => field.key === 'budget.day_usd')).toMatchObject({ own: false })
+    expect(fields.some((field) => field.key === 'cwd' || field.key === 'id')).toBe(false)
+    expect(body).toMatchObject({ model: 'fake/fake-model', mcp: [], git: [], undo: [] })
+    expect((await fetch(`${booted.base}/api/projects/nope/settings`, { headers: { cookie } })).status).toBe(404)
+    expect(Array.isArray((await get('/api/models'))['models'])).toBe(true)
+  }, 60_000)
+
   it('describes every ops.yaml setting to the admin, web\'s own included', async () => {
     const booted = await bootWeb()
     const cookie = await signIn(booted)

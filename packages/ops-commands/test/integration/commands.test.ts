@@ -895,6 +895,19 @@ describe('admin-only commands', () => {
     expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
   }, 30_000)
 
+  it('/set adds an MCP server whole and removes it with null', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    expect(await run(booted, '/set alpha mcp.notion {url: "https://mcp.notion.com/mcp", oauth: {}}', admin())).toContain('alpha: mcp.notion')
+    expect(booted.projects.configOf('alpha')?.mcp['notion']).toMatchObject({ url: 'https://mcp.notion.com/mcp', oauth: { client: null } })
+    expect((await booted.commands.runCommand('/set alpha mcp.bad 5', admin())).text).toContain('is a map')
+    // Only access or tools would be an override of an extension's server; a url that is not text is wrong.
+    expect((await booted.commands.runCommand('/set alpha mcp.bad {url: 5}', admin())).error).toBe(true)
+    expect(booted.projects.configOf('alpha')?.mcp['bad']).toBeUndefined()
+    expect(await run(booted, '/set alpha mcp.notion null', admin())).toContain('alpha: mcp.notion = null')
+    expect(booted.projects.configOf('alpha')?.mcp['notion']).toBeUndefined()
+    expect((await booted.commands.runCommand('/set alpha mcp.notion null', admin())).text).toContain('has no MCP server notion')
+  }, 30_000)
+
   it('/config describes every ops.yaml key, writes a valid change keeping the comments, refuses an invalid one, and tells what waits for a restart', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const file = (booted.ctx as unknown as { opsConfig: { configPath: string } }).opsConfig.configPath

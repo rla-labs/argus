@@ -13,7 +13,7 @@ import { href } from '../router.js'
 import { useData, type PageProps } from '../ui.js'
 import { spentText, stateOf, when, type ProjectCard } from './home.js'
 import type { Overview } from './legacy.js'
-import { ProjectView as ProjectSettings } from './projects.js'
+import { ProjectSettings } from './project-settings.js'
 import { Thread } from './thread.js'
 
 interface RunView {
@@ -29,6 +29,7 @@ interface RunView {
 
 interface ProjectDetail extends ProjectCard {
   readonly runs: readonly RunView[]
+  readonly instructions: string | null
 }
 
 interface ScheduleView {
@@ -262,7 +263,7 @@ function Activity({ project }: { project: ProjectDetail }): VNode {
 
 // ── the page ───────────────────────────────────────────────────────────────
 
-export function ProjectSpace({ id, tab, version, chatVersion, run, can, overview, outcome }: PageProps & { id: string; tab: string; chatVersion: number; overview: Overview | undefined }): VNode {
+export function ProjectSpace({ id, tab, sec, version, chatVersion, run, can, overview, refresh }: PageProps & { id: string; tab: string; sec: string; chatVersion: number; overview: Overview | undefined; refresh: () => void }): VNode {
   const project = useData<ProjectDetail>(`/api/projects/${encodeURIComponent(id)}`, version)
   const current: Tab = (TABS as readonly string[]).includes(tab) ? (tab as Tab) : 'chat'
   const schedules = overview?.schedules.filter((row) => row.who === id && row.enabled).length ?? 0
@@ -315,5 +316,5 @@ export function ProjectSpace({ id, tab, version, chatVersion, run, can, overview
     ${current === 'schedules' ? html`<${Schedules} id=${id} version=${version} run=${run} can=${can} />` : null}
     ${current === 'files' ? html`<${Files} id=${id} version=${version} />` : null}
     ${current === 'activity' ? html`<${Activity} project=${project} />` : null}
-    ${current === 'settings' ? html`<${ProjectSettings} id=${id} version=${version} run=${run} outcome=${outcome} can=${can} />` : null}`
+    ${current === 'settings' ? html`<${ProjectSettings} id=${id} sec=${sec} version=${version} instructions=${project.instructions} admin=${can('set')} refresh=${refresh} />` : null}`
 }

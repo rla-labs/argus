@@ -74,6 +74,10 @@ export interface ServerDeps {
   readonly settings: () => unknown
   /** Every `ops.yaml` setting, described; `undefined` when the file is not known. */
   readonly systemSettings: () => unknown
+  /** A project's settings, described; `undefined` when there is no such project. */
+  readonly projectSettings: (id: string) => Promise<unknown>
+  /** Every model a provider names, with its price and whether it can run. */
+  readonly models: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
   /** Continue or stop a run the loop checker found in a loop. */
@@ -409,6 +413,12 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
         throw error
       }
     }
+    const projectSettings = /^\/api\/projects\/([^/]+)\/settings$/.exec(path)
+    if (method === 'GET' && projectSettings !== null) {
+      const described = await deps.projectSettings(decodeURIComponent(projectSettings[1] as string))
+      return described === undefined ? send(response, 404, { error: 'no such project' }) : send(response, 200, described)
+    }
+    if (method === 'GET' && path === '/api/models') return send(response, 200, { models: deps.models() })
     const projectPath = /^\/api\/projects\/([^/]+)$/.exec(path)
     if (method === 'GET' && projectPath !== null) {
       const project = deps.project(decodeURIComponent(projectPath[1] as string))

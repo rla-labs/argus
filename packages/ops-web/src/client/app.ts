@@ -131,10 +131,18 @@ function Palette({ items, onClose }: { items: PaletteItem[]; onClose: () => void
 
 // ── a command's answer that needs more than a toast ────────────────────────
 
+/** Text with its https links clickable (an OAuth sign-in link, a download). */
+function linkify(text: string): Array<string | VNode> {
+  return text.split(/(https?:\/\/[^\s]+)/g).map((part, i) => (i % 2 === 1 ? html`<a href=${part} target="_blank" rel="noopener noreferrer">${part}</a>` : part))
+}
+
 function OutcomeDialog({ outcome, run, onClose }: { outcome: CommandOutcome; run: (line: string) => void; onClose: () => void }): VNode {
-  return html`<${Modal} title=${outcome.buttons.length > 0 ? t('outcome.confirm') : t('outcome.files')} onClose=${onClose}>
-    <p class="text">${outcome.text}</p>
+  return html`<${Modal} title=${outcome.buttons.length > 0 ? t('outcome.confirm') : (outcome.files ?? []).length > 0 ? t('outcome.files') : 'Argus'} onClose=${onClose}>
+    <p class="text">${linkify(outcome.text)}</p>
     ${(outcome.files ?? []).map((file) => html`<a class="btn" href=${`/api/files/${encodeURIComponent(file.id)}`} download=${file.name}>${file.name}</a>`)}
+    ${outcome.buttons.length === 0 && /https?:\/\/\S+\/oauth\/start\//.test(outcome.text)
+      ? html`<a class="btn primary" href=${/https?:\/\/\S+\/oauth\/start\/\S+/.exec(outcome.text)?.[0] ?? '#'} target="_blank" rel="noopener noreferrer" onClick=${onClose}>${t('outcome.signIn')}</a>`
+      : null}
     <div class="cluster" style="justify-content:flex-end">
       <button type="button" class="btn" onClick=${onClose}>${outcome.buttons.length > 0 ? t('common.cancel') : t('common.close')}</button>
       ${outcome.buttons.map((button, i) => html`<button type="button" class=${`btn ${i === 0 ? 'primary' : ''}`} onClick=${() => { onClose(); run(button.command) }}>${button.label}</button>`)}
@@ -219,6 +227,13 @@ function App(): VNode {
       stop()
     }
   }, [signedIn, restricted, loadOverview, loadSettings, loadMe])
+
+  // A page shows a command's answer that needs more than a toast here.
+  useEffect(() => {
+    const show = (event: Event): void => setDialog((event as CustomEvent<CommandOutcome>).detail)
+    window.addEventListener('argus-outcome', show)
+    return () => window.removeEventListener('argus-outcome', show)
+  }, [])
 
   // Ctrl+K (⌘K) opens the palette anywhere; a click elsewhere closes the account menu.
   useEffect(() => {
@@ -314,7 +329,7 @@ function App(): VNode {
       </nav>
       <main id="main" tabindex="-1">
         ${unfinished && route.name !== 'setup' ? html`<div class="callout info" role="status"><span style="flex:1">${t('setup.banner')}</span><a class="btn sm primary" href="#/setup">${t('setup.bannerLink')}</a></div>` : null}
-        ${pageFor(route, { page, overview, settings, me, admin, run, loadOverview, loadMe, chatVersion })}
+        ${pageFor(route, { page, overview, settings, me, admin, run, loadOverview, loadMe, chatVersion, bump: () => { setVersion((v) => v + 1); void loadOverview() } })}
       </main>
     </div>
     <nav class="tabbar" aria-label=${t('nav.label')}>
@@ -337,6 +352,8 @@ interface PageContext {
   readonly loadOverview: () => Promise<void>
   readonly loadMe: () => void
   readonly chatVersion: number
+  /** Refetch what a page shows, after it changed something itself. */
+  readonly bump: () => void
 }
 
 /** The page a route shows. */
@@ -347,7 +364,7 @@ function pageFor(route: Route, context: PageContext): VNode | null {
     case 'home':
       return html`<${HomeView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'project':
-      return html`<${ProjectSpace} key=${route.id} id=${route.id} tab=${route.tab} ...${page} chatVersion=${context.chatVersion} overview=${overview} />`
+      return html`<${ProjectSpace} key=${route.id} id=${route.id} tab=${route.tab} sec=${route.sec} ...${page} chatVersion=${context.chatVersion} overview=${overview} refresh=${context.bump} />`
     case 'inbox':
       return html`<${InboxView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'sessions':

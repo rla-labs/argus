@@ -270,6 +270,19 @@ export class OpsProviders {
     return undefined
   }
 
+  /**
+   * Every model a route names, with whether it can run now (its provider has a key, or
+   * needs none).
+   *
+   * @returns the models, by provider then name.
+   */
+  models(): Array<{ provider: string; model: string; ready: boolean }> {
+    return [...this.routes.values()]
+      .filter((route) => route.error === undefined)
+      .flatMap((route) => [...route.models].map((model) => ({ provider: route.provider, model, ready: route.keyEnv === null || this.keys.has(route.keyEnv) })))
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model))
+  }
+
   /** Every route, sorted, with whether its key is set. */
   list(): Array<{ provider: string; declared: boolean; hasKey: boolean }> {
     return [...this.routes.values()]

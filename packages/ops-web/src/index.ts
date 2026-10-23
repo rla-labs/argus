@@ -10,12 +10,16 @@
  *
  * @module @argus-agent/web
  */
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { parse as parseYaml } from 'yaml'
 import type { Context } from '@deepseek-ai/cordis'
 import type { DoctorFinding } from '@argus-agent/types'
 import { pathsOf } from '@argus-agent/argus-agent'
 import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridge'
 import { checkpointQuestionId, governorConfigOf } from '@argus-agent/governor'
+import { describeSchema, type SchemaNode } from '@argus-agent/commands'
+import { projectConfigSchema } from '@argus-agent/projects'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
 import { overview, projectDetail, projectList, requestText, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
@@ -279,6 +283,14 @@ export async function apply(ctx: Context): Promise<void> {
       runs: () => runsAndCosts(sources),
       settings: () => ({ ...settings(sources), system }),
       systemSettings: () => ctx.opsCommands.systemSettings(),
+      projectSettings: (id) => projectSettings(ctx, id),
+      models: () => {
+        const providers = ctx.get('opsProviders' as never) as unknown as { models?: () => Array<{ provider: string; model: string; ready: boolean }> } | undefined
+        return (providers?.models?.() ?? []).map((entry) => {
+          const price = ctx.opsMeter.priceOf({ provider: entry.provider, model: entry.model })
+          return { ...entry, ref: `${entry.provider}/${entry.model}`, price: price === undefined ? null : { input: price.input, output: price.output, source: price.source } }
+        })
+      },
       bindThread: (userId, projectId) => {
         if (ctx.opsProjects.configOf(projectId) === undefined) return false
         const chatId = threadChat(userId, `p:${projectId}`)
@@ -356,4 +368,61 @@ export function publicDoctor(isPublic: boolean, https: boolean, adminHasTotp: ()
       ? { ok: true, check: "the public web: the admin's second factor", detail: 'set' }
       : { ok: false, check: "the public web: the admin's second factor", detail: 'the admin has no authenticator code yet', fix: 'sign in on the web: it asks for the code to be set up before anything else' },
   ]
+}
+
+/**
+ * A project's settings, for its Settings tab: every key of its file described, which of
+ * them the project sets itself, and what its MCP servers, extensions, remotes, mail,
+ * memory and undo points are.
+ *
+ * @param ctx the plugin's context.
+ * @param id the project.
+ * @returns the settings, or `undefined` when there is no such project.
+ */
+async function projectSettings(ctx: Context, id: string): Promise<unknown> {
+  const config = ctx.opsProjects.configOf(id)
+  if (config === undefined) return undefined
+  const schema = projectConfigSchema as unknown as SchemaNode
+  let raw: unknown = {}
+  try {
+    raw = parseYaml(readFileSync(config.sourcePath, 'utf8')) ?? {}
+  } catch {
+    // Unreadable now: nothing is marked as the project's own.
+  }
+  const own = new Set(describeSchema(schema, raw, () => 'next-message').filter((field) => field.set).map((field) => field.key))
+  const inherited = (key: string): boolean => config.fromTemplate.some((each) => each === key || key.startsWith(`${each}.`))
+  const fields = describeSchema(schema, config, () => 'next-message')
+    .filter((field) => !['id', 'cwd', 'provider', 'preset'].includes(field.key))
+    .map((field) => ({ ...field, own: own.has(field.key), inherited: inherited(field.key) }))
+  const extensions = ctx.opsProjects.extensions
+  const enabled = new Set(config.extensions.map((extension) => extension.name))
+  const memory = ctx.get('opsMemory' as never) as unknown as { sections?: (projectId: string) => Array<{ name: string; chars: number }> } | undefined
+  const undo = await ctx.opsProjects.undoList(id).catch(() => [])
+  const account = await ctx.opsProjects.mail.accountOf(id).catch(() => undefined)
+  return {
+    id,
+    template: config.template,
+    model: `${config.provider}/${config.model}`,
+    fields,
+    mcp: await Promise.all(
+      Object.entries(config.mcp).map(async ([name, server]) => ({
+        name,
+        kind: server.url === null ? 'local' : 'remote',
+        target: server.url ?? [server.command, ...server.args].join(' '),
+        access: server.access,
+        tools: server.tools,
+        oauth: server.oauth !== null,
+        state: server.oauth === null ? null : (await ctx.opsProjects.oauth.status(id, name)).state,
+        extension: server.extension?.name ?? null,
+      })),
+    ),
+    extensions: (extensions?.installed() ?? []).map((entry) => {
+      const manifest = extensions?.manifestOf(entry.name)
+      return { name: entry.name, version: manifest?.version ?? null, summary: manifest?.summary ?? null, enabled: enabled.has(entry.name), network: manifest?.requires.network ?? false }
+    }),
+    git: await Promise.all(Object.entries(config.git.remotes).map(async ([name, remote]) => ({ name, url: remote.url, protected: remote.protected, token: await ctx.opsProjects.git.hasToken(id, name) }))),
+    mail: { ...config.mail, account: account === undefined ? null : { own: account.own, host: account.account.host, user: account.account.user } },
+    memory: memory?.sections?.(id) ?? [],
+    undo: undo.slice(0, 10),
+  }
 }
