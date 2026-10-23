@@ -16,6 +16,9 @@ import type { OpsProjects } from '@argus-agent/projects'
 import type { OpsMeter } from '@argus-agent/meter'
 import type { OpsGovernor } from '@argus-agent/governor'
 import { truncate } from './parse.js'
+import { describeSchema, pendingRestart, systemApply, type SchemaNode, type SettingField } from './settings.js'
+import { readFileSync } from 'node:fs'
+import { parse as parseYaml } from 'yaml'
 import { buildHandlers } from './handlers.js'
 import { loadTemplates } from '@argus-agent/projects'
 import {
@@ -58,6 +61,17 @@ export interface CommandsOptions {
   readonly search?: () => SearchPort | undefined
   /** Whether free text has a destination without an active project; for `/start`. */
   readonly hasOrchestrator?: () => boolean
+  /** The whole `ops.yaml` schema, as the mounted plugins assemble it; for `/config`. */
+  readonly configSchema?: () => SchemaNode
+  /** Validate a whole raw `ops.yaml`; throws naming what is wrong. */
+  readonly validateConfig?: (raw: unknown) => void
+  /** `ops.yaml` as Argus read it at start, to tell what waits for a restart. */
+  readonly bootConfig?: () => unknown
+  /**
+   * Restart Argus once the runs in progress finish (at most two minutes); present only
+   * when something starts it again (Docker, systemd).
+   */
+  readonly restart?: () => void
   /** Re-read the project directory after a change; returns what the load did. */
   readonly reloadProjects: () => ReloadReport
   /** Reads the current time; injected so tests control it. */
@@ -160,6 +174,26 @@ export class OpsCommands {
   }
 
   /**
+   * Every `ops.yaml` setting, for the web's settings pages: its value in the file now,
+   * its default, and when a change applies.
+   *
+   * @returns the settings, the keys waiting for a restart, and whether Argus can restart
+   *   itself; undefined when the schema or the file is not known.
+   */
+  systemSettings(): { readonly file: string; readonly fields: readonly SettingField[]; readonly pending: readonly string[]; readonly restartable: boolean } | undefined {
+    const file = this.options.configPath?.()
+    const schema = this.options.configSchema?.()
+    if (file === undefined || schema === undefined) return undefined
+    const raw = (parseYaml(readFileSync(file, 'utf8')) ?? {}) as unknown
+    return {
+      file,
+      fields: describeSchema(schema, raw, systemApply),
+      pending: pendingRestart(schema, raw, this.options.bootConfig?.() ?? raw),
+      restartable: this.options.restart !== undefined,
+    }
+  }
+
+  /**
    * `argus doctor`: can `/task` run. Its model is `tasks.model`, whose default is a
    * DeepSeek model, so an install with only another provider's key fails here first.
    *
@@ -188,6 +222,8 @@ export class OpsCommands {
         // ones registered after it in the list.
         specs: () => this.specs(),
         confirm: (token, accepted, context) => this.confirm(token, accepted, context),
+        systemSettings: () => this.systemSettings(),
+        runCommand: (line, context) => this.runCommand(line, context),
       },
     })) {
       this.handlers.set(handler.spec.name, handler)

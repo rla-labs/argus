@@ -89,6 +89,13 @@ export interface OpsConfigRegistry {
   extend(name: string, schema: ConfigSectionSchema): () => void
   /** The section names currently contributed, sorted. */
   readonly names: readonly string[]
+  /** The whole schema: the bundle's own keys and every contributed section. */
+  schema(): ConfigSectionSchema
+  /**
+   * Validate a whole raw `ops.yaml`.
+   * @throws naming every invalid or unknown key.
+   */
+  validate(raw: unknown): unknown
 }
 
 declare module '@deepseek-ai/cordis' {

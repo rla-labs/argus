@@ -124,6 +124,8 @@ ENV NODE_OPTIONS="--enable-source-maps"
 # The web interface listens on every interface of the CONTAINER's own network, so
 # compose can publish it; compose publishes it on the host's loopback only.
 ENV ARGUS_AGENT_WEB_HOST=0.0.0.0
+# The restart policy starts it again after it stops, so /restart may stop it.
+ENV ARGUS_SUPERVISED=docker
 # Never a `.npmrc` in the image: a registry token baked into a layer is a leaked token.
 ENV HOME=/home/ops
 

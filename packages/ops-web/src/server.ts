@@ -68,6 +68,8 @@ export interface ServerDeps {
   readonly schedules: () => unknown
   readonly runs: () => unknown
   readonly settings: () => unknown
+  /** Every `ops.yaml` setting, described; `undefined` when the file is not known. */
+  readonly systemSettings: () => unknown
   readonly runCommand: (line: string, session: Session) => Promise<CommandOutcome>
   readonly answerApproval: (approvalId: string, value: string, session: Session) => boolean
   /** Continue or stop a run the loop checker found in a loop. */
@@ -396,6 +398,11 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     }
     if (method === 'GET' && path === '/api/overview') return send(response, 200, deps.overview())
     if (method === 'GET' && path === '/api/settings') return send(response, 200, deps.settings())
+    if (method === 'GET' && path === '/api/settings/system') {
+      if (!deps.isAdmin(session)) return send(response, 403, { error: 'only the admin' })
+      const described = deps.systemSettings()
+      return described === undefined ? send(response, 404, { error: 'the configuration file is not known' }) : send(response, 200, described)
+    }
     if (method === 'GET' && path === '/api/events') return events(request, response, session)
     if (method === 'POST' && path === '/api/command') {
       const body = await readJson(request)

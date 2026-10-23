@@ -59,6 +59,8 @@ Environment=NODE_OPTIONS=--enable-source-maps
 Environment=DSH_TELEMETRY_DISABLED=1
 # The service account's HOME. pnpm and dsh both write under it.
 Environment=HOME=@SERVICE_HOME@
+# systemd starts it again after it stops (Restart=always), so /restart may stop it.
+Environment=ARGUS_SUPERVISED=systemd
 
 # The absolute path to dsh, rather than relying on PATH: systemd's PATH is
 # minimal, and a service that cannot find its own entry point fails in a way

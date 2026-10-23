@@ -21,7 +21,7 @@ For which command fits which moment, read
 | Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
-| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
+| Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/config`](#config-key-value--reset-key--admin) · [`/restart`](#restart--admin-asks-first) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
 
 ## Who may run what
 
@@ -32,7 +32,7 @@ For which command fits which moment, read
 
 What spends money, changes what the agents may do, or deletes is the admin's:
 `/new`, `/model`, changing a budget (`/budget <scope> …`), `/allow-free`, `/forget` (removing),
-`/set`, `/rule`, `/key`, `/mail` (changing), `/mcp`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
+`/set`, `/config`, `/restart`, `/rule`, `/key`, `/mail` (changing), `/mcp`, `/defaults` (changing), `/instructions` and `/skill` (changing), `/ext` (changing), `/archive`, `/allow`
 and `/users`. An operator who tries is told so; seeing a budget, the defaults, the
 instructions, the skills or the memory stays open to everyone.
 
@@ -902,6 +902,37 @@ setting `tools.shell` leaves `tools.web` following the template.
 A change of `model`, `preset`, `fallback_model`, `tools`, `mcp` or `extensions` reaches
 the agent at the project's next message, in the same conversation; a run in progress
 finishes first.
+
+---
+
+## `/config [key [value] | reset <key>]`  *(admin)*
+
+The settings in `ops.yaml`, from the chat; the web's **Settings** pages use the same
+command.
+
+```
+/config                          what the file sets, and what waits for a restart
+/config web.session_hours        its value, default, range and meaning
+/config web.session_hours 48     change it
+/config reset web.session_hours  remove it: the default applies again
+```
+
+A change is checked against the whole configuration before it is written, and the
+file keeps its comments; a value that does not validate is not written. A list is
+written `[like, this]`, a map `{like: this}`. The models (`tasks.model`,
+`orchestrator.model`, `judge.model`) apply at once, as with
+[`/defaults`](#defaults-tasksfrontdeskjudge-providermodel); everything else after
+[`/restart`](#restart--admin-asks-first). `data_dir`, `config_dir` and `dsh_home` place
+Argus on disk: they are changed by hand, with Argus stopped.
+
+---
+
+## `/restart`  *(admin, asks first)*
+
+Restarts Argus to apply what `/config` changed. The runs in progress finish first, for
+at most two minutes; then Argus stops and Docker (its restart policy) or systemd
+(`Restart=always`) starts it again. The web page reconnects by itself. Run by hand,
+without either, nothing would start it again, so it refuses.
 
 ---
 

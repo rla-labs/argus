@@ -41,6 +41,7 @@ import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
 import { GIT_REMOTE_PATTERN, describeAccount, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
+import { describeSchema, FIXED_SYSTEM_KEYS, LIVE_SYSTEM_KEYS, schemaAt, systemApply, type SchemaNode } from './settings.js'
 
 /** Return a failed parse as an error that shows the syntax. */
 function failWith(spec: CommandSpec, message: string): CommandResult {
@@ -56,6 +57,8 @@ interface Deps {
     requestConfirmationFor(command: string, context: CommandContext, prompt: string): CommandResult
     specs(): readonly CommandSpec[]
     confirm(token: string, accepted: boolean, context: CommandContext): Promise<CommandResult>
+    systemSettings(): ReturnType<import('./service.js').OpsCommands['systemSettings']>
+    runCommand(line: string, context: CommandContext): Promise<CommandResult>
   }
 }
 
@@ -1676,6 +1679,119 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /config ────────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'config',
+        description: 'See or change a setting in ops.yaml (admin)',
+        syntax: '/config [key [value] | reset <key>]',
+        detail:
+          'With nothing, lists what ops.yaml sets and what waits for a restart. With a key, ' +
+          'shows its value, default and meaning. With a value, checks the whole file with it ' +
+          'and writes it, keeping the comments; a value that does not validate is not written. ' +
+          'A list is written [like, this], a map {like: this}. `reset` removes the key, so its ' +
+          'default applies. The models (tasks.model, orchestrator.model, judge.model) apply at ' +
+          'once; anything else after /restart. data_dir, config_dir and dsh_home are changed by ' +
+          'hand, with Argus stopped.',
+        examples: ['/config', '/config web.session_hours', '/config web.session_hours 48', '/config reset web.session_hours'],
+        mutating: true,
+        adminOnly: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        if (context.isAdmin !== true) return errorResult('Only the admin can change the configuration.')
+        const settings = deps.service.systemSettings()
+        const schema = options.configSchema?.()
+        if (settings === undefined || schema === undefined) return errorResult('The configuration file is not known, so nothing can be shown or changed.')
+        const [first, second] = tokenize(input)
+        if (first === undefined) {
+          const set = settings.fields.filter((field) => field.set)
+          return result(
+            `${settings.file} sets:\n${set.map((field) => `  ${field.key} = ${JSON.stringify(field.value)}`).join('\n') || '  nothing: every default applies'}` +
+              (settings.pending.length === 0 ? '' : `\n\nWaiting for a restart: ${settings.pending.join(', ')}. ${settings.restartable ? 'Send /restart.' : 'Restart Argus.'}`),
+          )
+        }
+        const reset = first === 'reset'
+        const key = reset ? second : first
+        if (key === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'reset needs a key.')
+        if (FIXED_SYSTEM_KEYS.has(key)) return errorResult(`${key} places Argus on disk: change it by hand in ${settings.file}, with Argus stopped.`)
+        const node = schemaAt(schema as SchemaNode, key)
+        const field = settings.fields.find((each) => each.key === key)
+        if (node === undefined) return errorResult(`"${key}" is not a setting. Send /config to see what the file sets.`)
+        const text = reset ? '' : restAfter(input, 1).trim()
+        if (!reset && text.length === 0) {
+          if (field === undefined) return result(`${key} is a section: ${describeSchema(node, undefined, systemApply, key).map((each) => each.key).join(', ')}.`)
+          return result(
+            `${key} = ${JSON.stringify(field.value)}${field.set ? '' : ' (the default)'}\n` +
+              `Default: ${JSON.stringify(field.default)}${field.kind === 'enum' ? `\nOne of: ${field.options.join(', ')}` : ''}` +
+              `${field.min === null && field.max === null ? '' : `\nRange: ${field.min ?? '…'} to ${field.max ?? '…'}`}` +
+              `${field.description === null ? '' : `\n${field.description}`}\nApplies ${field.apply === 'live' ? 'at once' : 'after a restart'}.`,
+          )
+        }
+        if (!reset && LIVE_SYSTEM_KEYS.has(key)) return deps.service.runCommand(`/defaults ${key === 'tasks.model' ? 'tasks' : key === 'judge.model' ? 'judge' : 'frontdesk'} ${text}`, context)
+        const value = reset ? { ok: true as const, value: undefined } : settingValue(text)
+        if (!value.ok) return errorResult(`"${text}" is not a valid value: ${value.message}`)
+        const original = readFileSync(settings.file, 'utf8')
+        const doc = parseDocument(original)
+        if (reset) doc.deleteIn(key.split('.'))
+        else doc.setIn(key.split('.'), value.value)
+        try {
+          options.validateConfig?.(doc.toJS())
+        } catch (err) {
+          return errorResult(`Not changed: with ${key} = ${text} the configuration does not validate.\n${(err as Error).message}`)
+        }
+        try {
+          writeFileSync(settings.file, doc.toString())
+        } catch (err) {
+          return errorResult(`Could not write ${settings.file}: ${(err as Error).message}. Nothing was changed.`)
+        }
+        const done = reset ? `${key} removed: its default (${JSON.stringify(field?.default ?? null)}) applies` : `${key} = ${JSON.stringify(value.value)}`
+        return result(`${done}. Written to ${settings.file}. It applies after a restart${options.restart === undefined ? '.' : ': send /restart.'}`)
+      },
+    },
+
+    // ── /restart ───────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'restart',
+        description: 'Restart Argus, after the runs in progress (admin)',
+        syntax: '/restart',
+        detail:
+          'Waits for the runs in progress to finish, at most two minutes, then stops; Docker or ' +
+          'systemd starts it again, with the settings in ops.yaml. Requires confirmation. ' +
+          'Without Docker or systemd nothing would start it again, so it refuses.',
+        examples: ['/restart'],
+        mutating: true,
+        destructive: true,
+        adminOnly: true,
+      },
+      run(_input, context): CommandResult {
+        if (context.isAdmin !== true) return errorResult('Only the admin can restart Argus.')
+        if (options.restart === undefined) return errorResult('Argus runs without Docker or systemd here, so nothing would start it again. Restart it by hand.')
+        const running = governor.status().running.length
+        return deps.service.requestConfirmationFor(
+          '/restart-confirm',
+          context,
+          `Restart Argus? ${running === 0 ? 'Nothing is running.' : `The ${running} run${running === 1 ? '' : 's'} in progress finish first, at most two minutes.`}`,
+        )
+      },
+    },
+    {
+      spec: {
+        name: 'restart-confirm',
+        description: 'Internal: the confirmed form of /restart',
+        syntax: '/restart-confirm',
+        detail: 'Restarts as the confirmation asked. Not meant to be typed.',
+        examples: [],
+        mutating: true,
+        adminOnly: true,
+      },
+      run(_input, context): CommandResult {
+        if (context.isAdmin !== true || options.restart === undefined) return errorResult('Not restarted.')
+        options.restart()
+        return result('Restarting once the runs in progress finish. The page reconnects by itself.')
+      },
+    },
+
     // ── /key ───────────────────────────────────────────────────────────────
     {
       spec: {
@@ -2737,6 +2853,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
  * `Site: blog` would become a map.
  */
 function settingValue(text: string): { ok: true; value: unknown } | { ok: false; message: string } {
+  // A quoted string is taken as JSON: how a form sends text that looks like a number or a list.
+  if (text.startsWith('"')) {
+    try {
+      const value = JSON.parse(text) as unknown
+      if (typeof value === 'string') return { ok: true, value }
+    } catch {
+      // Not JSON: the text as it is.
+    }
+  }
   if (!/^[[{]/.test(text) && !/^(true|false|null|-?\d+(\.\d+)?)$/i.test(text)) return { ok: true, value: text }
   try {
     return { ok: true, value: parseYaml(text) as unknown }

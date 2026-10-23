@@ -278,6 +278,7 @@ export async function apply(ctx: Context): Promise<void> {
       schedules: () => scheduleList(sources),
       runs: () => runsAndCosts(sources),
       settings: () => ({ ...settings(sources), system }),
+      systemSettings: () => ctx.opsCommands.systemSettings(),
       runCommand,
       answerApproval: (approvalId, value, session) =>
         [APPROVE, DENY, APPROVE_ALL, ALWAYS].includes(value) &&

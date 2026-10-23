@@ -111,6 +111,17 @@ async function signIn(booted: Booted): Promise<string> {
 }
 
 describe('the web interface', () => {
+  it('describes every ops.yaml setting to the admin, web\'s own included', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const response = await fetch(`${booted.base}/api/settings/system`, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { fields: Array<{ key: string; kind: string; min: number | null; apply: string }>; pending: string[]; restartable: boolean }
+    expect(body.fields.find((field) => field.key === 'web.session_hours')).toMatchObject({ kind: 'number', min: 1, apply: 'restart' })
+    expect(body.pending).toEqual([])
+    expect((await fetch(`${booted.base}/api/settings/system`)).status).toBe(401)
+  })
+
   it('serves the page\'s fonts without a session, and nothing else from /fonts/', async () => {
     const booted = await bootWeb()
     const font = await fetch(`${booted.base}/fonts/space-grotesk-latin-ext-600-normal.woff2`)

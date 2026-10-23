@@ -10,6 +10,7 @@
  * @module @argus-agent/commands
  */
 import { join } from 'node:path'
+import type { SchemaNode } from './settings.js'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { OpsCommands, type CommandsOptions, type FrontDeskPort, type HealthPort, type KeysPort, type SearchPort, type MemoryPort, type WebPort, type SchedulerPort } from './service.js'
@@ -24,6 +25,10 @@ export * from './parse.js'
 export * from './types.js'
 export * from './service.js'
 export { buildHandlers } from './handlers.js'
+export * from './settings.js'
+
+/** How long `/restart` waits for the runs in progress. */
+const RESTART_WAIT_MS = 120_000
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-commands'
@@ -85,6 +90,24 @@ export function apply(ctx: Context): void {
   options.web = () => ctx.get('opsWeb' as never) as unknown as WebPort | undefined
   options.frontDesk = () => ctx.get('opsOrchestrator' as never) as unknown as FrontDeskPort | undefined
   options.configPath = () => (ctx.get('opsConfig' as never) as unknown as { configPath?: string } | undefined)?.configPath
+  options.configSchema = () => ctx.opsConfigRegistry.schema() as unknown as SchemaNode
+  options.validateConfig = (raw) => void ctx.opsConfigRegistry.validate(raw)
+  options.bootConfig = () => ctx.opsRawConfig
+  // Something starts Argus again after it stops: the image and the systemd unit say so
+  // (ARGUS_SUPERVISED). Run by hand, a restart would be a stop.
+  if ((process.env['ARGUS_SUPERVISED'] ?? '') !== '') {
+    let restarting = false
+    options.restart = () => {
+      if (restarting) return
+      restarting = true
+      void (async () => {
+        const until = Date.now() + RESTART_WAIT_MS
+        while (ctx.opsGovernor.status().running.length > 0 && Date.now() < until) await new Promise((done) => setTimeout(done, 2_000))
+        ctx.logger('ops-commands').info('restarting, as the admin asked')
+        process.kill(process.pid, 'SIGTERM')
+      })()
+    }
+  }
 
   const commands = new OpsCommands(options)
   ctx.provide('opsCommands', commands)

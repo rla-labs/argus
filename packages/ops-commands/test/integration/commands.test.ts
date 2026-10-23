@@ -851,6 +851,47 @@ describe('admin-only commands', () => {
     expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
   }, 30_000)
 
+  it('/config describes every ops.yaml key, writes a valid change keeping the comments, refuses an invalid one, and tells what waits for a restart', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const file = (booted.ctx as unknown as { opsConfig: { configPath: string } }).opsConfig.configPath
+    writeFileSync(file, `# kept\n${readFileSync(file, 'utf8')}`)
+
+    const described = booted.commands.systemSettings()
+    const session = described?.fields.find((field) => field.key === 'web.session_hours')
+    // The web row is not mounted here; a section another plugin owns is.
+    const policy = described?.fields.find((field) => field.key === 'unknown_model_policy') ?? described?.fields.find((field) => field.kind === 'enum')
+    expect(described?.fields.find((field) => field.key === 'timezone')).toMatchObject({ kind: 'string', set: true, apply: 'restart' })
+    expect(described?.fields.find((field) => field.key === 'tasks.model')).toMatchObject({ apply: 'live' })
+    expect(policy?.options.length).toBeGreaterThan(1)
+    expect(session).toBeUndefined()
+    expect(described?.pending).toEqual([])
+    expect(described?.restartable).toBe(false)
+
+    expect((await booted.commands.runCommand('/config scheduler.tick_ms 5', contextFor({ isAdmin: false }))).text).toContain('Only the admin')
+    expect((await booted.commands.runCommand('/config nothing.here 1', admin())).text).toContain('is not a setting')
+    expect((await booted.commands.runCommand('/config data_dir /tmp', admin())).text).toContain('by hand')
+    const key = described?.fields.find((field) => field.kind === 'number' && field.min !== null && field.apply === 'restart')
+    expect(key).toBeDefined()
+    const bad = await booted.commands.runCommand(`/config ${key!.key} ${(key!.min ?? 0) - 1000}`, admin())
+    expect(bad.error).toBe(true)
+    expect(bad.text).toContain('does not validate')
+    expect(readFileSync(file, 'utf8')).not.toContain(String((key!.min ?? 0) - 1000))
+
+    const good = (key!.min ?? 0) + 1
+    expect(await run(booted, `/config ${key!.key} ${good}`, admin())).toContain('applies after a restart')
+    expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
+    expect(booted.commands.systemSettings()?.fields.find((field) => field.key === key!.key)).toMatchObject({ value: good, set: true })
+    expect(booted.commands.systemSettings()?.pending).toEqual([key!.key])
+    expect(await run(booted, `/config ${key!.key}`, admin())).toContain(`${key!.key} = ${good}`)
+    expect(await run(booted, `/config reset ${key!.key}`, admin())).toContain('removed')
+    expect(booted.commands.systemSettings()?.pending).toEqual([])
+    // A model key is a /defaults change: at once.
+    expect(await run(booted, '/config tasks.model fake/other-model', admin())).toContain('The next task runs on it')
+    expect(booted.governor.adhocModel()).toEqual({ provider: 'fake', model: 'other-model' })
+    // Without Docker or systemd nothing would start it again.
+    expect((await booted.commands.runCommand('/restart', admin())).text).toContain('by hand')
+  }, 30_000)
+
   it('/defaults shows the task model, and the admin changes it in ops.yaml and at once', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const file = (booted.ctx as unknown as { opsConfig: { configPath: string } }).opsConfig.configPath
