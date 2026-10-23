@@ -221,6 +221,38 @@ a.pcard:hover { border-color: var(--line2); transform: translateY(-2px); color: 
 .radio { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line2); flex: none; margin-top: 2px; }
 .choice[aria-pressed='true'] .radio { border: 5px solid var(--accent); }
 
+/* ── a project's space, sessions, conversations ────────────────────────── */
+.back { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; text-decoration: none; }
+.split { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+.thread { display: flex; flex-direction: column; min-height: 460px; }
+.thread.dragging, .files.dragging { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-line); }
+.thread .messages { flex: 1 1 auto; display: flex; flex-direction: column; gap: 14px; padding: 20px; overflow-y: auto; max-height: 64vh; }
+.bubble { max-width: min(680px, 92%); padding: 12px 16px; border-radius: var(--radius); line-height: 1.55; animation: in-up 0.2s ease-out; }
+.bubble .text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bubble.you { align-self: flex-end; background: var(--accent-soft); border: 1px solid var(--accent-line); }
+.bubble.argus { align-self: flex-start; background: var(--panel2); border: 1px solid var(--line); }
+.bubble .when { font-size: 11.5px; color: var(--faint); margin-bottom: 2px; }
+.working { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 13px; }
+.thread .composer { display: flex; gap: 10px; align-items: flex-end; padding: 14px; border-top: 1px solid var(--line); }
+.thread .composer textarea { flex: 1 1 auto; min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.tile { padding: 14px 16px; } .tile-v { font-size: 26px; }
+.tiles3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; font-size: 11.5px; }
+.big { font-size: 16px; color: var(--text); }
+.kv { display: flex; justify-content: space-between; gap: 10px; }
+.stack-tight { display: flex; flex-direction: column; gap: 4px; }
+.flabel { font-size: 13px; font-weight: 600; }
+.tree { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 38px; padding: 0 14px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; text-align: left; }
+.tree:hover { background: var(--accent-soft); }
+.tree[aria-current='true'] { background: var(--accent-soft); color: var(--accent); }
+.tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree.session { flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 14px; font-size: 13px; }
+.drop { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 12px; padding: 14px; border: 1.5px dashed var(--line2); border-radius: var(--rsm); text-align: center; font-size: 12.5px; }
+.crumbs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 12px 10px; }
+.crumbs button { border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; padding: 2px 4px; }
+.preview-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.file-text { margin: 0; padding: 16px 20px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 70vh; overflow: auto; }
+
 /* ── pages from before 0.7.3, until each is redrawn ─────────────────────── */
 .row { display: flex; flex-wrap: wrap; gap: 20px; }
 .grow2 { flex: 2 1 520px; min-width: 0; } .grow1 { flex: 1 1 300px; min-width: 0; }
@@ -251,6 +283,9 @@ select { min-height: 34px; padding: 0 8px; border-radius: 8px; background: var(-
 .composer { display: flex; gap: 8px; }
 .composer textarea { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 10px; resize: vertical; border-radius: var(--rsm); border: 1px solid var(--line2); background: var(--bg2); }
 .signin { max-width: 480px; margin: 12vh auto; padding: 28px; }
+.hud.signin::before, .hud.signin::after { content: ''; position: absolute; width: 14px; height: 14px; border-color: var(--accent); border-style: solid; opacity: var(--corner); }
+.hud.signin::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; border-top-left-radius: var(--radius); }
+.hud.signin::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; border-bottom-right-radius: var(--radius); }
 pre.output { margin: 0; padding: 10px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.5 var(--mono); max-height: 420px; overflow: auto; }
 a.link { color: var(--accent); text-decoration: none; } a.link:hover, a.link:focus-visible { text-decoration: underline; }
 .state { font-size: 12px; font-weight: 600; }

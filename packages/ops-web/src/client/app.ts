@@ -14,10 +14,11 @@ import { initialLanguage, lang, LANGUAGES, t, loadLanguage, type Language } from
 import { Icon, Logo, Modal, Toasts, toast, type IconName } from './kit.js'
 import { go, href, useRoute, type Route } from './router.js'
 import type { PageProps } from './ui.js'
-import { ProjectView } from './pages/projects.js'
+import { ProjectSpace } from './pages/project.js'
+import { SessionsView } from './pages/sessions.js'
 import { HomeView } from './pages/home.js'
 import { InboxView } from './pages/inbox.js'
-import { RunsView, SchedulesView, SystemSection, TasksView } from './pages/work.js'
+import { RunsView, SchedulesView, SystemSection } from './pages/work.js'
 import {
   ChannelsSection,
   ChatView,
@@ -209,7 +210,7 @@ function App(): VNode {
           // A command run anywhere may have changed you (a /link from Telegram).
           void loadSettings()
           loadMe()
-        } else if (topic === 'chat') setChatVersion((v) => v + 1)
+        } else if (topic.startsWith('chat')) setChatVersion((v) => v + 1)
       },
       setConnected,
     )
@@ -262,7 +263,7 @@ function App(): VNode {
       loadMe()
     }
     return html`<header class="top"><span class="brand"><${Logo} /><b>ARGUS</b></span><div class="end">${languageSelect}</div></header>
-      <div class="panel corners signin">${token !== null ? html`<${CreateAdmin} token=${token} onCreated=${created} />` : html`<${SignIn} onSignedIn=${loadMe} />`}</div>`
+      ${token !== null ? html`<${CreateAdmin} token=${token} onCreated=${created} />` : html`<${SignIn} onSignedIn=${loadMe} />`}`
   }
   if (me !== undefined && restricted) {
     return html`<header class="top"><span class="brand"><${Logo} /><b>ARGUS</b></span><div class="end">${languageSelect}</div></header>
@@ -346,11 +347,11 @@ function pageFor(route: Route, context: PageContext): VNode | null {
     case 'home':
       return html`<${HomeView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'project':
-      return html`<${ProjectView} key=${route.id} id=${route.id} ...${page} />`
+      return html`<${ProjectSpace} key=${route.id} id=${route.id} tab=${route.tab} ...${page} chatVersion=${context.chatVersion} overview=${overview} />`
     case 'inbox':
       return html`<${InboxView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'sessions':
-      return html`<${TasksView} ...${page} />`
+      return html`<${SessionsView} ...${page} chatVersion=${context.chatVersion} />`
     case 'chat':
       return html`<${ChatView} version=${context.chatVersion} />`
     case 'schedules':
