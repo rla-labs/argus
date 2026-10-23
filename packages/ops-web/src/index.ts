@@ -18,11 +18,11 @@ import { ALWAYS, APPROVE, APPROVE_ALL, DENY } from '@argus-agent/approvals-bridg
 import { checkpointQuestionId, governorConfigOf } from '@argus-agent/governor'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
-import { overview, projectDetail, projectList, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
+import { overview, projectDetail, projectList, requestText, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
 import { DownloadLinks } from './files.js'
 import { SETUP_TTL_MS, SetupGate } from './setup.js'
-import { WebChannelAdapter } from './web-channel.js'
+import { threadChat, WebChannelAdapter } from './web-channel.js'
 
 export * from './auth.js'
 export * from './config.js'
@@ -279,6 +279,24 @@ export async function apply(ctx: Context): Promise<void> {
       runs: () => runsAndCosts(sources),
       settings: () => ({ ...settings(sources), system }),
       systemSettings: () => ctx.opsCommands.systemSettings(),
+      bindThread: (userId, projectId) => {
+        if (ctx.opsProjects.configOf(projectId) === undefined) return false
+        const chatId = threadChat(userId, `p:${projectId}`)
+        if (chatId === undefined) return false
+        if (ctx.opsStore.chatContext.get('web', chatId)?.active_project_id !== projectId) ctx.opsStore.chatContext.setActive('web', chatId, projectId, Date.now())
+        return true
+      },
+      sessions: () =>
+        ctx.opsProjects.sessions().map((session) => {
+          const runs = ctx.opsStore.runs.bySession(session.sessionId, 50)
+          const first = runs[runs.length - 1]
+          return {
+            ...session,
+            text: first === undefined || first.inbound_id === null ? null : requestText(ctx.opsStore.inbound.get(first.inbound_id)?.payload),
+            micros: runs.reduce((sum, run) => sum + Number(ctx.opsMeter.runTotals(run.id).costMicros), 0),
+            model: first === undefined ? null : `${first.provider}/${first.model}`,
+          }
+        }),
       runCommand,
       answerApproval: (approvalId, value, session) =>
         [APPROVE, DENY, APPROVE_ALL, ALWAYS].includes(value) &&

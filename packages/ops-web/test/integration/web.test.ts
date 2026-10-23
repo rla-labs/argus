@@ -111,6 +111,71 @@ async function signIn(booted: Booted): Promise<string> {
 }
 
 describe('the web interface', () => {
+  it('keeps a conversation per project and per session: what is written there goes there, and the answer comes back there only', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const post = (path: string, body: unknown): Promise<Response> => fetch(`${booted.base}${path}`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify(body) })
+    const history = async (thread: string): Promise<Array<{ from: string; text: string }>> => ((await (await fetch(`${booted.base}/api/chat?thread=${encodeURIComponent(thread)}`, { headers: { cookie } })).json()) as { entries: Array<{ from: string; text: string }> }).entries
+
+    expect((await post('/api/chat', { thread: 'p:alpha', text: 'make  the page' })).status).toBe(202)
+    const until = async (check: () => Promise<boolean>, label: string): Promise<void> => {
+      for (const started = Date.now(); !(await check()); ) {
+        if (Date.now() - started > 20_000) throw new Error(`timed out: ${label}`)
+        await new Promise((done) => setTimeout(done, 100))
+      }
+    }
+    await until(async () => (await history('p:alpha')).some((entry) => entry.from === 'argus' && entry.text.includes('the answer')), 'the project answers in its thread')
+    expect((await history('p:alpha'))[0]).toMatchObject({ from: 'you', text: 'make  the page' })
+    expect(await history('')).toEqual([])
+    const runs = booted.store.runs.byOwner('project:alpha', 5)
+    expect(runs).toHaveLength(1)
+    const unread = (await (await fetch(`${booted.base}/api/chat/unread`, { headers: { cookie } })).json()) as { count: number; threads: Record<string, number> }
+    expect(unread.threads['p:alpha']).toBeGreaterThan(0)
+    await post('/api/chat/read', { thread: 'p:alpha' })
+    expect(((await (await fetch(`${booted.base}/api/chat/unread`, { headers: { cookie } })).json()) as { count: number }).count).toBe(0)
+
+    // A session: the text shows as written, and goes to the session.
+    expect((await post('/api/chat', { thread: 's:task-web12345', text: 'compare  three hosts' })).status).toBe(202)
+    await until(async () => (await history('s:task-web12345')).some((entry) => entry.from === 'argus' && entry.text.includes('the answer')), 'the session answers in its thread')
+    expect((await history('s:task-web12345'))[0]).toMatchObject({ from: 'you', text: 'compare  three hosts' })
+    const sessions = ((await (await fetch(`${booted.base}/api/sessions`, { headers: { cookie } })).json()) as { sessions: Array<{ id: string; text: string | null }> }).sessions
+    // Shown in the list with its spacing tidied; sent verbatim.
+    expect(sessions).toEqual([expect.objectContaining({ id: 'task-web12345', text: 'compare three hosts' })])
+
+    expect((await post('/api/chat', { thread: 'p:nope', text: 'hi' })).status).toBe(404)
+    expect((await post('/api/chat', { thread: 'x:../alpha', text: 'hi' })).status).toBe(400)
+    expect((await post('/api/chat', { thread: 's:../../etc', text: 'hi' })).status).toBe(400)
+  }, 60_000)
+
+  it('lists a project\'s folder and serves its files so that nothing in them runs, and nothing outside it', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const dir = join(booted.dataDir, 'projects', 'alpha')
+    mkdirSync(join(dir, 'reports'))
+    writeFileSync(join(dir, 'reports', 'week.md'), '# Week\n')
+    writeFileSync(join(dir, 'page.html'), '<script>alert(1)</script>')
+    symlinkSync('/etc/passwd', join(dir, 'passwd'))
+    const get = (path: string): Promise<Response> => fetch(`${booted.base}${path}`, { headers: { cookie } })
+    const listing = (await (await get('/api/projects/alpha/files')).json()) as { entries: Array<{ name: string; dir: boolean }> }
+    expect(listing.entries.map((entry) => entry.name)).toEqual(['reports', 'page.html'])
+    const reports = (await (await get('/api/projects/alpha/files?path=reports')).json()) as { entries?: Array<{ name: string }>; error?: string }
+    expect(reports.error).toBeUndefined()
+    expect(reports.entries?.map((entry) => entry.name)).toEqual(['week.md'])
+
+    const md = await get('/api/projects/alpha/file?path=reports/week.md')
+    expect(md.status).toBe(200)
+    expect(await md.text()).toBe('# Week\n')
+    const html = await get('/api/projects/alpha/file?path=page.html')
+    expect(html.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    expect(html.headers.get('content-security-policy')).toContain('sandbox')
+    expect(html.headers.get('x-content-type-options')).toBe('nosniff')
+    expect((await get('/api/projects/alpha/file?path=page.html&download=1')).headers.get('content-disposition')).toMatch(/^attachment/)
+    for (const path of ['passwd', '../../config/ops.yaml', '/etc/passwd', 'nothing.txt']) {
+      expect([403, 404], path).toContain((await get(`/api/projects/alpha/file?path=${encodeURIComponent(path)}`)).status)
+    }
+    expect((await get('/api/projects/nope/files')).status).toBe(404)
+  }, 60_000)
+
   it('describes every ops.yaml setting to the admin, web\'s own included', async () => {
     const booted = await bootWeb()
     const cookie = await signIn(booted)

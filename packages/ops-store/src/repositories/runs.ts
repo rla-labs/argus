@@ -133,6 +133,16 @@ export class RunsRepository {
   }
 
   /**
+   * The runs of one agent session: a one-off task's, with its follow-ups.
+   * @param sessionId the agent's session id.
+   * @param limit the maximum number to return.
+   * @returns the rows, newest first.
+   */
+  bySession(sessionId: string, limit = 50): RunRow[] {
+    return this.db.prepare('SELECT * FROM runs WHERE session_id = ? ORDER BY started_at DESC LIMIT ?').all(sessionId, limit) as RunRow[]
+  }
+
+  /**
    * Recent runs of one owner.
    * @param ownerKey the owner key from `@argus-agent/types`.
    * @param limit the maximum number to return.

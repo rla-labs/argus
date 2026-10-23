@@ -29,8 +29,40 @@ import type {
   Question,
 } from '@argus-agent/types'
 
-/** Entries kept per person. */
+/** Entries kept per conversation. */
 export const HISTORY_CAP = 500
+
+/**
+ * A person's conversations: their own (no thread), a project's (`p:<project>`), and a
+ * one-off task's session (`s:<task-id>`). A thread is a chat of its own, `<user>~p~<project>`,
+ * so its history, unread count and files are its own.
+ */
+export type Thread = '' | `p:${string}` | `s:${string}`
+
+/**
+ * The chat id of a person's thread.
+ *
+ * @param userId the Argus user id.
+ * @param thread the thread; empty for their own conversation.
+ * @returns the chat id, or `undefined` for a thread that cannot be.
+ */
+export function threadChat(userId: string, thread: string | undefined): string | undefined {
+  if (thread === undefined || thread === '') return userId
+  if (/^p:[a-z0-9][a-z0-9-]{0,62}$/.test(thread)) return `${userId}~p~${thread.slice(2)}`
+  if (/^s:task-[a-z0-9-]{4,60}$/.test(thread)) return `${userId}~s~${thread.slice(2)}`
+  return undefined
+}
+
+/** Whether a chat is one of a person's: theirs, or one of their threads. */
+export function ownsChat(userId: string, chatId: string): boolean {
+  return chatId === userId || chatId.startsWith(`${userId}~`)
+}
+
+/** The thread a chat id names, for its owner; empty for their own conversation. */
+export function threadOf(chatId: string): string {
+  const parts = chatId.split('~')
+  return parts.length === 3 ? `${parts[1]}:${parts[2]}` : ''
+}
 
 /** A file the chat offers for download. */
 export interface ChatFile {
@@ -158,11 +190,18 @@ export class WebChannelAdapter implements ChannelAdapter {
    * A person typed a message.
    *
    * @param userId who: the Argus user id.
-   * @param text what they wrote, verbatim.
+   * @param text what they wrote, verbatim; it is what the conversation shows.
+   * @param thread where: their own conversation, a project's or a session's.
+   * @param routed what goes to Argus when it is not the text itself: a session's message
+   *   goes as `/session <id> <text>`, the text verbatim inside it.
+   * @returns whether the thread could be.
    */
-  receive(userId: string, text: string): void {
-    const id = this.push(userId, 'you', text)
-    this.onMessage?.({ id, address: { channel: this.name, chatId: userId }, userId, text, timestamp: this.now() })
+  receive(userId: string, text: string, thread: string = '', routed?: string): boolean {
+    const chatId = threadChat(userId, thread)
+    if (chatId === undefined) return false
+    const id = this.push(chatId, 'you', text)
+    this.onMessage?.({ id, address: { channel: this.name, chatId }, userId, text: routed ?? text, timestamp: this.now() })
+    return true
   }
 
   /**
@@ -179,23 +218,24 @@ export class WebChannelAdapter implements ChannelAdapter {
    */
   press(userId: string, entryId: string, value: string): boolean {
     const row = this.store.entry(entryId)
-    if (row === undefined || row.chat_id !== userId || row.answered !== null) return false
+    if (row === undefined || !ownsChat(userId, row.chat_id) || row.answered !== null) return false
     const entry = toEntry(row, [])
     if (entry.buttons?.some((button) => button.value === value) !== true) return false
     const questionId = entry.questionId ?? entry.id
-    this.onButton?.({ questionId, value, address: { channel: this.name, chatId: userId }, userId, timestamp: this.now() })
+    this.onButton?.({ questionId, value, address: { channel: this.name, chatId: row.chat_id }, userId, timestamp: this.now() })
     const pending = this.questions.get(questionId)
     if (pending !== undefined) pending.resolve({ kind: 'button', value })
     else {
       this.store.update(entryId, { answered: value })
-      this.changed(userId)
+      this.changed(row.chat_id)
     }
     return true
   }
 
-  /** A person's conversation, oldest first. */
-  history(userId: string): readonly ChatEntry[] {
-    return this.store.history(userId).map(({ row, files }) => toEntry(row, files))
+  /** A person's conversation, or one of their threads, oldest first. */
+  history(userId: string, thread: string = ''): readonly ChatEntry[] {
+    const chatId = threadChat(userId, thread)
+    return chatId === undefined ? [] : this.store.history(chatId).map(({ row, files }) => toEntry(row, files))
   }
 
   /**
@@ -213,14 +253,20 @@ export class WebChannelAdapter implements ChannelAdapter {
     return stored.map((file) => ({ id: file.id, name: file.name }))
   }
 
-  /** How many entries from Argus a person has not seen. */
+  /** How many entries from Argus a person has not seen, in all their conversations. */
   unread(userId: string): number {
-    return this.store.unread(userId)
+    return this.store.unreadByChat(userId).reduce((sum, row) => sum + row.count, 0)
   }
 
-  /** A person saw their conversation. */
-  markRead(userId: string): void {
-    if (this.store.markRead(userId, this.now()) > 0) this.changed(userId)
+  /** What a person has not seen, per thread (`''` for their own conversation). */
+  unreadByThread(userId: string): Record<string, number> {
+    return Object.fromEntries(this.store.unreadByChat(userId).map((row) => [threadOf(row.chat_id), row.count]))
+  }
+
+  /** A person saw a conversation of theirs. */
+  markRead(userId: string, thread: string = ''): void {
+    const chatId = threadChat(userId, thread)
+    if (chatId !== undefined && this.store.markRead(chatId, this.now()) > 0) this.changed(chatId)
   }
 
   /**
@@ -231,8 +277,8 @@ export class WebChannelAdapter implements ChannelAdapter {
    * @returns the file, or `undefined`.
    */
   file(userId: string, fileId: string): StoredFile | undefined {
-    const row = this.store.file(userId, fileId)
-    if (row === undefined) return undefined
+    const row = this.store.fileById(fileId)
+    if (row === undefined || !ownsChat(userId, row.chat_id)) return undefined
     return {
       name: row.name,
       ...(row.path === null ? {} : { path: row.path }),

@@ -41,6 +41,9 @@ export { EgressProxy, isPublicAddress } from './egress.js'
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
 
+/** How long a one-off task's session waits for a follow-up before it closes. */
+export const SESSION_IDLE_MS = 24 * 3_600_000
+
 /**
  * The services this plugin requires.
  *
@@ -94,6 +97,16 @@ export function apply(ctx: Context): void {
     snapshots: new Snapshots(paths.stateDir, settings),
     snapshotSettings: settings,
     oauthClients: () => oauthClientsOf(ctx.opsRawConfig),
+  })
+  // A one-off task's session waits a day for a follow-up; then its agent and folder go.
+  ctx.effect(() => {
+    const sweep = () => void service.closeIdleSessions(SESSION_IDLE_MS).catch((error: Error) => ctx.logger('ops-projects').warn('closing idle sessions failed: %s', error.message))
+    const timer = setInterval(sweep, 10 * 60_000)
+    const first = setTimeout(sweep, 60_000)
+    return () => {
+      clearInterval(timer)
+      clearTimeout(first)
+    }
   })
   // Expiry also runs at each snapshot; daily covers a project that no longer runs.
   ctx.effect(() => {

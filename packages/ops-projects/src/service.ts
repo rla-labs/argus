@@ -10,7 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, realpathSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { hiddenTools, taskToolPolicy, type DoctorFinding, type McpServer, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
@@ -68,6 +68,20 @@ interface LiveAgent {
   config?: ProjectConfig
   /** Its project's OAuth grants when it was built: a grant made or lost rebuilds it too. */
   authEpoch?: number
+  /** When it was created or last given work: a session idle too long is closed. */
+  lastActive: number
+}
+
+/** A one-off task a person started: its agent and folder stay for follow-ups, as a session. */
+export const SESSION_PREFIX = 'task-'
+
+/** A one-off task's session: alive, with when it was last given work. */
+export interface TaskSession {
+  readonly id: string
+  /** The agent's session: every run of the task carries it. */
+  readonly sessionId: string
+  readonly lastActive: number
+  readonly running: boolean
 }
 
 /** The name an MCP server's `env` uses for the egress proxy's address. */
@@ -118,6 +132,8 @@ export class OpsProjects {
   private readonly store: OpsStore
   private readonly ctx: Context
   private readonly scratchDir: string
+  /** Sessions closed by this process, so a follow-up to one is told it ended. */
+  private readonly closedSessions = new Set<string>()
   private readonly stateDir: string | undefined
   /** Where per-project state goes: `stateDir`, or `state/` next to the scratch folder. */
   private readonly stateRoot: string
@@ -1000,6 +1016,80 @@ export class OpsProjects {
     return join(this.scratchDir, runId)
   }
 
+  /**
+   * The one-off tasks a person started whose agent is alive: each takes a follow-up in
+   * the same conversation, until it is closed or idle for a day, or Argus restarts.
+   *
+   * @returns the sessions, most recently active first.
+   */
+  sessions(): TaskSession[] {
+    return [...this.live.values()]
+      .filter((entry) => entry.owner.kind === 'adhoc' && entry.owner.runId.startsWith(SESSION_PREFIX))
+      .map((entry) => ({ id: (entry.owner as { runId: string }).runId, sessionId: entry.handle.agent.id as string, lastActive: entry.lastActive, running: entry.handle.agent.status === 'running' }))
+      .sort((a, b) => b.lastActive - a.lastActive)
+  }
+
+  /**
+   * Close a session: its agent goes, and its folder with the files it made.
+   *
+   * @param id the session (the task's run id).
+   * @param actor who asked.
+   * @returns whether there was such a session, or its folder.
+   */
+  async closeSession(id: string, actor = 'system'): Promise<boolean> {
+    if (!id.startsWith(SESSION_PREFIX) || id.includes('/') || id.includes('..')) return false
+    const key = ownerKey(adhocOwner(id))
+    const entry = this.live.get(key)
+    if (entry !== undefined) await entry.handle.dispose()
+    const dir = this.taskDirOf(id)
+    const existed = entry !== undefined || existsSync(dir)
+    rmSync(dir, { recursive: true, force: true })
+    this.closedSessions.add(id)
+    if (existed) this.store.audit.record({ actor, action: 'session.closed', target: id, details: {} }, Date.now())
+    return existed
+  }
+
+  /**
+   * Whether a session existed and is gone: closed, idle for a day, or left by an earlier
+   * process (its folder is there, its agent is not). What it remembered is gone with it.
+   *
+   * @param id the session.
+   */
+  sessionEnded(id: string): boolean {
+    if (this.live.has(ownerKey(adhocOwner(id)))) return false
+    return this.closedSessions.has(id) || (id.startsWith(SESSION_PREFIX) && !id.includes('/') && existsSync(this.taskDirOf(id)))
+  }
+
+  /**
+   * Close the sessions idle longer than `idleMs`, and remove what earlier processes left
+   * of theirs (a folder whose agent is gone).
+   *
+   * @param idleMs how long a session may wait for a follow-up.
+   * @param now the current time.
+   * @returns how many were closed.
+   */
+  async closeIdleSessions(idleMs: number, now = Date.now()): Promise<number> {
+    let closed = 0
+    for (const session of this.sessions()) {
+      if (!session.running && now - session.lastActive > idleMs && (await this.closeSession(session.id))) closed++
+    }
+    const live = new Set(this.sessions().map((session) => session.id))
+    let names: string[] = []
+    try {
+      names = readdirSync(this.scratchDir)
+    } catch {
+      return closed
+    }
+    for (const name of names.filter((each) => each.startsWith(SESSION_PREFIX) && !live.has(each))) {
+      try {
+        if (now - statSync(join(this.scratchDir, name)).mtimeMs > idleMs && (await this.closeSession(name))) closed++
+      } catch {
+        // Gone meanwhile.
+      }
+    }
+    return closed
+  }
+
   async createEphemeral(options: EphemeralOptions): Promise<Agent> {
     const owner = options.kind === 'adhoc' ? adhocOwner(options.runId) : orchestratorOwner()
     const key = ownerKey(owner)
@@ -1049,6 +1139,7 @@ export class OpsProjects {
       runEvents: [],
       producing: false,
       ...(config === undefined ? {} : { config, authEpoch: this.authEpochs.get(config.id) ?? 0 }),
+      lastActive: Date.now(),
     }
     this.live.set(key, entry)
     this.entryBySession.set(sessionId, entry)
@@ -1101,6 +1192,7 @@ export class OpsProjects {
 
     // Open the run before the message lands, so a status transition that races
     // the delivery still finds a run to close.
+    entry.lastActive = Date.now()
     if (entry.runId === undefined) {
       entry.runId = options.runId
       entry.runEvents = []

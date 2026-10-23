@@ -602,17 +602,66 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (text.trim().length === 0) {
           return failWith({ syntax: '/task <text>' } as CommandSpec, 'A task needs some text.')
         }
+        const session = randomRunId()
         const { requestId } = governor.submit({
           source: 'channel',
-          target: { adhoc: { runId: randomRunId(), model: governor.adhocModel() } },
+          target: { adhoc: { runId: session, model: governor.adhocModel() } },
           content: [{ type: 'text', text }],
           priority: 0,
           replyTo: context.address,
           model: governor.adhocModel(),
         })
-        return result(`Task queued (${truncate(requestId, 8)}). I will report when it finishes.`, {
-          data: { requestId },
+        return result(`Task queued (${truncate(requestId, 8)}). I will report when it finishes. To go on with it: /session ${session} <text>.`, {
+          data: { requestId, session },
         })
+      },
+    },
+
+    // ── /session ───────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'session',
+        description: 'Go on with a one-off task, or close it',
+        syntax: '/session [<id> <text> | close <id>]',
+        detail:
+          'A one-off task keeps its agent and its folder for a day after its last message, so ' +
+          'you can go on with it: it remembers the conversation, and nothing else. With ' +
+          'nothing, lists the open sessions. With an id and text, sends the text to that ' +
+          'session VERBATIM (a new id starts one). `close` ends it: its agent goes, and its ' +
+          'folder with the files it made. A session also ends after a day without a message, ' +
+          'and when Argus restarts.',
+        examples: ['/session', '/session task-abc123 now sort it by price', '/session close task-abc123'],
+        mutating: true,
+      },
+      async run(input, context): Promise<CommandResult> {
+        const [first, second] = tokenize(input)
+        if (first === undefined) {
+          const open = projects.sessions()
+          if (open.length === 0) return result('No session is open. /task <text> starts one.')
+          const now = options.now()
+          return result(['Open sessions:', ...open.map((session) => `  ${session.id}  ${session.running ? 'working' : `last message ${formatAge(session.lastActive, now)}`}`)].join('\n'))
+        }
+        if (first === 'close') {
+          if (second === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'close needs a session id.')
+          return (await projects.closeSession(second, context.userId)) ? result(`${second} is closed: its agent and its folder are gone.`) : errorResult(`No session ${second}.`)
+        }
+        if (!/^task-[a-z0-9-]{4,60}$/.test(first)) return errorResult(`"${first}" is not a session id. /session lists them.`)
+        const text = restAfter(input, 1)
+        if (text.trim().length === 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'A session needs some text.')
+        const known = projects.sessions().some((session) => session.id === first)
+        // An id that ran before and is not open any more ended: its memory is gone.
+        if (!known && projects.sessionEnded(first)) {
+          return errorResult(`${first} has ended: it was idle for a day, closed, or Argus restarted, and what it remembered is gone. /task <text> starts a new one.`)
+        }
+        const { requestId } = governor.submit({
+          source: 'channel',
+          target: { adhoc: { runId: first, model: governor.adhocModel() } },
+          content: [{ type: 'text', text }],
+          priority: 0,
+          replyTo: context.address,
+          model: governor.adhocModel(),
+        })
+        return result(known ? `Sent to ${first}.` : `Session ${first} started.`, { data: { requestId, session: first } })
       },
     },
 

@@ -21,8 +21,8 @@ import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { WebAuth, Session } from './auth.js'
 import type { SetupGate } from './setup.js'
-import type { WebChannelAdapter } from './web-channel.js'
-import { FileRefusal, receiveUpload, sendZip, type DownloadLinks } from './files.js'
+import { ownsChat, threadChat, threadOf, type WebChannelAdapter } from './web-channel.js'
+import { FileRefusal, listFolder, receiveUpload, sendFile, sendZip, type DownloadLinks } from './files.js'
 
 /** The session cookie's name. */
 export const COOKIE = 'argus_session'
@@ -55,6 +55,10 @@ export interface ServerDeps {
   readonly setup: SetupGate
   readonly sessionHours: number
   readonly chat: WebChannelAdapter
+  /** Point a person's project thread at its project, so what they write there goes to it. */
+  readonly bindThread: (userId: string, projectId: string) => boolean
+  /** The open sessions of one-off tasks, with what each was first asked. */
+  readonly sessions: () => unknown
   /** Who the session's user is, for `/api/me`. */
   readonly me: (session: Session) => unknown
   /** Every user, for the admin; `undefined` for anyone else. */
@@ -377,6 +381,20 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
         throw error
       }
     }
+    const folder = /^\/api\/projects\/([^/]+)\/(files|file)$/.exec(path)
+    if (method === 'GET' && folder !== null) {
+      const cwd = deps.projectDir(decodeURIComponent(folder[1] as string))
+      if (cwd === undefined) return send(response, 404, { error: 'no such project' })
+      const params = new URL(request.url ?? '/', 'http://x').searchParams
+      try {
+        if (folder[2] === 'files') return send(response, 200, listFolder(cwd, params.get('path') ?? ''))
+        return sendFile(response, cwd, params.get('path') ?? '', params.get('download') === '1')
+      } catch (error) {
+        if (error instanceof FileRefusal) return send(response, error.status, { error: error.message })
+        if ((error as NodeJS.ErrnoException).code === 'ELOOP' || (error as NodeJS.ErrnoException).code === 'ENOENT') return send(response, 404, { error: 'not found' })
+        throw error
+      }
+    }
     const zip = /^\/api\/projects\/([^/]+)\/zip$/.exec(path)
     if (method === 'GET' && zip !== null) {
       const id = decodeURIComponent(zip[1] as string)
@@ -424,17 +442,23 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       const ok = deps.answerCheckpoint(decodeURIComponent(checkpoint[1] as string), value, session)
       return send(response, ok ? 200 : 409, ok ? { ok } : { error: 'that run is no longer waiting' })
     }
-    if (method === 'GET' && path === '/api/chat') return send(response, 200, { entries: deps.chat.history(session.userId) })
-    if (method === 'GET' && path === '/api/chat/unread') return send(response, 200, { count: deps.chat.unread(session.userId) })
+    if (method === 'GET' && path === '/api/chat') return send(response, 200, { entries: deps.chat.history(session.userId, new URL(request.url ?? '/', 'http://x').searchParams.get('thread') ?? '') })
+    if (method === 'GET' && path === '/api/chat/unread') return send(response, 200, { count: deps.chat.unread(session.userId), threads: deps.chat.unreadByThread(session.userId) })
+    if (method === 'GET' && path === '/api/sessions') return send(response, 200, { sessions: deps.sessions() })
     if (method === 'POST' && path === '/api/chat/read') {
-      deps.chat.markRead(session.userId)
+      const body = await readJson(request)
+      deps.chat.markRead(session.userId, typeof body['thread'] === 'string' ? body['thread'] : '')
       return send(response, 200, { ok: true })
     }
     if (method === 'POST' && path === '/api/chat') {
       const body = await readJson(request)
       const text = typeof body['text'] === 'string' ? body['text'] : ''
+      const thread = typeof body['thread'] === 'string' ? body['thread'] : ''
       if (text.trim().length === 0) return send(response, 400, { error: 'empty message' })
-      deps.chat.receive(session.userId, text)
+      if (threadChat(session.userId, thread) === undefined) return send(response, 400, { error: 'no such conversation' })
+      // A project's thread speaks to the project; a session's goes to it as /session, the text verbatim inside.
+      if (thread.startsWith('p:') && !deps.bindThread(session.userId, thread.slice(2))) return send(response, 404, { error: 'no such project' })
+      deps.chat.receive(session.userId, text, thread, thread.startsWith('s:') ? `/session ${thread.slice(2)} ${text}` : undefined)
       return send(response, 202, { ok: true })
     }
     if (method === 'POST' && path === '/api/chat/press') {
@@ -464,9 +488,9 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
     response.write('retry: 3000\n\n')
     const unsubscribe = deps.onChange((topic) => {
-      // A chat change is only for the person whose chat it is.
-      if (topic.startsWith('chat:') && topic !== `chat:${session.userId}`) return
-      response.write(`event: changed\ndata: ${topic.startsWith('chat:') ? 'chat' : topic}\n\n`)
+      // A chat change is only for the person whose chat it is; the page learns which thread.
+      if (topic.startsWith('chat:') && !ownsChat(session.userId, topic.slice('chat:'.length))) return
+      response.write(`event: changed\ndata: ${topic.startsWith('chat:') ? `chat:${threadOf(topic.slice('chat:'.length))}` : topic}\n\n`)
     })
     const ping = setInterval(() => response.write(': ping\n\n'), 25_000)
     request.on('close', () => {

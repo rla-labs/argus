@@ -148,6 +148,27 @@ export class WebChatRepository {
   }
 
   /**
+   * How many entries from Argus a person has not seen, per chat: their own and each of
+   * their threads (`<user>~p~<project>`, `<user>~s~<session>`).
+   * @param userId the Argus user id.
+   * @returns the chats with something unseen.
+   */
+  unreadByChat(userId: string): Array<{ chat_id: string; count: number }> {
+    return this.db
+      .prepare("SELECT chat_id, COUNT(*) AS count FROM web_chat WHERE (chat_id = ? OR substr(chat_id, 1, ?) = ?) AND sender = 'argus' AND read_at IS NULL GROUP BY chat_id")
+      .all(userId, userId.length + 1, `${userId}~`) as Array<{ chat_id: string; count: number }>
+  }
+
+  /**
+   * A file a chat offered, by its id alone; the caller checks whose chat it is.
+   * @param fileId the file id.
+   * @returns the row, or `undefined`.
+   */
+  fileById(fileId: string): WebChatFileRow | undefined {
+    return this.db.prepare('SELECT * FROM web_chat_files WHERE id = ?').get(fileId) as WebChatFileRow | undefined
+  }
+
+  /**
    * Close every question still open: after a restart nobody waits for them.
    * @returns how many were closed.
    */

@@ -18,7 +18,7 @@ For which command fits which moment, read
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) · [`/web`](#web) · [`/link`](#link-code) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
-| Work | [`/task`](#task-text) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
+| Work | [`/task`](#task-text) · [`/session`](#session-id-text--close-id) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--admin) · [`/set`](#set-project-id-key-value--admin) · [`/config`](#config-key-value--reset-key--admin) · [`/restart`](#restart--admin-asks-first) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
@@ -204,6 +204,24 @@ Task queued (a1b2c3d4). I will report when it finishes.
 
 The model is `tasks.model` from `ops.yaml`; [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel)
 shows and changes it. An empty text shows the syntax.
+
+---
+
+## `/session [<id> <text> | close <id>]`
+
+A one-off task keeps its agent and its folder for a day after its last message, as a
+**session**: you can go on with it, and it remembers the conversation (nothing else:
+it has no project memory). `/task` tells you its id.
+
+```
+/session                                 the open sessions
+/session task-abc123 now sort it by price  go on, the text verbatim
+/session close task-abc123               end it: its agent and its folder go
+```
+
+A session ends after a day without a message, when you close it, and when Argus
+restarts; a message to one that ended is refused, since what it remembered is gone.
+In the web interface, **Sessions** shows them as conversations.
 
 ---
 

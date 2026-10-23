@@ -7,7 +7,7 @@
  * rows are asserted directly, because both are easy to get subtly wrong.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -499,6 +499,50 @@ describe('/task', () => {
     expect(out.text).toContain('Task queued')
     await waitIdle(booted)
   }, 40_000)
+
+  it('keeps a task as a session: a follow-up reaches the same agent and folder, close ends it, an ended one is refused', async () => {
+    const booted = await bootCommands()
+    const out = await booted.commands.runCommand('/task list the files', contextFor())
+    const session = (out.data as { session: string }).session
+    expect(out.text).toContain(`/session ${session}`)
+    await waitIdle(booted)
+    expect(await run(booted, '/session')).toContain(session)
+    const agent = booted.projects.sessions().find((each) => each.id === session)
+    expect(agent).toBeDefined()
+
+    const followUp = await booted.commands.runCommand(`/session ${session} now  sort   them`, contextFor())
+    expect(followUp.text).toBe(`Sent to ${session}.`)
+    await waitIdle(booted)
+    // Two runs, one owner: the same session; the follow-up verbatim.
+    const runs = booted.store.runs.bySession(agent?.sessionId ?? '', 10)
+    expect(runs).toHaveLength(2)
+    const payload = JSON.parse(booted.store.inbound.get((followUp.data as { requestId: string }).requestId)?.payload ?? '{}') as { content: Array<{ text: string }> }
+    expect(payload.content[0]?.text).toBe('now  sort   them')
+
+    const folder = booted.projects.taskDirOf(session)
+    expect(existsSync(folder)).toBe(true)
+    expect(await run(booted, `/session close ${session}`)).toContain('is closed')
+    expect(existsSync(folder)).toBe(false)
+    expect(booted.projects.sessions()).toEqual([])
+    const ended = await booted.commands.runCommand(`/session ${session} more`, contextFor())
+    expect(ended.error).toBe(true)
+    expect(ended.text).toContain('has ended')
+    expect((await booted.commands.runCommand('/session ../etc hi', contextFor())).error).toBe(true)
+  }, 60_000)
+
+  it('closes a session idle for a day, and a folder an earlier process left', async () => {
+    const booted = await bootCommands()
+    const out = await booted.commands.runCommand('/task something', contextFor())
+    const session = (out.data as { session: string }).session
+    await waitIdle(booted)
+    const stray = booted.projects.taskDirOf('task-left-behind')
+    mkdirSync(stray, { recursive: true })
+    expect(await booted.projects.closeIdleSessions(86_400_000)).toBe(0)
+    utimesSync(stray, new Date(Date.now() - 2 * 86_400_000), new Date(Date.now() - 2 * 86_400_000))
+    expect(await booted.projects.closeIdleSessions(86_400_000, Date.now() + 2 * 86_400_000)).toBe(2)
+    expect(existsSync(stray)).toBe(false)
+    expect(booted.projects.sessions().map((each) => each.id)).not.toContain(session)
+  }, 60_000)
 
   it('forwards the text VERBATIM', async () => {
     const booted = await bootCommands()

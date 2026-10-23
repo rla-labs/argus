@@ -343,7 +343,7 @@ const TASKS_SHOWN = 30
 const RUNS_SHOWN = 50
 
 /** The text of a request, from its inbound payload. */
-function requestText(payload: string | undefined): string | null {
+export function requestText(payload: string | undefined): string | null {
   if (payload === undefined) return null
   const content = parseJson(payload)['content']
   const text = (Array.isArray(content) ? content : [])

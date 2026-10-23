@@ -12,7 +12,7 @@
  * @module @argus-agent/web/files
  */
 import { randomBytes, randomUUID } from 'node:crypto'
-import { closeSync, constants, createReadStream, existsSync, lstatSync, mkdirSync, openSync, realpathSync, renameSync, rmSync, statSync, statfsSync, writeSync } from 'node:fs'
+import { closeSync, constants, createReadStream, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmSync, statSync, statfsSync, writeSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { spawn } from 'node:child_process'
 import { basename, extname, isAbsolute, join, normalize, resolve, sep } from 'node:path'
@@ -245,4 +245,98 @@ export class DownloadLinks {
       if (entry.owned) rmSync(entry.path, { force: true })
     }
   }
+}
+
+/** Entries a folder listing returns at most. */
+const LIST_MAX = 500
+
+/**
+ * A path inside a project's folder, links followed.
+ *
+ * @param cwd the project's folder.
+ * @param path relative to it; empty or `.` for the folder.
+ * @returns the real path.
+ * @throws {FileRefusal} 404 when there is nothing there, 403 when it leads outside.
+ */
+export function insideFolder(cwd: string, path: string): string {
+  if (isAbsolute(path) || path.includes('\0')) throw new FileRefusal(403, 'the path must be relative to the project')
+  let root: string
+  let real: string
+  try {
+    root = realpathSync(cwd)
+    real = realpathSync(resolve(root, path === '' ? '.' : path))
+  } catch {
+    throw new FileRefusal(404, 'not found')
+  }
+  if (!isInside(root, real)) throw new FileRefusal(403, 'outside the project')
+  return real
+}
+
+/** One entry of a folder. */
+export interface FolderEntry {
+  readonly name: string
+  readonly dir: boolean
+  readonly size: number
+  readonly mtime: number
+}
+
+/**
+ * A folder of a project: folders first, then files, newest first.
+ *
+ * @param cwd the project's folder.
+ * @param path the folder, relative.
+ * @returns its entries, at most {@link LIST_MAX}, and whether there were more.
+ */
+export function listFolder(cwd: string, path: string): { readonly entries: readonly FolderEntry[]; readonly more: boolean } {
+  const real = insideFolder(cwd, path)
+  if (!statSync(real).isDirectory()) throw new FileRefusal(400, 'not a folder')
+  const entries = readdirSync(real, { withFileTypes: true }).flatMap((entry): FolderEntry[] => {
+    try {
+      // A link is shown as what it leads to, only when that is inside the project.
+      const target = entry.isSymbolicLink() ? insideFolder(cwd, join(path, entry.name)) : join(real, entry.name)
+      const stat = statSync(target)
+      return [{ name: entry.name, dir: stat.isDirectory(), size: stat.size, mtime: stat.mtimeMs }]
+    } catch {
+      return []
+    }
+  })
+  entries.sort((a, b) => (a.dir !== b.dir ? (a.dir ? -1 : 1) : a.dir ? a.name.localeCompare(b.name) : b.mtime - a.mtime))
+  return { entries: entries.slice(0, LIST_MAX), more: entries.length > LIST_MAX }
+}
+
+/** What a file is served as: a type the page can show, never one that runs in the page. */
+const SHOWN_TYPES: Readonly<Record<string, string>> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.pdf': 'application/pdf', '.json': 'application/json; charset=utf-8',
+}
+
+/**
+ * Send one file of a project: to show (an image, a PDF; anything else as plain text) or
+ * to download. Whatever the agent wrote, the browser runs none of it: the response is
+ * sandboxed (CSP `sandbox`), HTML and SVG come as text, and nothing is sniffed.
+ *
+ * @param response the response.
+ * @param cwd the project's folder.
+ * @param path the file, relative.
+ * @param download whether to download it rather than show it.
+ */
+export function sendFile(response: ServerResponse, cwd: string, path: string, download: boolean): void {
+  const real = insideFolder(cwd, path)
+  // ponytail: a folder swapped for a link between the check and the open is not caught; O_NOFOLLOW guards the file itself.
+  const fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW)
+  const stat = fstatSync(fd)
+  if (!stat.isFile()) {
+    closeSync(fd)
+    throw new FileRefusal(400, 'not a file')
+  }
+  const name = basename(real)
+  response.writeHead(200, {
+    'content-type': download ? 'application/octet-stream' : (SHOWN_TYPES[extname(name).toLowerCase()] ?? 'text/plain; charset=utf-8'),
+    'content-length': String(stat.size),
+    'content-disposition': `${download ? 'attachment' : 'inline'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'content-security-policy': "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
+    'x-content-type-options': 'nosniff',
+    'cache-control': 'no-store',
+  })
+  createReadStream('', { fd }).pipe(response)
 }
