@@ -7,8 +7,7 @@ import { html } from 'htm/preact'
 import type { VNode } from 'preact'
 import { useEffect, useRef, useState } from 'preact/hooks'
 import { get, post } from '../api.js'
-import { clock, money, since, t } from '../i18n.js'
-import { Constellation, Dial, Gauge, Trend } from '../svg.js'
+import { clock, t } from '../i18n.js'
 import { NewProjectForm } from './projects.js'
 // ── the server's shapes ────────────────────────────────────────────────────
 
@@ -73,49 +72,6 @@ interface UserRow {
 const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
-
-/** Approve / deny buttons for one pending approval. */
-export function ApprovalCard({ approval, admin, onDone }: { approval: Overview['approvals'][number]; admin: boolean; onDone: (message?: string) => void }): VNode {
-  const [busy, setBusy] = useState(false)
-  const answer = async (value: string): Promise<void> => {
-    setBusy(true)
-    const result = await post(`/api/approvals/${encodeURIComponent(approval.id)}`, { value })
-    setBusy(false)
-    onDone(result.ok ? undefined : t('approvals.gone'))
-  }
-  return html`<div class="approval">
-    <div class="head"><span class="mono" style="color:var(--amber)">${approval.projectId ?? 'task'} · ${approval.kind}</span><span class="lbl">${clock(approval.at)}</span></div>
-    <code class="action">${approval.action}</code>
-    ${approval.detail === null ? null : html`<pre class="mono" style="white-space:pre-wrap;max-height:24rem;overflow:auto;margin:0">${approval.detail}</pre>`}
-    <div class="btns">
-      <button class="btn primary" type="button" disabled=${busy} onClick=${() => answer('approve')}>${t('approvals.approve')}</button>
-      ${approval.detail === null ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('approve-all')}>${t('approvals.approveAll')}</button>` : null}
-      <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('deny')}>${t('approvals.deny')}</button>
-      ${admin && approval.always !== null && approval.projectId !== null
-        ? html`<button class="btn ghost" type="button" disabled=${busy} onClick=${() => answer('always')}>${t('approvals.always', { rule: approval.always.length > 40 ? `${approval.always.slice(0, 39)}…` : approval.always, project: approval.projectId })}</button>`
-        : null}
-    </div>
-  </div>`
-}
-
-/** Continue / Stop for a run the loop checker found in a loop. */
-export function CheckpointCard({ checkpoint, onDone }: { checkpoint: Overview['checkpoints'][number]; onDone: (message?: string) => void }): VNode {
-  const [busy, setBusy] = useState(false)
-  const answer = async (value: string): Promise<void> => {
-    setBusy(true)
-    const result = await post(`/api/checkpoints/${encodeURIComponent(checkpoint.runId)}`, { value })
-    setBusy(false)
-    onDone(result.ok ? undefined : t('approvals.gone'))
-  }
-  return html`<div class="approval">
-    <div class="head"><span class="mono" style="color:var(--amber)">${checkpoint.who} · ${t('checkpoint.title')}</span><span class="lbl">${clock(checkpoint.at)}</span></div>
-    <p>${t('checkpoint.text', { steps: checkpoint.steps, reason: checkpoint.reason })}</p>
-    <div class="btns">
-      <button class="btn primary" type="button" disabled=${busy} onClick=${() => answer('continue')}>${t('checkpoint.continue')}</button>
-      <button class="btn danger" type="button" disabled=${busy} onClick=${() => answer('stop')}>${t('checkpoint.stop')}</button>
-    </div>
-  </div>`
-}
 
 /** The sign-in form. Not `post`: a 401 here is a wrong password, not a lost session. */
 export function SignIn({ onSignedIn }: { onSignedIn: () => void }): VNode {
@@ -318,80 +274,6 @@ export function UsersView({ version, run, outcome }: { version: number; run: (li
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
-
-export function OverviewView({ data, refresh, run, admin }: { data: Overview; refresh: () => void; run: (line: string) => void; admin: boolean }): VNode {
-  const upcoming = data.schedules.filter((row) => row.enabled && row.next - data.now < 24 * 3_600_000).sort((a, b) => a.next - b.next)
-  const [gone, setGone] = useState<string | undefined>()
-  return html`
-    <div class="row">
-      <section class="hud grow2">
-        <div class="head"><h2>${t('constellation.title')}</h2><span class="lbl">${t('constellation.hint')}</span></div>
-        ${data.projects.length === 0 ? html`<p class="empty">${t('constellation.none')}</p>` : null}
-        <${Constellation} stars=${data.projects} />
-      </section>
-      <div class="grow1" style="display:flex;flex-direction:column;gap:20px">
-        <section class="hud">
-          <h2>${t('spend.title')}</h2>
-          <div class="row" style="align-items:center;gap:16px">
-            <${Gauge} spent=${data.spend.dayMicros} limit=${data.spend.dayLimitMicros} />
-            <div style="display:flex;flex-direction:column;gap:12px;flex:1 1 120px">
-              <div><div class="lbl">${t('spend.today')}</div><div class="mono">${money(data.spend.dayMicros)}</div></div>
-              <div><div class="lbl">${t('spend.month')}</div><div class="mono">${money(data.spend.monthMicros)}${data.spend.monthLimitMicros === null ? '' : ` / ${money(data.spend.monthLimitMicros)}`}</div></div>
-            </div>
-          </div>
-          <${Trend} points=${data.spend.trend} />
-          <div class="lbl">${t('spend.trend')}</div>
-        </section>
-        <section class="hud">
-          <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl" style="color:var(--amber)">${t('approvals.pending', { count: data.approvals.length + data.checkpoints.length })}</span></div>
-          ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
-          ${data.approvals.length + data.checkpoints.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
-          ${data.checkpoints.map((checkpoint) => html`<${CheckpointCard} key=${checkpoint.runId} checkpoint=${checkpoint} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
-          ${data.approvals.slice(0, 2).map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
-        </section>
-      </div>
-    </div>
-    <div class="row">
-      <section class="hud grow2">
-        <h2>${t('runs.title')}</h2>
-        ${data.runs.length === 0
-          ? html`<p class="empty">${t('runs.none')}</p>`
-          : html`<div class="scroll"><table>
-              <thead><tr><th scope="col" class="lbl">${t('runs.who')}</th><th scope="col" class="lbl">${t('runs.model')}</th><th scope="col" class="lbl num">${t('runs.steps')}</th><th scope="col" class="lbl num">${t('runs.time')}</th><th scope="col" class="lbl num">${t('runs.cost')}</th><th></th></tr></thead>
-              <tbody>${data.runs.map(
-                (row) => html`<tr>
-                  <td>${row.who}</td><td class="muted">${row.model}</td><td class="num" style="color:var(--orange-soft)">${row.steps}</td>
-                  <td class="num">${since(row.startedAt, data.now)}</td><td class="num">${money(row.micros)}</td>
-                  <td class="num">${row.who === 'task' || row.who === 'front desk' ? null : html`<button class="btn danger" type="button" onClick=${() => run(`/stop ${row.who}`)}>${t('runs.stop')}</button>`}</td>
-                </tr>`,
-              )}</tbody></table></div>`}
-      </section>
-      <section class="hud grow1">
-        <h2>${t('schedule.title')}</h2>
-        <div class="row" style="align-items:center;gap:14px">
-          <${Dial} now=${data.now} runs=${upcoming.map((row) => ({ at: row.next }))} />
-          ${upcoming.length === 0
-            ? html`<p class="empty">${t('schedule.none')}</p>`
-            : html`<ul class="plain" style="flex:1 1 120px">${upcoming.slice(0, 6).map((row) => html`<li><span style="color:var(--cyan)">${clock(row.next)}</span> ${row.who}<br /><span class="muted">${row.what}</span></li>`)}</ul>`}
-        </div>
-      </section>
-      <section class="hud grow1">
-        <h2>${t('log.title')}</h2>
-        <ol class="log">${data.log.map((row) => html`<li><time>${clock(row.at)}</time><span>${row.action}${row.target === null ? '' : ` · ${row.target}`}</span></li>`)}</ol>
-      </section>
-    </div>`
-}
-
-export function ApprovalsView({ data, refresh, admin }: { data: Overview; refresh: () => void; admin: boolean }): VNode {
-  const [gone, setGone] = useState<string | undefined>()
-  return html`<section class="hud">
-    <div class="head"><h2>${t('approvals.title')}</h2><span class="lbl">${t('approvals.pending', { count: data.approvals.length + data.checkpoints.length })}</span></div>
-    ${gone === undefined ? null : html`<div class="notice err">${gone}</div>`}
-    ${data.approvals.length + data.checkpoints.length === 0 ? html`<p class="empty">${t('approvals.none')}</p>` : null}
-    ${data.checkpoints.map((checkpoint) => html`<${CheckpointCard} key=${checkpoint.runId} checkpoint=${checkpoint} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
-    ${data.approvals.map((approval) => html`<${ApprovalCard} key=${approval.id} approval=${approval} admin=${admin} onDone=${(message?: string) => { setGone(message); refresh() }} />`)}
-  </section>`
-}
 
 export function ChatView({ version }: { version: number }): VNode {
   const [entries, setEntries] = useState<ChatEntry[]>([])

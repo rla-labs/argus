@@ -220,6 +220,14 @@ export interface ProjectRow extends ProjectView {
   readonly monthMicros: number
   readonly dayLimitMicros: number | null
   readonly monthLimitMicros: number | null
+  /** The last run: what was asked, when, how it ended; `null` before the first. */
+  readonly lastRun: { readonly at: number; readonly status: string; readonly text: string | null; readonly stopReason: string | null; readonly steps: number } | null
+  /** The step the run in progress is at; `null` when nothing runs. */
+  readonly step: number | null
+  /** The next scheduled run; `null` when none is enabled. */
+  readonly next: { readonly at: number; readonly what: string } | null
+  /** Approvals and loop checks waiting for an answer. */
+  readonly pending: number
 }
 
 /** One run, as the pages list it. */
@@ -272,13 +280,29 @@ function runView(sources: DataSources, row: { id: string; owner_key: string; sta
  */
 export function projectList(sources: DataSources): ProjectRow[] {
   const status = sources.governor.status()
-  return overview(sources).projects.map((project) => {
+  const all = overview(sources)
+  return all.projects.map((project) => {
     const scope = `project:${project.id}` as Scope
+    const last = sources.store.runs.byOwner(scope, 1)[0]
+    const next = all.schedules.filter((row) => row.who === project.id && row.enabled).sort((a, b) => a.next - b.next)[0]
     return {
       ...project,
       monthMicros: Number(sources.meter.spending(scope).monthMicros),
       dayLimitMicros: budgetOf(status, scope, 'day').limit,
       monthLimitMicros: budgetOf(status, scope, 'month').limit,
+      lastRun:
+        last === undefined
+          ? null
+          : {
+              at: last.ended_at ?? last.started_at,
+              status: last.status,
+              text: requestText(last.inbound_id === null ? undefined : sources.store.inbound.get(last.inbound_id)?.payload),
+              stopReason: last.stop_reason,
+              steps: last.steps,
+            },
+      step: status.running.find((run) => run.owner.kind === 'project' && run.owner.projectId === project.id)?.steps ?? null,
+      next: next === undefined ? null : { at: next.next, what: next.what },
+      pending: all.approvals.filter((approval) => approval.projectId === project.id).length + all.checkpoints.filter((checkpoint) => checkpoint.who === project.id).length,
     }
   })
 }

@@ -460,10 +460,16 @@ describe('the web interface', () => {
     const cookie = await signIn(booted)
     const json = async (path: string): Promise<Record<string, unknown>> => (await (await fetch(`${booted.base}${path}`, { headers: { cookie } })).json()) as Record<string, unknown>
     const list = (await json('/api/projects'))['projects'] as Array<Record<string, unknown>>
-    expect(list).toEqual([expect.objectContaining({ id: 'alpha', description: 'The test site', monthMicros: 0 })])
+    expect(list).toEqual([expect.objectContaining({ id: 'alpha', description: 'The test site', monthMicros: 0, lastRun: null, step: null, next: null, pending: 0 })])
     const alpha = await json('/api/projects/alpha')
     expect(alpha).toMatchObject({ id: 'alpha', model: 'fake/fake-model', runs: [], approvals: [], schedules: [] })
     expect(alpha['tools']).toMatchObject({ agents: 'off' })
+    // A schedule is the card's next run; an approval makes it wait for you.
+    await booted.commands.runCommand('/cron add alpha "0 9 * * *" Send the report', { address: { channel: 'web', chatId: booted.admin }, userId: booted.admin, user: { id: booted.admin, role: 'admin' }, isAdmin: true, now: Date.now() })
+    booted.store.approvals.insert({ id: 'ap1', run_id: null, project_id: 'alpha', request_json: JSON.stringify({ action: 'npm test', kind: 'command' }), status: 'pending' }, Date.now())
+    const again = ((await json('/api/projects'))['projects'] as Array<{ next: { what: string } | null; pending: number }>)[0]
+    expect(again?.next?.what).toBe('Send the report')
+    expect(again?.pending).toBe(1)
     expect((await fetch(`${booted.base}/api/projects/nope`, { headers: { cookie } })).status).toBe(404)
     const templates = (await json('/api/templates'))['templates'] as Array<{ name: string; summary: string }>
     expect(templates.map((template) => template.name)).toContain('site')

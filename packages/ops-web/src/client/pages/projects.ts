@@ -93,38 +93,6 @@ export function NewProjectForm({ version, run }: Pick<PageProps, 'version' | 'ru
   </form>`
 }
 
-/** Every project, and a form for a new one. */
-export function ProjectsView({ version, run, outcome, can }: PageProps): VNode {
-  const data = useData<{ projects: ProjectRow[] }>('/api/projects', version)
-  return html`
-    ${outcome}
-    <section class="hud">
-      <h2>${t('projects.title')}</h2>
-      ${data === undefined || data === null
-        ? html`<p class="empty">${t('common.loading')}</p>`
-        : data.projects.length === 0
-          ? html`<p class="empty">${t('projects.none')}</p>`
-          : html`<div class="scroll"><table>
-              <thead><tr><th scope="col" class="lbl">${t('settings.project')}</th><th scope="col" class="lbl">${t('projects.state')}</th><th scope="col" class="lbl">${t('runs.model')}</th><th scope="col" class="lbl num">${t('spend.today')}</th><th scope="col" class="lbl num">${t('spend.month')}</th></tr></thead>
-              <tbody>${data.projects.map(
-                (project) => html`<tr>
-                  <td><a class="link" href=${`#projects/${encodeURIComponent(project.id)}`}>${project.id}</a>${project.description === null ? null : html`<br /><span class="faint">${project.description}</span>`}</td>
-                  <td><${State} project=${project} /></td>
-                  <td class="muted">${project.model}</td>
-                  <td class="num">${spent(project.dayMicros, project.dayLimitMicros)}</td>
-                  <td class="num">${spent(project.monthMicros, project.monthLimitMicros)}</td>
-                </tr>`,
-              )}</tbody></table></div>`}
-    </section>
-    ${can('new')
-      ? html`<section class="hud">
-          <h2>${t('projects.new')}</h2>
-          <p class="muted" style="margin:0">${t('projects.newHint')}</p>
-          <${NewProjectForm} version=${version} run=${run} />
-        </section>`
-      : null}`
-}
-
 /** One project's page. */
 export function ProjectView({ id, version, run, outcome, can }: PageProps & { id: string }): VNode {
   const project = useData<ProjectDetail>(`/api/projects/${encodeURIComponent(id)}`, version)

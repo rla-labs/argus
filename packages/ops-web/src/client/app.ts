@@ -14,14 +14,14 @@ import { initialLanguage, lang, LANGUAGES, t, loadLanguage, type Language } from
 import { Icon, Logo, Modal, Toasts, toast, type IconName } from './kit.js'
 import { go, href, useRoute, type Route } from './router.js'
 import type { PageProps } from './ui.js'
-import { ProjectsView, ProjectView } from './pages/projects.js'
+import { ProjectView } from './pages/projects.js'
+import { HomeView } from './pages/home.js'
+import { InboxView } from './pages/inbox.js'
 import { RunsView, SchedulesView, SystemSection, TasksView } from './pages/work.js'
 import {
-  ApprovalsView,
   ChannelsSection,
   ChatView,
   CreateAdmin,
-  OverviewView,
   PasswordSection,
   SettingsView,
   SetupView,
@@ -344,11 +344,11 @@ function pageFor(route: Route, context: PageContext): VNode | null {
   const loading = html`<p class="empty">${t('common.loading')}</p>`
   switch (route.name) {
     case 'home':
-      return html`<${ProjectsView} ...${page} />${overview === undefined ? null : html`<${OverviewView} data=${overview} refresh=${loadOverview} run=${run} admin=${admin} />`}`
+      return html`<${HomeView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'project':
       return html`<${ProjectView} key=${route.id} id=${route.id} ...${page} />`
     case 'inbox':
-      return overview === undefined ? loading : html`<${ApprovalsView} data=${overview} refresh=${loadOverview} admin=${admin} />`
+      return html`<${InboxView} ...${page} overview=${overview} admin=${admin} refresh=${() => void loadOverview()} />`
     case 'sessions':
       return html`<${TasksView} ...${page} />`
     case 'chat':
