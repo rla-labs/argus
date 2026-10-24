@@ -25,6 +25,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   or *When a mail arrives* in a project's Schedules tab. Argus checks the mailbox in code,
   with no model and no tokens, and starts a run only for a new mail from the senders you
   name, at most a few an hour.
+- **Mail in the web.** A project's **Settings → Connections** shows the trusted
+  addresses with what each used in the last 24 hours, the daily limits, pause and
+  resume, and the outbox; a waiting mail is answered in the **Inbox**, shown whole.
+- **Fixed:** `/set <project> mail.trusted_recipients {…}` was refused as an unknown key.
 - **Changed:** `mail.max_per_day` now counts recipients, not mails: a mail to three
   people uses three. Raise it if a project mails several people at once.
 

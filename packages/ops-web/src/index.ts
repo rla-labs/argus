@@ -453,6 +453,7 @@ async function projectSettings(ctx: Context, id: string): Promise<unknown> {
   const undo = await ctx.opsProjects.undoList(id).catch(() => [])
   const account = await ctx.opsProjects.mail.accountOf(id).catch(() => undefined)
   const mailbox = await ctx.opsProjects.mailbox.accountOf(id).catch(() => undefined)
+  const used = ctx.opsProjects.mail.counts(id)
   return {
     id,
     template: config.template,
@@ -479,6 +480,9 @@ async function projectSettings(ctx: Context, id: string): Promise<unknown> {
       ...config.mail,
       account: account === undefined ? null : { own: account.own, host: account.account.host, user: account.account.user },
       mailbox: mailbox === undefined ? null : { own: mailbox.own, host: mailbox.account.host, user: mailbox.account.user },
+      used: { total: used.total, unattended: used.unattended, byAddress: Object.fromEntries(used.byAddress) },
+      paused: ctx.opsProjects.mail.pausedOf(id),
+      outbox: ctx.opsProjects.outboxOf(id).map((row) => ({ id: row.id, status: row.status, at: row.created_at, recipients: row.recipients, why: row.why, note: row.note })),
     },
     memory: memory?.sections?.(id) ?? [],
     undo: undo.slice(0, 10),

@@ -42,6 +42,13 @@ interface Described {
     readonly read_folders: readonly string[]
     readonly account: { own: boolean; host: string; user: string } | null
     readonly mailbox: { own: boolean; host: string; user: string } | null
+    readonly trusted_recipients: Readonly<Record<string, number>>
+    readonly unattended_per_day: number
+    readonly on_limit: 'ask' | 'block'
+    /** Recipients reached in the last 24 hours: all, unasked, and unasked by address. */
+    readonly used: { total: number; unattended: number; byAddress: Readonly<Record<string, number>> }
+    readonly paused: { paused: boolean; auto: boolean }
+    readonly outbox: ReadonlyArray<{ id: number; status: string; at: number; recipients: number; why: string | null; note: string | null }>
   }
   readonly memory: ReadonlyArray<{ name: string; chars: number }>
   readonly undo: ReadonlyArray<{ id: string; at: number; kind?: string; label?: string; runId?: string }>
@@ -288,6 +295,7 @@ function Connections({ data, act, admin }: SectionProps): VNode {
         ? html`<${Row} title=${t('projects.mailTest')}><form class="cluster" onSubmit=${(event: Event) => { event.preventDefault(); if (testTo.trim().length > 0) act(`/mail test ${data.id} ${testTo.trim()}`) }}>
             <input class="in" style="width:220px" aria-label=${t('projects.mailTestTo')} placeholder="you@example.com" value=${testTo} onInput=${(event: Event) => setTestTo((event.target as HTMLInputElement).value)} /><button type="submit" class="btn sm">${t('projects.mailTest')}</button></form><//>`
         : null}
+      <${MailSending} data=${data} act=${act} admin=${admin} />
       <${Row} title=${t('ps.mailbox')} help=${data.mail.mailbox === null ? t('ps.mailboxNone') : t(data.mail.mailbox.own ? 'ps.mailOwn' : 'ps.mailShared', { user: data.mail.mailbox.user, host: data.mail.mailbox.host })}>
         ${admin ? html`<form class="cluster" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (box.trim().length > 0) { act(`/mail set ${data.id} ${box.trim()}`); setBox('') } }}>
           <input class="in mono" type="password" style="width:260px" aria-label=${t('ps.mailbox')} placeholder="imaps://user:password@host:993" value=${box} onInput=${(event: Event) => setBox((event.target as HTMLInputElement).value)} />
@@ -310,6 +318,63 @@ function Connections({ data, act, admin }: SectionProps): VNode {
             <div class="cluster" style="justify-content:flex-end"><button type="button" class="btn" onClick=${() => setToken(undefined)}>${t('common.cancel')}</button><button type="submit" class="btn primary">${t('settings.save')}</button></div>
           </form>
         <//>`}`
+}
+
+/** Who gets mail unasked and how much, the pause, and the outbox: decided in code, shown here. */
+function MailSending({ data, act, admin }: Pick<SectionProps, 'data' | 'act' | 'admin'>): VNode {
+  const mail = data.mail
+  const [trusted, setTrusted] = useState<Record<string, number>>({ ...mail.trusted_recipients })
+  const [draft, setDraft] = useState('')
+  const [limits, setLimits] = useState({ max: mail.max_per_day, unattended: mail.unattended_per_day, onLimit: mail.on_limit })
+  const saved = JSON.stringify(mail.trusted_recipients)
+  useEffect(() => setTrusted({ ...mail.trusted_recipients }), [saved])
+  useEffect(() => setLimits({ max: mail.max_per_day, unattended: mail.unattended_per_day, onLimit: mail.on_limit }), [mail.max_per_day, mail.unattended_per_day, mail.on_limit])
+  const add = (): void => {
+    const address = draft.trim().toLowerCase()
+    if (address.includes('@') && !address.startsWith('@') && trusted[address] === undefined) setTrusted({ ...trusted, [address]: 3 })
+    setDraft('')
+  }
+  const limitsChanged = limits.max !== mail.max_per_day || limits.unattended !== mail.unattended_per_day || limits.onLimit !== mail.on_limit
+  const saveLimits = (): void => act([
+    ...(limits.max === mail.max_per_day ? [] : [`/set ${data.id} mail.max_per_day ${limits.max}`]),
+    ...(limits.unattended === mail.unattended_per_day ? [] : [`/set ${data.id} mail.unattended_per_day ${limits.unattended}`]),
+    ...(limits.onLimit === mail.on_limit ? [] : [`/set ${data.id} mail.on_limit ${limits.onLimit}`]),
+  ])
+  const statusChip = (status: string): VNode => html`<${StateChip} state=${status === 'waiting' ? 'waiting' : status === 'sent' ? 'ok' : status === 'failed' ? 'broken' : 'idle'} label=${t(`ps.outbox.${status}`) === `ps.outbox.${status}` ? status : t(`ps.outbox.${status}`)} />`
+  return html`
+    <${Row} wide=${true} title=${t('ps.trusted')} help=${t('ps.trustedHelp')}>
+      <div class="stack" style="gap:8px">
+        ${Object.entries(trusted).map(([address, limit]) => html`<div class="cluster" style="gap:8px">
+          <span class="mono" style="flex:1 1 200px;overflow-wrap:anywhere">${address}</span>
+          <span class="faint" style="font-size:12px">${t('ps.trustedUsed', { used: mail.used.byAddress[address] ?? 0 })}</span>
+          <input class="in mono" style="width:80px" type="number" min="1" aria-label=${t('ps.trustedLimit', { address })} disabled=${!admin} value=${String(limit)} onInput=${(event: Event) => setTrusted({ ...trusted, [address]: Number((event.target as HTMLInputElement).value) })} />
+          ${admin ? html`<button type="button" class="btn sm icon" aria-label=${t('settings.remove')} onClick=${() => { const next = { ...trusted }; delete next[address]; setTrusted(next) }}><${Icon} name="close" size=${14} /></button>` : null}
+        </div>`)}
+        ${admin ? html`<div class="cluster" style="gap:6px"><input class="in" style="width:220px" aria-label=${t('ps.trusted')} placeholder="ana@firma.ro" value=${draft} onInput=${(event: Event) => setDraft((event.target as HTMLInputElement).value)} onKeyDown=${(event: KeyboardEvent) => { if (event.key === 'Enter') { event.preventDefault(); add() } }} /><button type="button" class="btn sm" onClick=${add}>${t('ps.add')}</button></div>` : null}
+        ${admin && JSON.stringify(trusted) !== saved ? html`<div><button type="button" class="btn sm primary" onClick=${() => act(`/set ${data.id} mail.trusted_recipients ${encode(trusted)}`)}>${t('settings.save')}</button></div>` : null}
+      </div><//>
+    <${Row} wide=${true} title=${t('ps.mailLimits')} help=${t('ps.mailLimitsHelp', { total: mail.used.total, unattended: mail.used.unattended })}>
+      <div class="stack" style="gap:8px">
+        <div class="cluster" style="gap:12px">
+          <div class="field" style="width:150px"><label for="m-max">${t('ps.maxPerDay')}</label><input id="m-max" class="in mono" type="number" min="1" disabled=${!admin} value=${String(limits.max)} onInput=${(event: Event) => setLimits({ ...limits, max: Number((event.target as HTMLInputElement).value) })} /></div>
+          <div class="field" style="width:150px"><label for="m-un">${t('ps.unattendedPerDay')}</label><input id="m-un" class="in mono" type="number" min="0" disabled=${!admin} value=${String(limits.unattended)} onInput=${(event: Event) => setLimits({ ...limits, unattended: Number((event.target as HTMLInputElement).value) })} /></div>
+        </div>
+        <div class="field"><label>${t('ps.onLimit')}</label><div><${Seg} label=${t('ps.onLimit')} value=${limits.onLimit} disabled=${!admin} onChange=${(next: 'ask' | 'block') => setLimits({ ...limits, onLimit: next })} options=${[{ value: 'ask', label: t('ps.onLimit.ask') }, { value: 'block', label: t('ps.onLimit.block') }]} /></div></div>
+        ${admin && limitsChanged ? html`<div><button type="button" class="btn sm primary" onClick=${saveLimits}>${t('settings.save')}</button></div>` : null}
+      </div><//>
+    <${Row} title=${t('ps.unasked')} help=${mail.paused.paused ? t(mail.paused.auto ? 'ps.pausedAuto' : 'ps.paused') : t('ps.unaskedOn')}>
+      <div class="cluster">
+        <${StateChip} state=${mail.paused.paused ? 'paused' : 'ok'} label=${mail.paused.paused ? t('ps.pausedChip') : t('ps.onChip')} />
+        ${admin ? html`<button type="button" class="btn sm" onClick=${() => act(`/mail ${mail.paused.paused ? 'resume' : 'pause'} ${data.id}`)}>${mail.paused.paused ? t('ps.resume') : t('ps.pause')}</button>` : null}
+      </div><//>
+    <${Row} wide=${true} title=${t('ps.outbox')} help=${mail.outbox.some((row) => row.status === 'waiting') ? t('ps.outboxWaiting') : t('ps.outboxHelp')}>
+      ${mail.outbox.length === 0
+        ? html`<span class="faint">${t('ps.outboxEmpty')}</span>`
+        : html`<div class="stack" style="gap:6px">${mail.outbox.map((row) => html`<div class="cluster" style="gap:8px">
+            <span class="mono">#${row.id}</span>${statusChip(row.status)}<span class="faint" style="font-size:12px">${when(row.at)} · ${t('ps.outboxTo', { count: row.recipients })}</span>
+            ${row.why === null && row.note === null ? null : html`<span class="faint" style="font-size:12px;flex-basis:100%">${[row.why, row.note].filter((each) => each !== null).join(' · ')}</span>`}
+          </div>`)}
+          ${mail.outbox.some((row) => row.status === 'waiting') ? html`<div><a class="btn sm" href=${href({ name: 'inbox' })}>${t('nav.inbox')}</a></div>` : null}</div>`}<//>`
 }
 
 function AddServer({ id, act, onClose }: { id: string; act: SectionProps['act']; onClose: () => void }): VNode {

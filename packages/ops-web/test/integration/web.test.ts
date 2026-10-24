@@ -187,6 +187,8 @@ describe('the web interface', () => {
     expect(fields.find((field) => field.key === 'budget.day_usd')).toMatchObject({ own: false })
     expect(fields.some((field) => field.key === 'cwd' || field.key === 'id')).toBe(false)
     expect(body).toMatchObject({ model: 'fake/fake-model', mcp: [], git: [], undo: [] })
+    // Mail: what was used in 24 hours, the pause, the outbox.
+    expect(body['mail']).toMatchObject({ trusted_recipients: {}, on_limit: 'ask', used: { total: 0, unattended: 0, byAddress: {} }, paused: { paused: false, auto: false }, outbox: [] })
     expect((await fetch(`${booted.base}/api/projects/nope/settings`, { headers: { cookie } })).status).toBe(404)
     expect(Array.isArray((await get('/api/models'))['models'])).toBe(true)
   }, 60_000)

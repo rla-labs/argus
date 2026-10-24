@@ -986,6 +986,14 @@ describe('admin-only commands', () => {
     expect((await booted.commands.runCommand('/set alpha tools.web sometimes', admin())).text).toContain('does not validate')
   }, 30_000)
 
+  it('/set takes mail.trusted_recipients whole: an address is not a path', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    await run(booted, '/set alpha mail.trusted_recipients {"ana@firma.ro": 5}', admin())
+    expect(booted.projects.configOf('alpha')?.mail.trusted_recipients).toEqual({ 'ana@firma.ro': 5 })
+    await run(booted, '/set alpha mail.trusted_recipients {"ana@firma.ro": 7, "bogdan@firma.ro": 3}', admin())
+    expect(booted.projects.configOf('alpha')?.mail.trusted_recipients).toEqual({ 'ana@firma.ro': 7, 'bogdan@firma.ro': 3 })
+  }, 30_000)
+
   it('/set leaves the file as it was when the result does not validate', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const file = join(booted.dataDir, 'config', 'projects', 'alpha.yaml')

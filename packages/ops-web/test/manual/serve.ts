@@ -19,6 +19,8 @@ for (const [id, description] of [['site-firma', 'The company website'], ['news',
   mkdirSync(join(dataDir, 'projects', id as string), { recursive: true })
   writeFileSync(join(dataDir, 'config', 'projects', `${id}.yaml`), `id: ${id}\ncwd: ${JSON.stringify(join(dataDir, 'projects', id as string))}\nprovider: fake\nmodel: fake-model\ndescription: ${description}\n`)
 }
+// Sending without asking, for the project page's Mail section.
+writeFileSync(join(dataDir, 'config', 'projects', 'site-firma.yaml'), `${readFileSync(join(dataDir, 'config', 'projects', 'site-firma.yaml'), 'utf8')}mail:\n  trusted_recipients: { ana@firma.ro: 5, office@firma.ro: 2 }\n`)
 // An installed extension, for the project page's Extensions section.
 const repo = mkdtempSync(join(tmpdir(), 'ops-web-manual-ext-'))
 writeFileSync(join(repo, 'extension.yaml'), 'name: notes\nversion: 1.0.0\nsummary: Note-taking tools\nmcp:\n  notes: {command: node, args: ["${EXTENSION_DIR}/server.js"], access: ask}\n')
@@ -63,6 +65,11 @@ const ctx = boot.ctx as unknown as { opsCommands: OpsCommands; opsWeb: OpsWeb; o
 const user = { id: ctx.opsStore.users.admin()?.id ?? '', role: 'admin' as const }
 // A pending approval whose rule can be named, for the Approvals page's Always allow.
 ctx.opsStore.approvals.insert({ id: 'manual-1', run_id: null, project_id: 'site-firma', request_json: JSON.stringify({ toolName: 'bash', action: 'npm run build', kind: 'command', always: { key: 'approvals.auto_allow', entry: 'npm run build' } }), status: 'pending' }, Date.now())
+// Mail it sent, and its outbox: one sent after a person approved it, one waiting.
+ctx.opsStore.audit.record({ actor: 'site-firma', action: 'mail.send', target: 'site-firma', details: { ok: true, path: 'unasked', addresses: ['ana@firma.ro'] } }, Date.now() - 3_600_000)
+const sent = ctx.opsStore.mailOutbox.insert({ project_id: 'site-firma', run_id: null, recipients: 2, digest: 'x', why: 'client@acme.ro is not trusted' }, Date.now() - 7_200_000)
+ctx.opsStore.mailOutbox.decide(sent, 'sent', null, null, Date.now() - 7_000_000)
+ctx.opsStore.mailOutbox.insert({ project_id: 'site-firma', run_id: null, recipients: 1, digest: 'y', why: null }, Date.now() - 600_000)
 const link = async (): Promise<void> => {
   const out = await ctx.opsCommands.runCommand('/web', { address: { channel: 'telegram', chatId: '42' }, userId: '42', user, isAdmin: true, now: Date.now() })
   console.log(out.text)

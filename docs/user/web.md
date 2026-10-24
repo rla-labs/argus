@@ -10,7 +10,7 @@ settings, and a chat. It is built for **one person on a private network**.
 |---|---|
 | **Projects** (the start page) | What waits for you first (approvals, a possible loop, a project paused by its budget or with settings that do not validate), answered in place. A box to ask for something: **Where** picks a project (the message goes to its conversation) or none (a one-off task). A card per project: its state, today's spend against its budget, what it did last, its next scheduled run; the ones that need you come first. **New project**: a name, what it is for, a template. |
 | **A project's space** | Under a header with its state, model, today's spend and Stop: **Conversation** (its own thread; files dropped or attached go into `inbox/`; approvals answered in place; what it is doing now), **Schedules** (run now, on/off, remove; a new one from plain choices, hourly to monthly or a cron line, with its next five runs), **Files** (folders, a preview of text, images and PDFs, upload by drag and drop, download, a folder as a zip), **Activity** (its runs, with cost, steps and why each stopped) and **Settings** (below). |
-| **Inbox** | Everything waiting for a decision, from every project, oldest first: approvals (Approve, Deny, "All of this kind, this run", and for the admin "Always allow" where the rule can be named), possible loops (Continue, Stop) and alerts. An answer here closes the question on Telegram too. |
+| **Inbox** | Everything waiting for a decision, from every project, oldest first: approvals (Approve, Deny, "All of this kind, this run", and for the admin "Always allow" where the rule can be named), mails waiting in an outbox (shown whole, as they will go), possible loops (Continue, Stop) and alerts. An answer here closes the question on Telegram too. |
 | **Sessions** | Conversations with no project, on the default model ([`/session`](commands.md#session-id-text--close-id)). Each remembers only while it is open and closes a day after its last message, with its folder. |
 | **Schedules** | Every schedule, from every project, with the next 24 hours on a line. |
 | **Costs** | Today and this month against the budgets, the last 14 days, this month by project (with its budget), and the recent runs. |
@@ -20,7 +20,9 @@ settings, and a chat. It is built for **one person on a private network**.
 model picked from a list with prices, a fallback, standing instructions), Tools and
 access (each group Off, Ask or Allowed; widening access says what it means before you
 save), Extensions, Connections (MCP servers added by URL or command and signed in with
-**Connect**; git remotes and their tokens; the mail account and who it may write to),
+**Connect**; git remotes and their tokens; mail: the account and who it may write to, the trusted
+addresses with what each used in the last 24 hours, the daily limits, pause and resume,
+the outbox, and the mailbox it reads),
 Budget and limits, Memory and history (forget a section, go back to a point), the
 danger zone, and Advanced (every key of its file, marked when it no longer follows its
 template). A change waits in a bar until **Save**.

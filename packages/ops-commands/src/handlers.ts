@@ -3208,6 +3208,8 @@ function skillFile(name: string, text: string): { ok: true; text: string } | { o
 
 /** Every settable key of a loaded project, dotted. */
 function settingKeys(config: unknown, prefix = ''): string[] {
+  // A map keyed by addresses is set whole: an address's dots are not a path.
+  if (prefix === 'mail.trusted_recipients') return [prefix]
   if (config === null || typeof config !== 'object' || Array.isArray(config)) return [prefix]
   return Object.entries(config as Record<string, unknown>)
     .filter(([key]) => prefix.length > 0 || !['id', 'cwd', 'provider', 'sourcePath', 'template', 'fromTemplate', 'extensionsMissing'].includes(key))
