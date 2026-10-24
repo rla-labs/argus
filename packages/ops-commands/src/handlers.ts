@@ -2356,11 +2356,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'mail',
         description: 'A project’s mail accounts and settings (admin to change)',
-        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url|imaps-url> | /mail remove <project-id|default> [imap] | /mail test <project-id|default> <address|imap>',
+        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url|imaps-url> | /mail remove <project-id|default> [imap] | /mail test <project-id|default> <address|imap> | /mail pause|resume <project-id|all>',
         detail:
           'A project sends mail with send_mail, and Argus does it: the account never reaches ' +
-          'the agent, its shell or the conversation, and every mail is shown to a person ' +
-          'first. set deletes your message at once and saves the account, as ' +
+          'the agent, its shell or the conversation. A mail goes unasked only to the ' +
+          'project’s mail.trusted_recipients, each within its own daily count and all of them ' +
+          'within mail.unattended_per_day; past a limit mail.on_limit asks or refuses, and every ' +
+          'other mail is shown to a person first. pause stops unasked mail (for a project, or ' +
+          'all) until resume; it pauses itself after 3 failed unasked mails in a row. set deletes your message at once and saves the account, as ' +
           'smtps://user:password@host:465 (or smtp://…:587, with STARTTLS required), for that ' +
           'project or as the default for all. An imaps://user:password@host:993 URL sets the ' +
           'mailbox the project reads instead (mail_list, mail_read, mail_save_attachment, ' +
@@ -2369,14 +2372,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'mail.max_attachment_mb. test sends one mail with the account to the address you ' +
           'give, or, with imap, signs in to the mailbox. Seeing it is anyone’s; the rest is ' +
           'the admin’s.',
-        examples: ['/mail site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail set site-firma imaps://comenzi%40acme.ro:…@mail.acme.ro:993', '/mail test site-firma ana@acme.ro', '/mail test site-firma imap', '/mail remove site-firma imap'],
+        examples: ['/mail site-firma', '/mail pause all', '/mail resume site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail set site-firma imaps://comenzi%40acme.ro:…@mail.acme.ro:993', '/mail test site-firma ana@acme.ro', '/mail test site-firma imap', '/mail remove site-firma imap'],
         mutating: true,
         secret: 2,
       },
       async run(input, context): Promise<CommandResult> {
         const mail = projects.mail
         const [action, target, value, ...rest] = tokenize(input)
-        const actions = ['set', 'remove', 'test']
+        const actions = ['set', 'remove', 'test', 'pause', 'resume']
         if (action === undefined || !actions.includes(action)) {
           if (action === 'default') {
             const found = await mail.accountOf(null)
@@ -2391,7 +2394,10 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           if (config === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, id === undefined ? 'Which project? /mail <project-id>' : `No project "${id}". Send /projects to see them.`)
           const found = await mail.accountOf(config.id)
           const box = await projects.mailbox.accountOf(config.id)
-          const { allowed_recipients: allowed, max_per_day: perDay, max_attachment_mb: mb, from, read_folders: folders } = config.mail
+          const { allowed_recipients: allowed, max_per_day: perDay, max_attachment_mb: mb, from, read_folders: folders, trusted_recipients: trusted, unattended_per_day: unattended, on_limit: onLimit } = config.mail
+          const counts = mail.counts(config.id)
+          const paused = mail.pausedOf(config.id)
+          const trustedLines = Object.entries(trusted).map(([address, perAddress]) => `${address} ${counts.byAddress.get(address) ?? 0}/${perAddress}`)
           return result(
             `${config.id}'s mail:
 ` +
@@ -2401,9 +2407,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
 ` +
               `may write   ${allowed.length === 0 ? `nobody yet (/set ${config.id} mail.allowed_recipients [ana@example.com, @example.com])` : allowed.join(', ')}
 ` +
-              `limits      ${perDay} a day (${mail.sentToday(config.id)} sent in the last 24 hours), ${mb} MB of attachments a mail
+              `unasked     ${trustedLines.length === 0 ? 'nobody (mail.trusted_recipients)' : `${trustedLines.join(', ')}; ${counts.unattended}/${unattended} in all; past a limit: ${onLimit}`}${paused.paused ? ` — PAUSED${paused.auto ? ' after failures' : ''} (/mail resume ${config.id})` : ''}
 ` +
-              `send_mail   ${config.tools.mail}: every mail is shown to a person first
+              `limits      ${perDay} recipients a day (${counts.total} in the last 24 hours), ${mb} MB of attachments a mail
+` +
+              `send_mail   ${config.tools.mail}${config.tools.mail === 'ask' ? ': unasked only to trusted recipients, every other mail shown to a person first' : ''}
 ` +
               `mailbox     ${box === undefined ? `none (/mail set ${config.id} <imaps-url>, or a default)` : `${describeMailbox(box.account)}${box.own ? '' : ' (the default)'}, reads ${folders.join(', ')}`}
 ` +
@@ -2411,6 +2419,15 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           )
         }
         if (!context.isAdmin) return errorResult('Only the admin can change a mail account.')
+        if (action === 'pause' || action === 'resume') {
+          if (target === undefined || value !== undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs a project, or all.`)
+          const projectId = target === 'all' ? null : target
+          if (projectId !== null && projects.configOf(projectId) === undefined) return errorResult(`No project "${target}". Send /projects to see them.`)
+          const actor = context.user?.id ?? context.userId
+          if (action === 'pause') mail.pause(projectId, actor)
+          else mail.resume(projectId, actor)
+          return result(action === 'pause' ? `Unasked mail is paused for ${projectId ?? 'every project'}: each mail is asked about (or refused, with mail.on_limit: block) until /mail resume ${target}.` : `Unasked mail is resumed for ${projectId ?? 'every project'}.`)
+        }
         if (target === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, `${action} needs a project, or default.`)
         const projectId = target === 'default' ? null : target
         if (projectId !== null && projects.configOf(projectId) === undefined) return errorResult(`No project "${target}". Send /projects to see them.`)

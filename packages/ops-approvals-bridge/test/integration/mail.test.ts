@@ -3,7 +3,8 @@
  * send_mail through dsh's real tool pipeline: a person is shown the whole mail and only
  * Approve or Deny, never "for the run" or "always"; approved, exactly that mail goes with
  * an account the agent never sees; a recipient not allowed is refused before any
- * question; a task cannot mail at all.
+ * question; a trusted recipient within its count gets it unasked, marked as automatic;
+ * a task cannot mail at all.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -115,9 +116,24 @@ describe('send_mail', () => {
     await waitFor(() => b.adapter.sent.some((entry) => entry.message.text.includes('done')), { timeoutMs: 30_000, label: 'the run ended' })
     await waitFor(() => b.opsGovernor.status().running.length === 0, { timeoutMs: 30_000, label: 'idle' })
     const events = JSON.stringify((await b.opsProjects.ensureAgent('alpha')).session.snapshotEvents())
-    expect(events).toContain('Not in mail.allowed_recipients of this project: eve@evil.com')
+    expect(events).toContain('Not in mail.allowed_recipients or mail.trusted_recipients of this project: eve@evil.com')
     expect(b.adapter.sent.some((entry) => entry.message.text.includes('Approval needed'))).toBe(false)
     expect(b.sent).toHaveLength(0)
+  }, 60_000)
+
+  it('goes unasked to a trusted recipient within its count, marked as automatic, and asks past it', async () => {
+    const b = await boot({ ...MAIL, attachments: [] }, 'mail: {trusted_recipients: {ana@acme.ro: 1}}')
+    await b.opsProjects.mail.setAccount(null, `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`)
+    b.opsGovernor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'report' }], priority: 0 })
+    await waitFor(() => b.sent.length > 0 && b.opsGovernor.status().running.length === 0, { timeoutMs: 30_000, label: 'sent unasked' })
+    expect(b.sent[0]).toMatchObject({ to: ['ana@acme.ro'], headers: { 'Auto-Submitted': 'auto-generated', 'X-Argus-Project': 'alpha' } })
+    expect(b.adapter.sent.some((entry) => entry.message.text.includes('Approval needed'))).toBe(false)
+    expect(b.opsStore.approvals.recent(10)).toHaveLength(0)
+
+    // Its count is used: the next one is asked about, and says why.
+    const next = await b.opsProjects.mailPreview('alpha', 'm2', { ...MAIL, attachments: [] })
+    expect(next.unasked).toBeUndefined()
+    expect(next.text).toContain('Asked because ana@acme.ro already got 1 unasked mail(s)')
   }, 60_000)
 
   it('is never allowed unasked: tools.mail allow and an allow exception are invalid, and a task cannot mail', async () => {

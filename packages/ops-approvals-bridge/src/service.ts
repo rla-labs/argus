@@ -220,18 +220,20 @@ export class OpsApprovalsBridge {
    * A `send_mail` the gate asks about, shown as the mail it sends: from, to, subject,
    * attachments and text, prepared by the projects service, which then sends that mail
    * or nothing. One that cannot be sent (a recipient not allowed, no account, the daily
-   * limit, an attachment outside the folder) is refused here, before any question.
+   * limit, an attachment outside the folder) is refused here, before any question. One
+   * to trusted recipients within their counts goes unasked: `undefined`.
    *
    * @param exec the pending call.
-   * @returns the question, with the mail described, or the refusal.
+   * @returns the question, with the mail described, the refusal, or `undefined`.
    */
   async describeMail(
     exec: { readonly name: string; readonly arguments: unknown; readonly callId: string; readonly agent?: Agent },
-  ): Promise<{ kind: 'ask'; reason: string } | { kind: 'deny'; reason: string }> {
+  ): Promise<{ kind: 'ask'; reason: string } | { kind: 'deny'; reason: string } | undefined> {
     const owner = exec.agent === undefined ? undefined : this.options.projects.ownerOf(exec.agent.id as string)
     if (owner?.kind !== 'project') return { kind: 'deny', reason: 'send_mail works only in a project.' }
     const preview = await this.options.projects.mailPreview(owner.projectId, String(exec.callId), exec.arguments)
     if (!preview.ok) return { kind: 'deny', reason: preview.text }
+    if (preview.unasked === true) return undefined
     const subject = /^subject: (.*)$/m.exec(preview.text)?.[1] ?? ''
     const to = /^to: (.*)$/m.exec(preview.text)?.[1] ?? ''
     const action = parseAction(exec.name, [], `to ${to}: ${subject}`)

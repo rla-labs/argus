@@ -250,6 +250,15 @@ export class OpsHealth {
     await this.notify(`${projectId}: the sign-in of the MCP server ${server} was refused by its provider (${reason}). Its tools are unavailable until you connect it again: /mcp connect ${projectId} ${server}`)
   }
 
+  /**
+   * A project's unasked mail paused itself after failures: the admin is told how to resume it.
+   * @param projectId the project.
+   * @param why what happened.
+   */
+  async noteMailPaused(projectId: string, why: string): Promise<void> {
+    await this.notify(`${projectId}: unasked mail is paused, since ${why}. Its mails are asked about until you resume it: /mail resume ${projectId}`)
+  }
+
   async noteProviderError(code: string): Promise<boolean> {
     this.providerErrors.set(code, (this.providerErrors.get(code) ?? 0) + 1)
     const total = [...this.providerErrors.values()].reduce((sum, count) => sum + count, 0)

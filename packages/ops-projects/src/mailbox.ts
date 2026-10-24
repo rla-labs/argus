@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
-import type { MailAudit, MailSecrets, ProjectMail } from './mail.js'
+import type { MailAudit, MailSecrets, OriginalMail, ProjectMail } from './mail.js'
 import { MAIL_SECRET_PREFIX } from './mail.js'
 
 /** A mailbox account, from its URL. */
@@ -92,6 +92,12 @@ export interface ReadMail {
   readonly subject: string
   readonly text: string
   readonly attachments: readonly ReadAttachment[]
+  /** The sender's address alone, lower case. */
+  readonly address: string
+  readonly messageId: string | null
+  readonly references: readonly string[]
+  /** The headers that tell an automatic mail, by lower-case name. */
+  readonly headers: Readonly<Record<string, string>>
 }
 
 /** One open session with a mailbox; imapflow in production, a fake in a test. */
@@ -327,6 +333,23 @@ export class ProjectMailbox {
     // ponytail: the whole mail is fetched to be parsed; a mail over the limit is refused rather than read in parts.
     if (bytes > settings.max_attachment_mb * 1024 * 1024 * 1.4) return `${mailId(folder, uid)} is ${size(bytes)}, more than this project reads (mail.max_attachment_mb).`
     return (await session.read(folder, uid)) ?? `No mail ${mailId(folder, uid)}.`
+  }
+
+  /**
+   * The mail a reply answers: its sender and the headers a reply needs, for `send_mail`.
+   * @returns the mail, or why it cannot be read.
+   */
+  async original(projectId: string, settings: ProjectMail, id: string): Promise<OriginalMail | string> {
+    const target = this.target(settings, id)
+    if (!target.ok) return target.message
+    let found: OriginalMail | undefined
+    const failed = await this.with(projectId, 'read the mail', async (session) => {
+      const mail = await this.fetch(session, settings, target.folder, target.uid)
+      if (typeof mail === 'string') return mail
+      found = { address: mail.address, subject: mail.subject, messageId: mail.messageId, references: mail.references, headers: mail.headers }
+      return ''
+    })
+    return found ?? failed
   }
 
   /**

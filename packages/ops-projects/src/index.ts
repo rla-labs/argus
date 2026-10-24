@@ -199,15 +199,16 @@ export function apply(ctx: Context): void {
       }),
       defineTool({
         name: 'send_mail',
-        description: 'Send an e-mail from the project\'s mail account, which Argus holds; you never see it. A person is always shown the mail and approves it first. Recipients must be in the project\'s mail.allowed_recipients. Attachments are files in your folder.',
+        description: 'Send an e-mail from the project\'s mail account, which Argus holds; you never see it. To the project\'s trusted recipients, within their daily counts, it goes at once; otherwise a person is shown the mail and approves it first. Recipients must be in the project\'s mail.allowed_recipients or mail.trusted_recipients. Attachments are files in your folder. To answer a mail from the mailbox, give its id in reply_to: the reply goes only to its sender.',
         parameters: {
-          to: { type: 'array', items: { type: 'string' }, description: 'Addresses, like ana@example.com.', required: true },
+          to: { type: 'array', items: { type: 'string' }, description: 'Addresses, like ana@example.com. Required unless reply_to is given.' },
           cc: { type: 'array', items: { type: 'string' }, description: 'Addresses in copy.' },
           bcc: { type: 'array', items: { type: 'string' }, description: 'Addresses in hidden copy.' },
-          subject: { type: 'string', description: 'One line.', required: true },
+          subject: { type: 'string', description: 'One line. Required unless reply_to is given.' },
           text: { type: 'string', description: 'The mail, as plain text.', required: true },
           html: { type: 'string', description: 'The same mail as HTML, when it needs formatting.' },
           attachments: { type: 'array', items: { type: 'string' }, description: 'Files in your folder, relative to it.' },
+          reply_to: { type: 'string', description: 'The id of the mail this answers, as mail_list shows it (INBOX:4521). to is then its sender; the subject defaults to Re: its subject.' },
         },
         output: text,
         execute: async (args, exec) => {

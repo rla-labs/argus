@@ -23,6 +23,15 @@ function parsedAddresses(value: AddressObject | AddressObject[] | undefined): st
   return (Array.isArray(value) ? value : [value]).map((entry) => entry.text).join(', ')
 }
 
+/** The headers a reply checks for an automatic mail. */
+const LOOP_HEADERS = ['auto-submitted', 'list-id', 'precedence', 'x-argus-project']
+
+/** The first address of a parsed header, lower case. */
+function firstAddress(value: AddressObject | AddressObject[] | undefined): string {
+  const first = (Array.isArray(value) ? value[0] : value)?.value[0]?.address
+  return (first ?? '').toLowerCase()
+}
+
 /** The attachments in a body structure: parts with a file name or an attachment disposition. */
 export function countAttachments(node: MessageStructureObject | undefined): number {
   if (node === undefined) return 0
@@ -101,6 +110,11 @@ export const imapConnect: MailboxConnect = async (account: MailboxAccount): Prom
           subject: parsed.subject ?? '',
           text: parsed.text ?? '',
           attachments: parsed.attachments.filter((file) => !file.related).map((file) => ({ name: file.filename ?? '', type: file.contentType, content: file.content })),
+          address: firstAddress(parsed.from),
+          messageId: parsed.messageId ?? null,
+          references: parsed.references === undefined ? [] : Array.isArray(parsed.references) ? parsed.references : parsed.references.split(/\s+/).filter((entry) => entry !== ''),
+          // The raw lines: a header's value as sent, unfolded.
+          headers: Object.fromEntries(parsed.headerLines.filter((line) => LOOP_HEADERS.includes(line.key)).map((line) => [line.key, line.line.slice(line.line.indexOf(':') + 1).replace(/\s+/g, ' ').trim()])),
         }
       }),
     markSeen: (folder, uid) => inFolder(folder, true, () => client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true })),

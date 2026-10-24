@@ -98,8 +98,8 @@ export function apply(ctx: Context): void {
     const verdict = bridge.gate(exec)
     // A push is asked about with what it sends, which takes git to find out.
     if (verdict?.kind === 'ask' && exec.name === 'git_push') return bridge.describePush(exec, verdict)
-    // A mail is asked about as the mail it sends.
-    if (verdict?.kind === 'ask' && exec.name === 'send_mail') return bridge.describeMail(exec)
+    // A mail is asked about as the mail it sends; one to trusted recipients within their counts goes unasked.
+    if (verdict?.kind === 'ask' && exec.name === 'send_mail') return (await bridge.describeMail(exec)) ?? next()
     return verdict ?? next()
   })
 

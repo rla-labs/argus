@@ -120,6 +120,13 @@ export function apply(ctx: Context): void {
     })
   })
 
+  /** A project's unasked mail paused itself: the admin is told. */
+  ctx.on('ops/mail-paused', (payload) => {
+    void service.noteMailPaused(payload.projectId, payload.why).catch(() => {
+      /* an alert must not become a second failure */
+    })
+  })
+
   /**
    * A Retry button from the startup report.
    *

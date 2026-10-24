@@ -8,14 +8,20 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { mailSecretName, parseMailAccount, parseMailBlock, ProjectMailer, transportOptions, type MailAccount, type ProjectMail } from '../../src/mail.js'
+import { loopReason, mailSecretName, parseMailAccount, parseMailBlock, ProjectMailer, routeMail, transportOptions, type MailAccount, type MailerHooks, type OriginalMail, type ProjectMail } from '../../src/mail.js'
 
 const PASSWORD = 'pa55-w0rd-SECRET'
 const URL_TEXT = `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`
 
 describe('a project\'s mail block', () => {
   it('has safe defaults, and refuses what it cannot use', () => {
-    expect(parseMailBlock(undefined)).toEqual({ mail: { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20, read_folders: ['INBOX'] }, issues: [] })
+    expect(parseMailBlock(undefined)).toEqual({ mail: { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20, read_folders: ['INBOX'], trusted_recipients: {}, unattended_per_day: 10, on_limit: 'ask' }, issues: [] })
+    expect(parseMailBlock({ trusted_recipients: { 'Romeo@Acme.ro': 2 }, unattended_per_day: 5, on_limit: 'block' }).mail).toMatchObject({ trusted_recipients: { 'romeo@acme.ro': 2 }, unattended_per_day: 5, on_limit: 'block' })
+    // Never a domain, never a count of nothing.
+    for (const trusted of [{ '@acme.ro': 2 }, { 'a@acme.ro': 0 }, ['a@acme.ro'], { 'a@acme.ro': 1.5 }]) {
+      expect(parseMailBlock({ trusted_recipients: trusted }).issues.map((issue) => issue.path)).toEqual(['mail.trusted_recipients'])
+    }
+    expect(parseMailBlock({ on_limit: 'send' }).issues.map((issue) => issue.path)).toEqual(['mail.on_limit'])
     expect(parseMailBlock({ allowed_recipients: ['Ana@Acme.ro', '@client.com'], max_per_day: 5 }).mail).toMatchObject({ allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 5 })
     const bad = parseMailBlock({ allowed_recipients: ['nobody'], max_per_day: 0, from: 'x', smtp: 'y' })
     expect(bad.issues.map((issue) => issue.path).sort()).toEqual(['mail.allowed_recipients', 'mail.from', 'mail.max_per_day', 'mail.smtp'])
@@ -46,7 +52,7 @@ describe('a mail account', () => {
 })
 
 /** A mailer over memory: secrets, an audit log, and a transport that records. */
-function harness(settings: Partial<ProjectMail> = {}) {
+function harness(settings: Partial<ProjectMail> = {}, hooks: MailerHooks = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'mail-project-'))
   const values = new Map<string, string>()
   const audit: Array<{ ts: number; action: string; target: string; details: Record<string, unknown> }> = []
@@ -60,7 +66,13 @@ function harness(settings: Partial<ProjectMail> = {}) {
     }),
     {
       record: (entry, ts) => void audit.push({ ...entry, ts }),
-      byAction: (action, limit) => audit.filter((row) => row.action === action).slice(-limit).map((row) => ({ ts: row.ts, target: row.target, details_json: JSON.stringify(row.details) })),
+      byAction: (action, limit) =>
+        audit
+          .map((row, index) => ({ ...row, id: index + 1 }))
+          .filter((row) => row.action === action)
+          .slice(-limit)
+          .reverse()
+          .map((row) => ({ id: row.id, ts: row.ts, target: row.target, details_json: JSON.stringify(row.details) })),
     },
     () => ({
       sendMail: async (message) => {
@@ -70,8 +82,10 @@ function harness(settings: Partial<ProjectMail> = {}) {
       },
     }),
     (name) => name,
+    Date.now,
+    hooks,
   )
-  const mail: ProjectMail = { from: null, allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 20, max_attachment_mb: 1, read_folders: ['INBOX'], ...settings }
+  const mail: ProjectMail = { from: null, allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 20, max_attachment_mb: 1, read_folders: ['INBOX'], trusted_recipients: {}, unattended_per_day: 10, on_limit: 'ask', ...settings }
   const ask = async (callId: string, args: Record<string, unknown>) => mailer.preview('site', callId, cwd, mail, args)
   const send = async (callId: string, args: Record<string, unknown>) => mailer.send('site', callId, cwd, mail, args)
   return { cwd, values, audit, sent, mailer, ask, send, failWith: (error: Error) => void (fail = error) }
@@ -95,9 +109,9 @@ describe('send_mail', () => {
 
     expect(await h.send('c1', MAIL)).toBe('Sent to ana@acme.ro, bob@client.com (<m1@acme.ro>).')
     expect(h.sent).toHaveLength(1)
-    expect(h.sent[0]).toMatchObject({ from: 'office@acme.ro', to: ['ana@acme.ro'], cc: ['bob@client.com'], subject: 'Raport Q3', text: MAIL.text })
+    expect(h.sent[0]).toMatchObject({ from: 'office@acme.ro', to: ['ana@acme.ro'], cc: ['bob@client.com'], subject: 'Raport Q3', text: MAIL.text, headers: { 'Auto-Submitted': 'auto-generated', 'X-Argus-Project': 'site' } })
     expect(String((h.sent[0]!['attachments'] as Array<{ content: Buffer }>)[0]!.content)).toBe('PDF-1')
-    expect(h.audit).toEqual([expect.objectContaining({ action: 'mail.send', target: 'site', details: expect.objectContaining({ ok: true, recipients: 2, attachments: [{ name: 'report.pdf', size: 5 }] }) })])
+    expect(h.audit).toEqual([expect.objectContaining({ action: 'mail.send', target: 'site', details: expect.objectContaining({ ok: true, path: 'approved', recipients: 2, addresses: ['ana@acme.ro', 'bob@client.com'], attachments: [{ name: 'report.pdf', size: 5 }] }) })])
     expect(JSON.stringify(h.audit)).not.toContain(PASSWORD)
     expect(JSON.stringify(h.audit)).not.toContain('Raport Q3')
     expect(JSON.stringify(h.audit)).not.toContain('raportul')
@@ -108,7 +122,7 @@ describe('send_mail', () => {
     await h.mailer.setAccount(null, URL_TEXT)
     mkdirSync(join(h.cwd, 'out'))
     writeFileSync(join(h.cwd, 'out', 'report.pdf'), 'PDF-1')
-    expect(await h.send('c0', MAIL)).toContain('only after a person approved the mail')
+    expect(await h.send('c0', MAIL)).toContain('only after a person approved the mail, or for trusted recipients')
     expect((await h.ask('c1', MAIL)).ok).toBe(true)
     writeFileSync(join(h.cwd, 'out', 'report.pdf'), 'PDF-2, swapped')
     expect(await h.send('c1', MAIL)).toContain('changed after it was approved (report.pdf): nothing was sent')
@@ -121,7 +135,7 @@ describe('send_mail', () => {
     const h = harness()
     expect((await h.ask('c1', { ...MAIL, attachments: [] })).text).toContain('no mail account')
     await h.mailer.setAccount('site', URL_TEXT)
-    expect((await h.ask('c2', { ...MAIL, attachments: [], to: ['eve@evil.com'] })).text).toContain('Not in mail.allowed_recipients of this project: eve@evil.com')
+    expect((await h.ask('c2', { ...MAIL, attachments: [], to: ['eve@evil.com'] })).text).toContain('Not in mail.allowed_recipients or mail.trusted_recipients of this project: eve@evil.com')
     expect((await h.ask('c3', { ...MAIL, attachments: [], bcc: ['eve@evil.com'] })).ok).toBe(false)
     const outside = join(mkdtempSync(join(tmpdir(), 'mail-outside-')), 'secret.txt')
     writeFileSync(outside, 'SECRET')
@@ -139,16 +153,21 @@ describe('send_mail', () => {
     expect((await nobody.ask('c1', { ...MAIL, attachments: [] })).text).toContain('may not send mail to anyone yet')
   })
 
-  it('holds the daily limit, counting only mails that went', async () => {
-    const h = harness({ max_per_day: 2 })
+  it('holds the daily limit in recipients, counting only mails that went', async () => {
+    const h = harness({ max_per_day: 4 })
     await h.mailer.setAccount('site', URL_TEXT)
-    const one = { ...MAIL, attachments: [] }
+    const two = { ...MAIL, attachments: [] }
+    h.failWith(new Error('421 try later'))
+    await h.ask('x', two)
+    await h.send('x', two)
+    h.failWith(undefined as unknown as Error)
     for (const id of ['a', 'b']) {
-      await h.ask(id, one)
-      expect(await h.send(id, one)).toContain('Sent to')
+      await h.ask(id, two)
+      expect(await h.send(id, two)).toContain('Sent to')
     }
-    expect((await h.ask('c', one)).text).toContain('sent 2 mail(s) in the last 24 hours, its limit')
+    expect((await h.ask('c', { ...two, cc: [] })).text).toContain('reached 4 recipient(s) in the last 24 hours; 1 more would pass its limit of 4')
     expect(h.mailer.sentToday('site')).toBe(2)
+    expect(h.mailer.counts('site').total).toBe(4)
   })
 
   it('reports a server\'s refusal without the password', async () => {
@@ -175,5 +194,129 @@ describe('send_mail', () => {
     expect(await h.mailer.removeAccount('site')).toBe(true)
     expect(await h.mailer.accountOf('site')).toMatchObject({ own: false })
     expect((await h.mailer.setAccount('site', 'smtps://nouser@h')).ok).toBe(false)
+  })
+})
+
+const TRUSTED = { trusted_recipients: { 'romeo@acme.ro': 2, 'contabil@acme.ro': 1 }, unattended_per_day: 3 }
+const REPORT = { to: ['romeo@acme.ro'], subject: 'Raport zilnic', text: 'Totul e în regulă.' }
+
+describe('unasked mail to trusted recipients', () => {
+  it('goes at once while every count has room, then asks, counting recipients', async () => {
+    const h = harness(TRUSTED)
+    await h.mailer.setAccount('site', URL_TEXT)
+    expect(await h.ask('a', REPORT)).toMatchObject({ ok: true, unasked: true })
+    expect(await h.send('a', REPORT)).toBe('Sent unasked (trusted recipients) to romeo@acme.ro (<m1@acme.ro>).')
+    expect(h.audit[0]!.details).toMatchObject({ ok: true, path: 'unasked', addresses: ['romeo@acme.ro'] })
+    // One mail to two people uses two of the total.
+    const both = { ...REPORT, to: ['romeo@acme.ro', 'contabil@acme.ro'] }
+    expect((await h.ask('b', both)).unasked).toBe(true)
+    await h.send('b', both)
+    expect(h.mailer.counts('site')).toEqual({ total: 3, unattended: 3, byAddress: new Map([['romeo@acme.ro', 2], ['contabil@acme.ro', 1]]) })
+    // romeo's own count is used: asked, and said why.
+    const third = await h.ask('c', REPORT)
+    expect(third.unasked).toBeUndefined()
+    expect(third.text).toContain('Asked because romeo@acme.ro already got 2 unasked mail(s) in the last 24 hours, its limit')
+    // An approved mail does not use a trusted count, but the total ceiling holds.
+    expect(await h.send('c', REPORT)).toBe('Sent to romeo@acme.ro (<m3@acme.ro>).')
+    expect(h.mailer.counts('site').unattended).toBe(3)
+  })
+
+  it('asks for a mail with any recipient not trusted, and refuses past a limit with on_limit block', async () => {
+    const h = harness({ ...TRUSTED, on_limit: 'block' })
+    await h.mailer.setAccount('site', URL_TEXT)
+    const mixed = await h.ask('a', { ...REPORT, cc: ['ana@acme.ro'] })
+    expect(mixed).toMatchObject({ ok: true })
+    expect(mixed.unasked).toBeUndefined()
+    expect(mixed.text.startsWith('from:')).toBe(true)
+    await h.ask('b', REPORT)
+    await h.send('b', REPORT)
+    await h.ask('c', REPORT)
+    await h.send('c', REPORT)
+    expect(await h.ask('d', REPORT)).toEqual({ ok: false, text: expect.stringContaining('mail.on_limit is block, so nobody is asked') })
+  })
+
+  it('checks the counts again when sending: two calls checked together cannot both pass', async () => {
+    const h = harness({ trusted_recipients: { 'romeo@acme.ro': 1 } })
+    await h.mailer.setAccount('site', URL_TEXT)
+    expect((await h.ask('a', REPORT)).unasked).toBe(true)
+    expect((await h.ask('b', REPORT)).unasked).toBe(true)
+    expect(await h.send('a', REPORT)).toContain('Sent unasked')
+    expect(await h.send('b', REPORT)).toContain('since it was checked. Send it again to be asked about it.')
+    expect(h.sent).toHaveLength(1)
+  })
+
+  it('pauses and resumes, for a project or all, and pauses itself after 3 failures in a row', async () => {
+    const told: string[] = []
+    const h = harness(TRUSTED, { paused: (projectId, why) => void told.push(`${projectId}: ${why}`) })
+    await h.mailer.setAccount('site', URL_TEXT)
+    h.mailer.pause('site', 'admin')
+    expect((await h.ask('a', REPORT)).text).toContain('Asked because unasked mail is paused')
+    h.mailer.resume(null, 'admin')
+    expect((await h.ask('b', REPORT)).unasked).toBe(true)
+    h.mailer.pause(null, 'admin')
+    expect(h.mailer.pausedOf('site')).toEqual({ paused: true, auto: false })
+    h.mailer.resume('site', 'admin')
+    expect(h.mailer.pausedOf('site').paused).toBe(false)
+
+    h.failWith(new Error('454 relay refused'))
+    const big = harness({ trusted_recipients: { 'romeo@acme.ro': 10 } }, { paused: (projectId, why) => void told.push(`${projectId}: ${why}`) })
+    await big.mailer.setAccount('site', URL_TEXT)
+    big.failWith(new Error('454 relay refused'))
+    for (const id of ['1', '2', '3']) {
+      expect((await big.ask(id, REPORT)).unasked).toBe(true)
+      expect(await big.send(id, REPORT)).toContain('454 relay refused')
+    }
+    expect(big.mailer.pausedOf('site')).toEqual({ paused: true, auto: true })
+    expect(told).toEqual(['site: its last 3 unasked mails failed at the mail server'])
+    expect((await big.ask('4', REPORT)).unasked).toBeUndefined()
+    // Resumed, the count starts again: one more failure does not pause it.
+    big.mailer.resume('site', 'admin')
+    await big.ask('5', REPORT)
+    await big.send('5', REPORT)
+    expect(big.mailer.pausedOf('site').paused).toBe(false)
+  })
+})
+
+describe('a reply', () => {
+  const ORIGINAL: OriginalMail = { address: 'ana@client.com', subject: 'Comanda 17', messageId: '<c17@client.com>', references: ['<c16@client.com>'], headers: {} }
+  const replying = (original: OriginalMail | string) => harness({}, { original: async (_projectId, _settings, id) => (id === 'INBOX:7' ? original : 'No mail.') })
+
+  it('goes to the sender only, with Re: and the thread\'s headers', async () => {
+    const h = replying(ORIGINAL)
+    await h.mailer.setAccount('site', URL_TEXT)
+    const reply = { reply_to: 'INBOX:7', text: 'Am primit comanda.' }
+    const asked = await h.ask('a', reply)
+    expect(asked.text).toContain('to: ana@client.com\nsubject: Re: Comanda 17\na reply to INBOX:7')
+    await h.send('a', reply)
+    expect(h.sent[0]).toMatchObject({ to: ['ana@client.com'], subject: 'Re: Comanda 17', inReplyTo: '<c17@client.com>', references: ['<c16@client.com>', '<c17@client.com>'] })
+    expect((await h.ask('b', { ...reply, to: ['eve@client.com'] })).text).toContain('goes only to the sender of the mail it answers, ana@client.com')
+    expect((await h.ask('c', { ...reply, cc: ['bob@client.com'] })).text).toContain('no cc or bcc')
+    expect((await h.ask('d', { ...reply, reply_to: 'INBOX:8' })).text).toBe('No mail. Nothing was sent.')
+  })
+
+  it('is refused to an automatic mail, so two machines never answer each other', async () => {
+    const h = replying({ ...ORIGINAL, headers: { 'auto-submitted': 'auto-replied' } })
+    await h.mailer.setAccount('site', URL_TEXT)
+    expect((await h.ask('a', { reply_to: 'INBOX:7', text: 'x' })).text).toContain('is not answered: it was sent automatically')
+  })
+})
+
+describe('the route and the loop checks', () => {
+  it('refuse past max_per_day whatever on_limit says', () => {
+    const settings = parseMailBlock({ trusted_recipients: { 'a@x.ro': 5 }, max_per_day: 2 }).mail
+    expect(routeMail(settings, ['a@x.ro'], { total: 2, unattended: 0, byAddress: new Map() }, false).kind).toBe('refuse')
+    expect(routeMail(settings, ['a@x.ro'], { total: 1, unattended: 0, byAddress: new Map() }, false).kind).toBe('unasked')
+  })
+
+  it('tell an automatic, list, bulk, no-reply, Argus or own mail', () => {
+    const mail = (address: string, headers: Record<string, string> = {}): OriginalMail => ({ address, subject: '', messageId: null, references: [], headers })
+    const own = ['office@acme.ro']
+    expect(loopReason(mail('ana@client.com'), own)).toBeUndefined()
+    expect(loopReason(mail('ana@client.com', { 'auto-submitted': 'no' }), own)).toBeUndefined()
+    expect(loopReason(mail('ana@client.com', { 'list-id': '<x.lists>' }), own)).toContain('mailing list')
+    expect(loopReason(mail('ana@client.com', { precedence: 'Bulk' }), own)).toContain('bulk')
+    expect(loopReason(mail('ana@client.com', { 'x-argus-project': 'other' }), own)).toContain('by Argus')
+    for (const sender of ['noreply@x.ro', 'no-reply@x.ro', 'MAILER-DAEMON@x.ro', 'bounces+abc@x.ro']) expect(loopReason(mail(sender.toLowerCase()), own)).toContain('no replies')
+    expect(loopReason(mail('office@acme.ro'), own)).toContain('own address')
   })
 })

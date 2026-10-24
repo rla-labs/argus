@@ -810,10 +810,13 @@ anyone's; the rest is the admin's.
 /mail set <project-id|default> <smtps-url|imaps-url>   (admin)
 /mail test <project-id|default> <address|imap>         (admin)
 /mail remove <project-id|default> [imap]               (admin)
+/mail pause <project-id|all>                           (admin)
+/mail resume <project-id|all>                          (admin)
 ```
 
-A project's mail: the account `send_mail` sends with, who it may write to, its limits,
-how many mails it sent in the last 24 hours, and the mailbox it reads. Argus sends and
+A project's mail: the account `send_mail` sends with, who it may write to, its trusted
+recipients with what each used in the last 24 hours, its limits, whether unasked mail is
+paused, and the mailbox it reads. Argus sends and
 reads; the accounts never reach the agent. See
 [mail](configuration.md#mail--who-a-project-may-write-to) and
 [reading a mailbox](configuration.md#reading-a-mailbox-imap).
@@ -830,9 +833,14 @@ reads; the accounts never reach the agent. See
   its first folder has.
 - **`/mail remove <project>`** forgets the account; **`/mail remove <project> imap`** the
   mailbox.
+- **`/mail pause <project|all>`** stops unasked mail to
+  [trusted recipients](configuration.md#sending-unasked-to-trusted-recipients): each mail
+  is asked about, or refused with `mail.on_limit: block`. **`/mail resume`** lets it go
+  again. A project pauses itself after 3 failed unasked mails in a row.
 
 Who the project may write to is in its file: `/set <project> mail.allowed_recipients
-[ana@acme.ro, @client.com]`. Seeing is anyone's; the rest is the admin's.
+[ana@acme.ro, @client.com]`, and `/set <project> mail.trusted_recipients
+{romeo@acme.ro: 2}` for unasked mail. Seeing is anyone's; the rest is the admin's.
 
 ---
 

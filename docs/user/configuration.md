@@ -557,7 +557,7 @@ Each group takes one of four values:
 | `web` | `web_fetch`, `web_search` (answered by the [`web_search`](#web_search--who-answers-the-agents-searches) provider, and charged to the project) | `ask` |
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
-| `mail` | `send_mail`, with the project's [mail account](#mail--who-a-project-may-write-to). `off`, `deny` or `ask`, never `allow`: every mail is shown to a person | `ask` (`off` in a one-off task) |
+| `mail` | `send_mail`, with the project's [mail account](#mail--who-a-project-may-write-to). `off`, `deny` or `ask`, never `allow`: a mail goes unasked only to [trusted recipients](#sending-unasked-to-trusted-recipients) within their counts; every other is shown to a person | `ask` (`off` in a one-off task) |
 | `mail_read` | `mail_list`, `mail_read`, `mail_save_attachment`, `mail_mark_read`, in the project's [mailbox](#reading-a-mailbox-imap); shown only to a project that has one | `allow` (`off` in a one-off task) |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
 
@@ -820,24 +820,65 @@ project's file says who it may write to and how much:
 mail:
   allowed_recipients: [ana@acme.ro, "@client.com"]   # an address, or anyone at a domain
   from: office@acme.ro        # default: the account's user
-  max_per_day: 20             # mails in any 24 hours (1-500)
+  max_per_day: 20             # recipients in any 24 hours, asked or not (1-500)
   max_attachment_mb: 20       # the attachments of one mail, together (1-50)
 ```
 
-- **Nobody is allowed until you list them.** A recipient outside `allowed_recipients` (in
-  `to`, `cc` or `bcc`) is refused before anyone is asked.
-- **Every mail is shown first**, whole: from, to, cc, bcc, subject, the attachments with
-  their sizes, and the text (cut after 3,000 characters in the chat; the web shows all).
-  The buttons are Approve and Deny only: no "for this run", no "always", and no setting,
-  rule or template makes `send_mail` run unasked. A scheduled run with nobody watching
-  cannot send mail.
+- **Nobody is allowed until you list them.** A recipient outside `allowed_recipients` and
+  `trusted_recipients` (in `to`, `cc` or `bcc`) is refused before anyone is asked.
+- **A mail is shown first**, whole, unless every recipient is
+  [trusted](#sending-unasked-to-trusted-recipients) and within its count: from, to, cc,
+  bcc, subject, the attachments with their sizes, and the text (cut after 3,000
+  characters in the chat; the web shows all). The buttons are Approve and Deny only: no
+  "for this run", no "always", and no rule or template makes `send_mail` run unasked. A
+  scheduled run with nobody watching can send only to trusted recipients.
+- **Recipients are counted, not mails**: one mail to three people uses three of
+  `max_per_day`, the ceiling for every mail, asked or not.
 - **What goes is what was shown.** An attachment that changed after the question is
   refused; send again to be asked again.
 - **Attachments are files in the project's folder**: not a link, not a file outside it.
 - One account per project, or a default for all (`/mail set default …`); a project's own
   wins. TLS is required (`smtps://`, or `smtp://` with STARTTLS), with the server's
-  certificate checked. Every send is in the audit log (`mail.send`), with the number of
-  recipients and the attachments' names and sizes, never the text or the password.
+  certificate checked. Every send is in the audit log (`mail.send`), with its recipients,
+  whether it went unasked or approved, and the attachments' names and sizes, never the
+  text or the password.
+- **Every mail is marked as automatic** (`Auto-Submitted: auto-generated`, and
+  `X-Argus-Project`), so an auto-responder does not answer it.
+
+#### Sending unasked to trusted recipients
+
+For a mail that should go without a question, a daily report to you for instance, list
+its recipients as trusted, each with how many mails a day it may get unasked:
+
+```yaml
+mail:
+  trusted_recipients:         # exact addresses only, never a domain
+    romeo@acme.ro: 2          # mails a day this address may get unasked (1-100)
+    contabil@acme.ro: 1
+  unattended_per_day: 10      # unasked recipients in any 24 hours, all together (1-500)
+  on_limit: ask               # past a limit: ask (default), or block
+```
+
+- A mail goes unasked only when **every** recipient is trusted, each is under its own
+  count, and the total stays under `unattended_per_day`. A mail with anyone else in it
+  is asked about as usual.
+- **Past a limit**, `on_limit: ask` asks a person (the question says which limit), and
+  `block` refuses. `max_per_day` refuses whatever `on_limit` says.
+- Counts are recipients over the last 24 hours, rolling. An approved mail uses
+  `max_per_day`, not the trusted counts.
+- **`/mail pause <project|all>`** stops unasked mail until `/mail resume`: each mail is
+  asked about (or refused, with `block`). After **3 unasked mails in a row fail** at the
+  mail server, the project pauses itself and the admin is told.
+
+#### Replies
+
+`send_mail` with `reply_to: INBOX:4521` answers a mail of the project's
+[mailbox](#reading-a-mailbox-imap): it goes only to that mail's sender (who must be
+allowed or trusted, as for any mail), with `Re:` and the thread's headers. A mail is
+**never answered** when it was sent automatically (`Auto-Submitted`), by Argus, by a
+mailing list (`List-Id`, `Precedence: bulk`), by a `noreply` or `mailer-daemon` address,
+or from the project's own address, so two automatic senders never write to each other
+without end.
 
 #### Reading a mailbox (IMAP)
 
@@ -862,8 +903,8 @@ mail:
   are all it does; nothing else in the mailbox changes.
 - **A mail is information, not instructions.** What a mail says reaches the agent inside
   a frame that tells it so: a mail asking it to send something somewhere is not your
-  request, and `send_mail` still writes only to `allowed_recipients`, with a person
-  approving each mail.
+  request, and `send_mail` still writes only to the project's recipients, with a person
+  approving each mail that is not to a trusted one.
 - **Only the listed folders**, and a mail larger than `max_attachment_mb` is not read.
 - The password stays in the credentials store; Argus signs in over TLS (certificates
   checked) for each call and signs out. Each call is in the audit (`mail.read`: the tool,

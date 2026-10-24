@@ -167,9 +167,14 @@ plain data, cross between that copy and the project:
 `/key`, `${NAME}` and an extension's secrets refuse, and only Argus's own `send_mail`
 uses it, over TLS with the server's certificate checked. Mail is the easiest way to send
 data out, so: every mail is shown whole to a person, with Approve and Deny only (no run
-grant, no "always", no setting that skips it); the recipients must be in the project's
-`mail.allowed_recipients`; the attachments must be files in the project's folder, and
-one that changes after the question is not sent; a daily limit applies.
+grant, no "always", no rule that skips it), unless every recipient is one of the few
+exact addresses the admin trusts (`mail.trusted_recipients`, never a domain), each
+within its own daily count and all within a total; the recipients must be in the
+project's file; the attachments must be files in the project's folder, and one that
+changes after the question is not sent; a daily ceiling of recipients applies to every
+mail. Mails are marked as automatic, and a mail that is itself automatic, from a list or
+from a no-reply address is never answered, so no mail loop can start. `/mail pause`
+stops unasked mail at once, and 3 failures in a row pause it by themselves.
 
 **A mailbox is read the same way.** Its account (`imaps://`) is kept under
 `ARGUS_MAIL_IMAP_…`, and only Argus's mailbox tools use it. A project reads only the
@@ -177,7 +182,8 @@ folders its file lists; it can save an attachment into its folder (written throu
 command sandbox, so a link cannot lead it out) and mark a mail as read, nothing else. A
 mail is where instructions from strangers arrive: it reaches the model framed as
 information from outside, and nothing in it widens what the project may do; above all,
-`send_mail` still writes only to `allowed_recipients`, each mail approved by a person.
+`send_mail` still writes only to the project's recipients, and a reply goes only to the
+mail's sender.
 
 The tests plant each of these in a project's repository and check that nothing ran
 with Argus's rights and that another project's commits never left.

@@ -69,6 +69,17 @@ declare module '@deepseek-ai/cordis' {
     'ops/mcp-auth'(payload: { readonly projectId: string; readonly server: string; readonly state: 'connected' | 'disconnected' | 'failed'; readonly reason?: string }): void
 
     /**
+     * A project's unasked mail paused itself: its last unasked mails failed at the mail
+     * server. It asks (or, with `mail.on_limit: block`, is refused) until `/mail resume`;
+     * `ops-health` tells the admin.
+     *
+     * @param payload.projectId the project.
+     * @param payload.why what happened.
+     * @mode emit
+     */
+    'ops/mail-paused'(payload: { readonly projectId: string; readonly why: string }): void
+
+    /**
      * An agent returned to idle.
      *
      * Emitted after the run has been closed, so a listener that reads the run

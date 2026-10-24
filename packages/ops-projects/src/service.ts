@@ -193,6 +193,11 @@ export class OpsProjects {
       { record: (entry, ts) => store.audit.record(entry, ts), byAction: (action, limit) => store.audit.byAction(action, limit) },
       options.mailTransport ?? nodemailerTransport,
       (name) => credentialRef(name),
+      Date.now,
+      {
+        original: (projectId, settings, id) => this.mailbox.original(projectId, settings, id),
+        paused: (projectId, why) => ctx.emit('ops/mail-paused', { projectId, why }),
+      },
     )
     this.mailbox = new ProjectMailbox(
       () => ctx.get('credentials' as never) as unknown as MailSecrets | undefined,
@@ -229,18 +234,19 @@ export class OpsProjects {
   // ── mail ─────────────────────────────────────────────────────────────────
 
   /**
-   * The mail a `send_mail` would send, for the person asked to approve it. Remembered:
-   * the send that follows sends that mail or nothing.
+   * The mail a `send_mail` would send, for the person asked to approve it, or `unasked`
+   * when its recipients are trusted and within their counts. Remembered: the send that
+   * follows sends that mail or nothing.
    *
    * @returns the description, or why it cannot be sent.
    */
-  mailPreview(projectId: string, callId: string, args: unknown): Promise<{ ok: boolean; text: string }> {
+  mailPreview(projectId: string, callId: string, args: unknown): Promise<{ ok: boolean; text: string; unasked?: boolean }> {
     const config = this.requireConfig(projectId)
     return this.mail.preview(projectId, callId, config.cwd, config.mail, args)
   }
 
   /**
-   * `send_mail`: the approved mail, with the project's account.
+   * `send_mail`: the approved (or trusted) mail, with the project's account.
    *
    * @returns what happened, for the agent.
    */

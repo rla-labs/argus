@@ -9,6 +9,16 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   `mail_read`, `mail_save_attachment` and `mail_mark_read` on the folders its file names
   (`mail.read_folders`, `INBOX` by default). It cannot delete, move or send through the
   mailbox, and a mail reaches it as information from outside, never as your instructions.
+- **Unasked mail to a few trusted addresses.** `mail.trusted_recipients` lists exact
+  addresses, each with how many mails a day it may get without a question, and
+  `mail.unattended_per_day` caps them together; past a limit `mail.on_limit` asks or
+  refuses. Every other mail is still shown to a person. `/mail pause|resume`; 3 failures
+  in a row pause it by themselves.
+- **Replies**: `send_mail {reply_to: INBOX:4521}` answers the sender of a mail in the
+  mailbox, in its thread. An automatic, list or no-reply mail is never answered, and
+  every mail Argus sends is marked as automatic.
+- **Changed:** `mail.max_per_day` now counts recipients, not mails: a mail to three
+  people uses three. Raise it if a project mails several people at once.
 
 ## 0.7.3
 
