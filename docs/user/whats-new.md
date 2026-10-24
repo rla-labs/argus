@@ -17,6 +17,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 - **Replies**: `send_mail {reply_to: INBOX:4521}` answers the sender of a mail in the
   mailbox, in its thread. An automatic, list or no-reply mail is never answered, and
   every mail Argus sends is marked as automatic.
+- **An asked mail no longer holds its run.** It waits in the project's outbox, with
+  copies of its attachments; the run goes on or ends, and the mail goes when someone
+  approves it (or is dropped at the approvals timeout). A scheduled run can now ask about
+  a mail too. `/mail outbox <project>`.
 - **Changed:** `mail.max_per_day` now counts recipients, not mails: a mail to three
   people uses three. Raise it if a project mails several people at once.
 

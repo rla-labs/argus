@@ -111,6 +111,12 @@ export function apply(ctx: Context): void {
     }
   })
   // Expiry also runs at each snapshot; daily covers a project that no longer runs.
+  // ponytail: a waiting mail's question lives in this process only, so a restart expires it; re-asking needs the address kept with it.
+  ctx.effect(() => {
+    void service.mail.expireWaiting('Argus restarted before anyone answered').catch((error: Error) => ctx.logger('ops-projects').warn('expiring the outbox failed: %s', error.message))
+    return () => undefined
+  })
+
   ctx.effect(() => {
     const expire = () => void service.expireSnapshots().catch((error: Error) => ctx.logger('ops-projects').warn('snapshot expiry failed: %s', error.message))
     const first = setTimeout(expire, 60_000)
@@ -214,7 +220,8 @@ export function apply(ctx: Context): void {
         execute: async (args, exec) => {
           const projectId = projectOf(exec)
           if (projectId === undefined) return 'send_mail works only in a project.'
-          return service.sendMail(projectId, String((exec as { callId: unknown }).callId), args)
+          const agentId = (exec as { agent?: { id: unknown } }).agent?.id
+          return service.sendMail(projectId, String((exec as { callId: unknown }).callId), args, agentId === undefined ? null : (service.runOf(String(agentId)) ?? null))
         },
       }),
       ...mailboxTools.map(({ name, description, parameters }) =>

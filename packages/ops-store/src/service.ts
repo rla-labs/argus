@@ -13,6 +13,7 @@ import { OpsError } from '@argus-agent/types'
 import { integrityCheck, openDatabase, type DatabaseHandle, type OpenOptions } from './connection.js'
 import { appliedMigrations, migrate, type AppliedMigration, type Migration } from './migrations.js'
 import { ApprovalsRepository } from './repositories/approvals.js'
+import { MailOutboxRepository } from './repositories/mail-outbox.js'
 import { AuditRepository } from './repositories/audit.js'
 import { BudgetsRepository } from './repositories/budgets.js'
 import { ChatContextRepository } from './repositories/chat-context.js'
@@ -110,6 +111,8 @@ export class OpsStore {
   readonly audit: AuditRepository
   /** The `approvals` repository. */
   readonly approvals: ApprovalsRepository
+  /** The `mail_outbox` repository. */
+  readonly mailOutbox: MailOutboxRepository
   /** The `runtime_state` repository. */
   readonly runtimeState: RuntimeStateRepository
   /** The `users` / `identities` repository. */
@@ -145,6 +148,7 @@ export class OpsStore {
     this.chatContext = new ChatContextRepository(this.db)
     this.audit = new AuditRepository(this.db)
     this.approvals = new ApprovalsRepository(this.db)
+    this.mailOutbox = new MailOutboxRepository(this.db)
     this.runtimeState = new RuntimeStateRepository(this.db)
     this.users = new UsersRepository(this.db)
     this.webAuth = new WebAuthRepository(this.db)

@@ -181,6 +181,26 @@ export interface ApprovalRow {
   readonly created_at: number
 }
 
+/** Where a mail in the outbox stands. */
+export type MailOutboxStatus = 'waiting' | 'sent' | 'refused' | 'expired' | 'failed'
+
+/** A mail in the outbox. The mail itself is in the project's state folder. */
+export interface MailOutboxRow {
+  readonly id: number
+  readonly project_id: string
+  readonly run_id: string | null
+  readonly created_at: number
+  readonly status: MailOutboxStatus
+  readonly recipients: number
+  readonly digest: string
+  /** Why it is asked about, when a limit made it so. */
+  readonly why: string | null
+  readonly decided_by: string | null
+  readonly decided_at: number | null
+  /** What happened: the server's refusal, or why it expired. */
+  readonly note: string | null
+}
+
 /** An approval as it is recorded. */
 export type ApprovalInput = Omit<ApprovalRow, 'status' | 'decided_by' | 'decided_at' | 'created_at'> &
   Partial<Pick<ApprovalRow, 'status' | 'created_at'>>

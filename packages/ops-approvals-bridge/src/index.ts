@@ -114,6 +114,12 @@ export function apply(ctx: Context): void {
   // whether anyone is watching. Unmounted, the governor stops runs at their checkpoint.
   ctx.effect(() => ctx.opsGovernor.setCheckpointAsker((question, signal) => bridge.checkpoint(question, signal)))
 
+  // A mail waiting in a project's outbox is asked about apart from its run, which went on.
+  ctx.on('ops/mail-outbox', (payload) => {
+    if (payload.state !== 'waiting') return
+    void bridge.askOutbox(payload).catch((error: Error) => logger.warn('asking about outbox mail #%d failed: %s', payload.id, error.message))
+  })
+
   // A finished run's grants are dropped, so a long-lived process does not
   // accumulate authority for runs that are over.
   ctx.on('ops/agent-idle', (payload) => {

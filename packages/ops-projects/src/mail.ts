@@ -4,15 +4,15 @@
  *
  * The account (an `smtps://` or `smtp://` URL with its password) is a credential the
  * admin sets with `/mail`, per project or as the default for all; the agent never sees
- * it. A project's file says who may receive (`mail.allowed_recipients`), how many mails a
- * day, and how large the attachments. Every mail is shown to a person before it goes,
- * and what goes is what was shown: the attachments' contents are hashed at the question
- * and checked again when sending.
+ * it. A project's file says who may receive (`mail.allowed_recipients`), who may get mail
+ * unasked and how much (`mail.trusted_recipients`), how many recipients a day, and how
+ * large the attachments. Every other mail waits in the outbox, with copies of its
+ * attachments, until a person approves it; what goes is what was shown.
  *
  * @module @argus-agent/projects/mail
  */
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, realpathSync } from 'node:fs'
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, isAbsolute, join } from 'node:path'
 import { isInside } from '@argus-agent/types'
 
@@ -430,6 +430,46 @@ export interface MailerHooks {
   readonly original?: (projectId: string, settings: ProjectMail, id: string) => Promise<OriginalMail | string>
   /** Unasked sending paused itself after failures: the admin is told. */
   readonly paused?: (projectId: string, why: string) => void
+  /** Where a mail that needs a person's approval waits. Without it, such a mail is refused. */
+  readonly outbox?: MailOutbox
+}
+
+/** Where a mail in the outbox stands. */
+export type OutboxState = 'waiting' | 'sent' | 'refused' | 'expired' | 'failed'
+
+/** The outbox's rows, in the store. */
+export interface MailOutboxRows {
+  insert(input: { project_id: string; run_id: string | null; recipients: number; digest: string; why: string | null }, now: number): number
+  get(id: number): { readonly id: number; readonly project_id: string; readonly run_id: string | null; readonly status: OutboxState } | undefined
+  decide(id: number, status: Exclude<OutboxState, 'waiting'>, decidedBy: string | null, note: string | null, now: number): boolean
+  waiting(): ReadonlyArray<{ readonly id: number; readonly project_id: string; readonly run_id: string | null }>
+}
+
+/** A mail put in or taken out of the outbox. */
+export interface OutboxEvent {
+  readonly projectId: string
+  readonly id: number
+  readonly runId: string | null
+  readonly state: OutboxState
+  /** For `waiting`: the mail as a person is asked about it. Otherwise what happened. */
+  readonly text: string
+}
+
+/** The outbox: its rows, the folder each mail is kept in, and who is told. */
+export interface MailOutbox {
+  readonly rows: MailOutboxRows
+  /** A project's outbox folder, in its state folder. */
+  readonly dir: (projectId: string) => string
+  readonly changed?: (event: OutboxEvent) => void
+}
+
+/** A mail as the outbox keeps it, beside copies of its attachments (`0`, `1`, …). */
+interface KeptMail {
+  readonly from: string
+  readonly args: MailArgs
+  readonly reply?: MailPlan['reply']
+  readonly attachments: ReadonlyArray<{ readonly name: string; readonly size: number; readonly sha256: string }>
+  readonly digest: string
 }
 
 /** Unasked mails that fail in a row before unasked sending pauses itself. */
@@ -450,8 +490,8 @@ interface SentDetails {
  * preview, and the sending.
  */
 export class ProjectMailer {
-  /** The mail each question showed, by project and call: the send must match it. */
-  private readonly shown = new Map<string, MailPlan>()
+  /** The mail each asked call was checked as, by project and call: the outbox keeps that mail. */
+  private readonly queued = new Map<string, { plan: MailPlan; why: string | null; text: string }>()
   /** The mail each unasked call was checked as: the send must match it, and still fit. */
   private readonly unasked = new Map<string, MailPlan>()
   /** Recipients of mails being sent now, which the audit does not hold yet. */
@@ -589,95 +629,192 @@ export class ProjectMailer {
 
   /**
    * A `send_mail` before it runs: refused, sent unasked (every recipient trusted and
-   * within its counts), or shown to a person. Remembered: the send that follows sends
-   * this mail, with these attachments, or nothing.
+   * within its counts), or put in the outbox for a person. Remembered: the send that
+   * follows sends, or keeps, this mail with these attachments, or nothing.
    *
-   * @returns the question's text, `unasked` when nobody is asked, or why it cannot be sent.
+   * @returns `unasked` or `queued` when the call may run, or why it cannot be sent.
    */
-  async preview(projectId: string, callId: string, cwd: string, settings: ProjectMail, raw: unknown): Promise<{ ok: boolean; text: string; unasked?: boolean }> {
+  async preview(projectId: string, callId: string, cwd: string, settings: ProjectMail, raw: unknown): Promise<{ ok: boolean; text: string; unasked?: boolean; queued?: boolean }> {
     const planned = await this.plan(projectId, cwd, settings, raw)
     if (!planned.ok) return { ok: false, text: planned.message }
     const route = routeMail(settings, recipientsOf(planned.plan.args), this.counts(projectId), this.pausedOf(projectId).paused)
     if (route.kind === 'refuse') return { ok: false, text: route.message }
     const key = `${projectId}\0${callId}`
+    const text = describeMail(planned.plan, planned.account)
     if (route.kind === 'unasked') {
       this.unasked.set(key, planned.plan)
-      return { ok: true, text: describeMail(planned.plan, planned.account), unasked: true }
+      return { ok: true, text, unasked: true }
     }
-    this.shown.set(key, planned.plan)
-    return { ok: true, text: `${route.why === null ? '' : `Asked because ${route.why}.\n`}${describeMail(planned.plan, planned.account)}` }
+    if (this.hooks.outbox === undefined) return { ok: false, text: 'This mail needs a person\'s approval, and there is no outbox to wait in. Nothing was sent.' }
+    const shown = `${route.why === null ? '' : `Asked because ${route.why}.\n`}${text}`
+    this.queued.set(key, { plan: planned.plan, why: route.why, text: shown })
+    return { ok: true, text: shown, queued: true }
   }
 
-  /**
-   * `send_mail`: the mail a person approved, or one checked as unasked that still fits
-   * its counts, or nothing.
-   *
-   * @returns what happened, for the agent.
-   */
-  async send(projectId: string, callId: string, cwd: string, settings: ProjectMail, raw: unknown): Promise<string> {
-    const key = `${projectId}\0${callId}`
-    const approved = this.shown.get(key)
-    const unasked = this.unasked.get(key)
-    this.shown.delete(key)
-    this.unasked.delete(key)
-    const planned = await this.plan(projectId, cwd, settings, raw)
-    const addresses = planned.ok ? recipientsOf(planned.plan.args) : []
-    const details: Record<string, unknown> = planned.ok
-      ? {
-          path: unasked !== undefined ? 'unasked' : 'approved',
-          recipients: addresses.length,
-          addresses,
-          subject_sha256: createHash('sha256').update(planned.plan.args.subject).digest('hex').slice(0, 16),
-          attachments: planned.plan.attachments.map((file) => ({ name: file.name, size: file.size })),
-          ...(planned.plan.args.reply_to === undefined ? {} : { reply_to: planned.plan.args.reply_to }),
-        }
-      : {}
-    const done = (ok: boolean, message: string, more: Record<string, unknown> = {}): string => {
-      this.audit.record({ actor: `project:${projectId}`, action: 'mail.send', target: projectId, details: { ...details, ...more, ok } }, this.now())
-      return message
+  /** The audit details of a mail: who, never what it says. */
+  private details(plan: MailPlan, path: string): Record<string, unknown> {
+    const addresses = recipientsOf(plan.args)
+    return {
+      path,
+      recipients: addresses.length,
+      addresses,
+      subject_sha256: createHash('sha256').update(plan.args.subject).digest('hex').slice(0, 16),
+      attachments: plan.attachments.map((file) => ({ name: file.name, size: file.size })),
+      ...(plan.args.reply_to === undefined ? {} : { reply_to: plan.args.reply_to }),
     }
-    if (!planned.ok) return done(false, planned.message, { error: planned.message })
-    const checked = approved ?? unasked
-    // Never unasked unless checked as such: a send nobody was shown, and no trusted route, is refused.
-    if (checked === undefined) return done(false, 'send_mail runs only after a person approved the mail, or for trusted recipients within their limits. Nothing was sent.', { error: 'not approved' })
-    // Read once, checked against what was shown, and that is what goes.
-    const contents = planned.plan.attachments.map((file) => readFileSync(file.path))
-    const changed = checked.attachments.find((file, index) => planned.plan.attachments[index]?.path !== file.path || createHash('sha256').update(contents[index] ?? '').digest('hex') !== file.sha256)
-    if (changed !== undefined || checked.digest !== planned.plan.digest) {
-      return done(false, `The mail changed after it was ${unasked === undefined ? 'approved' : 'checked'}${changed === undefined ? '' : ` (${changed.name})`}: nothing was sent. Send it again.`, { error: 'changed after approval' })
-    }
-    // The counts again, now: another mail may have used them since the check.
-    const route = routeMail(settings, addresses, this.counts(projectId), this.pausedOf(projectId).paused)
-    if (route.kind === 'refuse') return done(false, route.message, { error: 'limit' })
-    if (unasked !== undefined && route.kind !== 'unasked') return done(false, `Not sent: ${route.why ?? 'a limit was reached'} since it was checked. Send it again to be asked about it.`, { error: 'limit' })
+  }
 
-    const { args } = planned.plan
-    const mail = { projectId, addresses, unasked: unasked !== undefined }
+  /** Hand a mail to the server; its recipients count as being sent until it is done. */
+  private async deliver(projectId: string, account: MailAccount, plan: MailPlan, contents: readonly Buffer[], unasked: boolean): Promise<{ ok: true; messageId: string | null } | { ok: false; why: string }> {
+    const { args } = plan
+    const mail = { projectId, addresses: recipientsOf(args), unasked }
     this.sending.add(mail)
     try {
-      const info = await this.transport(planned.account).sendMail({
-        from: planned.plan.from,
+      const info = await this.transport(account).sendMail({
+        from: plan.from,
         to: [...args.to],
         ...(args.cc.length > 0 ? { cc: [...args.cc] } : {}),
         ...(args.bcc.length > 0 ? { bcc: [...args.bcc] } : {}),
         subject: args.subject,
         text: args.text,
         ...(args.html === undefined ? {} : { html: args.html }),
-        attachments: planned.plan.attachments.map((file, index) => ({ filename: file.name, content: contents[index] })),
+        attachments: plan.attachments.map((file, index) => ({ filename: file.name, content: contents[index] })),
         // Marked as automatic, so an auto-responder does not answer it, and as ours, so we never answer it.
         headers: { 'Auto-Submitted': 'auto-generated', 'X-Argus-Project': projectId },
-        ...(planned.plan.reply === undefined ? {} : { inReplyTo: planned.plan.reply.messageId, references: [...planned.plan.reply.references] }),
+        ...(plan.reply === undefined ? {} : { inReplyTo: plan.reply.messageId, references: [...plan.reply.references] }),
       })
-      return done(true, `Sent${unasked === undefined ? '' : ' unasked (trusted recipients)'} to ${addresses.join(', ')}${info.messageId === undefined ? '' : ` (${info.messageId})`}.`, { message_id: info.messageId ?? null })
+      return { ok: true, messageId: info.messageId ?? null }
     } catch (error) {
       // The server's own words, never the password: nodemailer's errors carry no credentials.
-      const why = (error as Error).message.split(planned.account.password).join('…')
-      const message = done(false, `The mail server refused or could not be reached: ${why}. Nothing was sent.`, { error: why, smtp: true })
-      if (unasked !== undefined) this.checkFailures(projectId)
-      return message
+      return { ok: false, why: (error as Error).message.split(account.password).join('…') }
     } finally {
       this.sending.delete(mail)
     }
+  }
+
+  /**
+   * `send_mail`: a mail checked as unasked that still fits its counts goes now; one that
+   * needs a person goes to the outbox, and the call returns at once; anything else is
+   * refused.
+   *
+   * @param runId the run that sends it, for the question's address.
+   * @returns what happened, for the agent.
+   */
+  async send(projectId: string, callId: string, cwd: string, settings: ProjectMail, raw: unknown, runId: string | null = null): Promise<string> {
+    const key = `${projectId}\0${callId}`
+    const queued = this.queued.get(key)
+    const unasked = this.unasked.get(key)
+    this.queued.delete(key)
+    this.unasked.delete(key)
+    const planned = await this.plan(projectId, cwd, settings, raw)
+    const details = planned.ok ? this.details(planned.plan, unasked !== undefined ? 'unasked' : 'approved') : {}
+    const done = (ok: boolean, message: string, more: Record<string, unknown> = {}): string => {
+      this.audit.record({ actor: `project:${projectId}`, action: 'mail.send', target: projectId, details: { ...details, ...more, ok } }, this.now())
+      return message
+    }
+    if (!planned.ok) return done(false, planned.message, { error: planned.message })
+    const checked = unasked ?? queued?.plan
+    // Never unasked unless checked as such: a call nobody checked is refused.
+    if (checked === undefined) return done(false, 'send_mail runs only for trusted recipients within their limits, or through the outbox for a person to approve. Nothing was sent.', { error: 'not checked' })
+    // Read once, checked against what was checked, and that is what goes or waits.
+    const contents = planned.plan.attachments.map((file) => readFileSync(file.path))
+    const changed = checked.attachments.find((file, index) => planned.plan.attachments[index]?.path !== file.path || createHash('sha256').update(contents[index] ?? '').digest('hex') !== file.sha256)
+    if (changed !== undefined || checked.digest !== planned.plan.digest) {
+      return done(false, `The mail changed after it was checked${changed === undefined ? '' : ` (${changed.name})`}: nothing was sent. Send it again.`, { error: 'changed after the check' })
+    }
+    if (queued !== undefined) return this.keep(projectId, runId, planned.plan, contents, queued.why, queued.text)
+
+    // The counts again, now: another mail may have used them since the check.
+    const route = routeMail(settings, recipientsOf(planned.plan.args), this.counts(projectId), this.pausedOf(projectId).paused)
+    if (route.kind === 'refuse') return done(false, route.message, { error: 'limit' })
+    if (route.kind !== 'unasked') return done(false, `Not sent: ${route.why ?? 'a limit was reached'} since it was checked. Send it again to be asked about it.`, { error: 'limit' })
+    const sent = await this.deliver(projectId, planned.account, planned.plan, contents, true)
+    if (sent.ok) return done(true, `Sent unasked (trusted recipients) to ${recipientsOf(planned.plan.args).join(', ')}${sent.messageId === null ? '' : ` (${sent.messageId})`}.`, { message_id: sent.messageId })
+    const message = done(false, `The mail server refused or could not be reached: ${sent.why}. Nothing was sent.`, { error: sent.why, smtp: true })
+    this.checkFailures(projectId)
+    return message
+  }
+
+  /** Put a mail in the outbox: its fields and copies of its attachments, in the project's state folder. */
+  private keep(projectId: string, runId: string | null, plan: MailPlan, contents: readonly Buffer[], why: string | null, text: string): string {
+    const outbox = this.hooks.outbox as MailOutbox
+    const id = outbox.rows.insert({ project_id: projectId, run_id: runId, recipients: recipientsOf(plan.args).length, digest: plan.digest, why }, this.now())
+    const dir = join(outbox.dir(projectId), String(id))
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const kept: KeptMail = { from: plan.from, args: plan.args, ...(plan.reply === undefined ? {} : { reply: plan.reply }), attachments: plan.attachments.map(({ name, size, sha256 }) => ({ name, size, sha256 })), digest: plan.digest }
+    contents.forEach((content, index) => writeFileSync(join(dir, String(index)), content, { mode: 0o600 }))
+    writeFileSync(join(dir, 'mail.json'), JSON.stringify(kept), { mode: 0o600 })
+    this.audit.record({ actor: `project:${projectId}`, action: 'mail.outbox', target: projectId, details: { ...this.details(plan, 'outbox'), id, state: 'waiting' } }, this.now())
+    outbox.changed?.({ projectId, id, runId, state: 'waiting', text })
+    return `This mail needs a person's approval${why === null ? '' : ` (${why})`}: it waits in the outbox as #${id}, and Argus sends it when someone approves it, or drops it if nobody does in time. Do not send it again; carry on.`
+  }
+
+  /** A mail leaves the outbox: its row decided, its folder gone, whoever watches told. */
+  private settle(id: number, projectId: string, runId: string | null, state: Exclude<OutboxState, 'waiting'>, by: string | null, note: string | null, text: string): string {
+    const outbox = this.hooks.outbox as MailOutbox
+    outbox.rows.decide(id, state, by, note, this.now())
+    rmSync(join(outbox.dir(projectId), String(id)), { recursive: true, force: true })
+    if (state !== 'sent' && state !== 'failed') this.audit.record({ actor: by ?? 'argus', action: 'mail.outbox', target: projectId, details: { id, state, note } }, this.now())
+    outbox.changed?.({ projectId, id, runId, state, text })
+    return text
+  }
+
+  /**
+   * Decide a mail in the outbox: send what was shown (the kept copies, so a file changed
+   * since does not matter), or drop it.
+   *
+   * @param settings the project's `mail:` block now, or `undefined` when it is gone.
+   * @returns what happened, for the person.
+   */
+  async decideOutbox(id: number, decision: 'approve' | 'deny' | 'expire', by: string | null, settings: ProjectMail | undefined, note: string | null = null): Promise<string> {
+    const outbox = this.hooks.outbox
+    const row = outbox?.rows.get(id)
+    if (outbox === undefined || row === undefined) return `No mail #${id} in the outbox.`
+    if (row.status !== 'waiting') return `Mail #${id} was already ${row.status}.`
+    const { project_id: projectId, run_id: runId } = row
+    if (decision === 'deny') return this.settle(id, projectId, runId, 'refused', by, note, `Mail #${id} of ${projectId} was denied: nothing was sent.`)
+    if (decision === 'expire') return this.settle(id, projectId, runId, 'expired', by, note, `Mail #${id} of ${projectId} expired${note === null ? '' : ` (${note})`}: nothing was sent.`)
+
+    const dir = join(outbox.dir(projectId), String(id))
+    let kept: KeptMail
+    let contents: Buffer[]
+    try {
+      kept = JSON.parse(readFileSync(join(dir, 'mail.json'), 'utf8')) as KeptMail
+      contents = kept.attachments.map((_, index) => readFileSync(join(dir, String(index))))
+    } catch {
+      return this.settle(id, projectId, runId, 'failed', by, 'its copy is gone', `Mail #${id} of ${projectId} could not be sent: its copy in the outbox is gone.`)
+    }
+    if (kept.attachments.some((file, index) => createHash('sha256').update(contents[index] ?? '').digest('hex') !== file.sha256)) {
+      return this.settle(id, projectId, runId, 'failed', by, 'its copy changed', `Mail #${id} of ${projectId} was not sent: its copy in the outbox changed.`)
+    }
+    const plan: MailPlan = { from: kept.from, args: kept.args, attachments: kept.attachments.map((file) => ({ ...file, path: '' })), digest: kept.digest, ...(kept.reply === undefined ? {} : { reply: kept.reply }) }
+    const addresses = recipientsOf(plan.args)
+    // The project's file now, not when it was asked: a recipient removed since is not written to.
+    const refused = settings === undefined ? 'the project is gone' : addresses.some((address) => !allowed(address, settings)) ? `${addresses.filter((address) => !allowed(address, settings)).join(', ')} may no longer receive its mail` : undefined
+    const route = settings === undefined || refused !== undefined ? undefined : routeMail(settings, addresses, this.counts(projectId), false)
+    const why = refused ?? (route?.kind === 'refuse' ? route.message : undefined)
+    if (why !== undefined) return this.settle(id, projectId, runId, 'refused', by, why, `Mail #${id} of ${projectId} was not sent: ${why}`)
+    const found = await this.accountOf(projectId)
+    if (found === undefined) return this.settle(id, projectId, runId, 'failed', by, 'no mail account', `Mail #${id} of ${projectId} was not sent: the project has no mail account.`)
+    const sent = await this.deliver(projectId, found.account, plan, contents, false)
+    this.audit.record(
+      { actor: `project:${projectId}`, action: 'mail.send', target: projectId, details: { ...this.details(plan, 'approved'), outbox: id, approved_by: by, ok: sent.ok, ...(sent.ok ? { message_id: sent.messageId } : { error: sent.why, smtp: true }) } },
+      this.now(),
+    )
+    return sent.ok
+      ? this.settle(id, projectId, runId, 'sent', by, null, `Mail #${id} of ${projectId} was sent to ${addresses.join(', ')}.`)
+      : this.settle(id, projectId, runId, 'failed', by, sent.why, `Mail #${id} of ${projectId} was approved, but the mail server refused it: ${sent.why}`)
+  }
+
+  /**
+   * Expire every waiting mail: nobody can answer for them any more (Argus restarted, and
+   * their questions with it).
+   * @returns how many.
+   */
+  async expireWaiting(note: string): Promise<number> {
+    const waiting = this.hooks.outbox?.rows.waiting() ?? []
+    for (const row of waiting) await this.decideOutbox(row.id, 'expire', null, undefined, note)
+    return waiting.length
   }
 
   /** A test mail from an account, to an address the admin gives. */

@@ -220,8 +220,10 @@ export class OpsApprovalsBridge {
    * A `send_mail` the gate asks about, shown as the mail it sends: from, to, subject,
    * attachments and text, prepared by the projects service, which then sends that mail
    * or nothing. One that cannot be sent (a recipient not allowed, no account, the daily
-   * limit, an attachment outside the folder) is refused here, before any question. One
-   * to trusted recipients within their counts goes unasked: `undefined`.
+   * limit, an attachment outside the folder) is refused here, before any question. Any
+   * other may run (`undefined`): one to trusted recipients within their counts is sent,
+   * and one a person must approve goes to the outbox, which {@link askOutbox} asks about
+   * without holding the run.
    *
    * @param exec the pending call.
    * @returns the question, with the mail described, the refusal, or `undefined`.
@@ -233,13 +235,75 @@ export class OpsApprovalsBridge {
     if (owner?.kind !== 'project') return { kind: 'deny', reason: 'send_mail works only in a project.' }
     const preview = await this.options.projects.mailPreview(owner.projectId, String(exec.callId), exec.arguments)
     if (!preview.ok) return { kind: 'deny', reason: preview.text }
-    if (preview.unasked === true) return undefined
+    if (preview.unasked === true || preview.queued === true) return undefined
     const subject = /^subject: (.*)$/m.exec(preview.text)?.[1] ?? ''
     const to = /^to: (.*)$/m.exec(preview.text)?.[1] ?? ''
     const action = parseAction(exec.name, [], `to ${to}: ${subject}`)
     this.gated.set(exec.callId, action)
     this.details.set(exec.callId, preview.text)
     return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
+  }
+
+  /**
+   * Ask about a mail waiting in a project's outbox. Nothing waits on the answer: the run
+   * that sent it has gone on. Approve sends the mail as it was shown; Deny or no answer
+   * within the approvals timeout drops it; the person asked is told which.
+   *
+   * @param mail the outbox's event for the waiting mail.
+   */
+  async askOutbox(mail: { projectId: string; id: number; runId: string | null; text: string }): Promise<void> {
+    const id = randomUUID()
+    const runId = mail.runId ?? `outbox:${mail.id}`
+    const subject = /^subject: (.*)$/m.exec(mail.text)?.[1] ?? ''
+    const to = /^to: (.*)$/m.exec(mail.text)?.[1] ?? ''
+    const action = parseAction('send_mail', [], `to ${to}: ${subject}`)
+    const base = { id, projectId: mail.projectId, runId, toolName: 'send_mail', kind: action.kind, action: renderAction(action, this.options.config.max_action_length) }
+    this.options.store.approvals.insert(
+      { id, run_id: runId, project_id: mail.projectId, request_json: JSON.stringify({ toolName: 'send_mail', callId: null, reason: null, action: base.action, kind: base.kind, decision: 'ask', always: null, detail: mail.text, outbox: mail.id }), status: 'pending' },
+      this.options.now(),
+    )
+    this.ctx.emit('ops/approval-requested', { ...base, decision: 'ask' })
+    const decide = (decision: 'approve' | 'deny' | 'expire', by: string | null, note: string | null = null) => this.options.projects.decideOutbox(mail.id, decision, by, note)
+
+    const address = this.addressFor(mail.projectId, runId)
+    if (address === undefined || !this.options.channel.canReach(address)) {
+      this.finish(id, base, 'unavailable', 'unavailable', 'no channel is available to ask')
+      await decide('expire', null, 'nobody could be asked')
+      return
+    }
+    const timeoutMinutes = this.timeoutMinutesFor(mail.projectId)
+    const question = approvalQuestion({
+      projectId: mail.projectId,
+      runId,
+      action,
+      toolName: 'send_mail',
+      reason: `waits in the outbox as #${mail.id}; the run went on`,
+      timeoutMinutes,
+      alsoPending: Math.max(0, this.options.store.approvals.listPending().length - 1),
+      detail: mail.text,
+    })
+    const questionId = `approval:${id}`
+    let said: string
+    try {
+      const answer = await this.options.channel.ask(address, question, approvalButtons().slice(0, 2), timeoutMinutes * 60_000, questionId)
+      const by = answer === 'timeout' ? null : (this.options.channel.answeredBy(questionId) ?? null)
+      if (answer !== 'timeout' && answer.value === APPROVE) {
+        this.finish(id, base, 'approved', 'granted', undefined, by)
+        said = await decide('approve', by)
+      } else if (answer === 'timeout') {
+        this.finish(id, base, 'timeout', 'timeout', `no answer within ${timeoutMinutes} minute(s)`)
+        said = await decide('expire', null, `no answer within ${timeoutMinutes} minute(s)`)
+      } else {
+        this.finish(id, base, 'denied', 'denied', decisionText(answer.value, action), by)
+        said = await decide('deny', by)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.ctx.logger('ops-approvals').warn('asking about outbox mail #%d failed: %s', mail.id, detail)
+      this.finish(id, base, 'error', 'denied', `the question could not be sent: ${detail}`)
+      said = await decide('expire', null, 'the question could not be sent')
+    }
+    await this.options.channel.send(address, { text: said }).catch((error: Error) => this.ctx.logger('ops-approvals').warn('could not report outbox mail #%d: %s', mail.id, error.message))
   }
 
   // ── the waterfall ────────────────────────────────────────────────────────

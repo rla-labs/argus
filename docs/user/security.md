@@ -174,7 +174,9 @@ project's file; the attachments must be files in the project's folder, and one t
 changes after the question is not sent; a daily ceiling of recipients applies to every
 mail. Mails are marked as automatic, and a mail that is itself automatic, from a list or
 from a no-reply address is never answered, so no mail loop can start. `/mail pause`
-stops unasked mail at once, and 3 failures in a row pause it by themselves.
+stops unasked mail at once, and 3 failures in a row pause it by themselves. A mail that
+waits for a person waits in an outbox, with copies of its attachments: nothing the agent
+changes afterwards reaches it, and its run does not wait.
 
 **A mailbox is read the same way.** Its account (`imaps://`) is kept under
 `ARGUS_MAIL_IMAP_…`, and only Argus's mailbox tools use it. A project reads only the

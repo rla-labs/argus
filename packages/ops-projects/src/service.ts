@@ -34,7 +34,7 @@ import {
   type ContentBlockLike,
   type Owner,
 } from '@argus-agent/types'
-import type { OpsStore } from '@argus-agent/store'
+import type { MailOutboxRow, OpsStore } from '@argus-agent/store'
 import { CapabilityIssuer, type Capability } from './capability.js'
 import { OwnershipMap } from './ownership.js'
 import type { ProjectConfig } from './project-config.js'
@@ -197,6 +197,11 @@ export class OpsProjects {
       {
         original: (projectId, settings, id) => this.mailbox.original(projectId, settings, id),
         paused: (projectId, why) => ctx.emit('ops/mail-paused', { projectId, why }),
+        outbox: {
+          rows: store.mailOutbox,
+          dir: (projectId) => join(this.stateRoot, projectId, 'outbox'),
+          changed: (event) => ctx.emit('ops/mail-outbox', event),
+        },
       },
     )
     this.mailbox = new ProjectMailbox(
@@ -234,25 +239,40 @@ export class OpsProjects {
   // ── mail ─────────────────────────────────────────────────────────────────
 
   /**
-   * The mail a `send_mail` would send, for the person asked to approve it, or `unasked`
-   * when its recipients are trusted and within their counts. Remembered: the send that
-   * follows sends that mail or nothing.
+   * How a `send_mail` goes: `unasked` when its recipients are trusted and within their
+   * counts, `queued` when it waits in the outbox for a person, or refused. Remembered:
+   * the send that follows sends or keeps that mail, or nothing.
    *
    * @returns the description, or why it cannot be sent.
    */
-  mailPreview(projectId: string, callId: string, args: unknown): Promise<{ ok: boolean; text: string; unasked?: boolean }> {
+  mailPreview(projectId: string, callId: string, args: unknown): Promise<{ ok: boolean; text: string; unasked?: boolean; queued?: boolean }> {
     const config = this.requireConfig(projectId)
     return this.mail.preview(projectId, callId, config.cwd, config.mail, args)
   }
 
   /**
-   * `send_mail`: the approved (or trusted) mail, with the project's account.
+   * `send_mail`: a trusted mail now, or an asked one into the outbox.
    *
+   * @param runId the run that sends it, for the question's address.
    * @returns what happened, for the agent.
    */
-  sendMail(projectId: string, callId: string, args: unknown): Promise<string> {
+  sendMail(projectId: string, callId: string, args: unknown, runId: string | null = null): Promise<string> {
     const config = this.requireConfig(projectId)
-    return this.mail.send(projectId, callId, config.cwd, config.mail, args)
+    return this.mail.send(projectId, callId, config.cwd, config.mail, args, runId)
+  }
+
+  /** A project's outbox: what waits, and what was decided lately, newest first. */
+  outboxOf(projectId: string, limit = 10): MailOutboxRow[] {
+    return this.store.mailOutbox.byProject(projectId, limit)
+  }
+
+  /**
+   * Decide a mail in the outbox, with the project's settings as they are now.
+   * @returns what happened, for the person.
+   */
+  decideOutbox(id: number, decision: 'approve' | 'deny' | 'expire', by: string | null, note: string | null = null): Promise<string> {
+    const row = this.store.mailOutbox.get(id)
+    return this.mail.decideOutbox(id, decision, by, row === undefined ? undefined : this.configOf(row.project_id)?.mail, note)
   }
 
   /**

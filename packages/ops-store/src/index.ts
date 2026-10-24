@@ -30,6 +30,7 @@ export {
   BudgetsRepository,
   ChatContextRepository,
   InboundRepository,
+  MailOutboxRepository,
   ProjectsRepository,
   RunsRepository,
   RuntimeStateRepository,

@@ -812,6 +812,7 @@ anyone's; the rest is the admin's.
 /mail remove <project-id|default> [imap]               (admin)
 /mail pause <project-id|all>                           (admin)
 /mail resume <project-id|all>                          (admin)
+/mail outbox <project-id>
 ```
 
 A project's mail: the account `send_mail` sends with, who it may write to, its trusted
@@ -837,6 +838,9 @@ reads; the accounts never reach the agent. See
   [trusted recipients](configuration.md#sending-unasked-to-trusted-recipients): each mail
   is asked about, or refused with `mail.on_limit: block`. **`/mail resume`** lets it go
   again. A project pauses itself after 3 failed unasked mails in a row.
+- **`/mail outbox <project>`** lists the mails that waited for a person, newest first:
+  waiting, sent, refused (denied, or no longer allowed), expired or failed, and why it
+  was asked. A waiting mail is answered where it was asked, or in the web's inbox.
 
 Who the project may write to is in its file: `/set <project> mail.allowed_recipients
 [ana@acme.ro, @client.com]`, and `/set <project> mail.trusted_recipients

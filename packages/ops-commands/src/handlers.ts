@@ -2356,14 +2356,16 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       spec: {
         name: 'mail',
         description: 'A project’s mail accounts and settings (admin to change)',
-        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url|imaps-url> | /mail remove <project-id|default> [imap] | /mail test <project-id|default> <address|imap> | /mail pause|resume <project-id|all>',
+        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url|imaps-url> | /mail remove <project-id|default> [imap] | /mail test <project-id|default> <address|imap> | /mail pause|resume <project-id|all> | /mail outbox <project-id>',
         detail:
           'A project sends mail with send_mail, and Argus does it: the account never reaches ' +
           'the agent, its shell or the conversation. A mail goes unasked only to the ' +
           'project’s mail.trusted_recipients, each within its own daily count and all of them ' +
           'within mail.unattended_per_day; past a limit mail.on_limit asks or refuses, and every ' +
           'other mail is shown to a person first. pause stops unasked mail (for a project, or ' +
-          'all) until resume; it pauses itself after 3 failed unasked mails in a row. set deletes your message at once and saves the account, as ' +
+          'all) until resume; it pauses itself after 3 failed unasked mails in a row. A mail ' +
+          'that needs a person waits in the outbox, and its run goes on; outbox shows what ' +
+          'waits and what was decided lately. set deletes your message at once and saves the account, as ' +
           'smtps://user:password@host:465 (or smtp://…:587, with STARTTLS required), for that ' +
           'project or as the default for all. An imaps://user:password@host:993 URL sets the ' +
           'mailbox the project reads instead (mail_list, mail_read, mail_save_attachment, ' +
@@ -2372,14 +2374,14 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'mail.max_attachment_mb. test sends one mail with the account to the address you ' +
           'give, or, with imap, signs in to the mailbox. Seeing it is anyone’s; the rest is ' +
           'the admin’s.',
-        examples: ['/mail site-firma', '/mail pause all', '/mail resume site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail set site-firma imaps://comenzi%40acme.ro:…@mail.acme.ro:993', '/mail test site-firma ana@acme.ro', '/mail test site-firma imap', '/mail remove site-firma imap'],
+        examples: ['/mail site-firma', '/mail outbox site-firma', '/mail pause all', '/mail resume site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail set site-firma imaps://comenzi%40acme.ro:…@mail.acme.ro:993', '/mail test site-firma ana@acme.ro', '/mail test site-firma imap', '/mail remove site-firma imap'],
         mutating: true,
         secret: 2,
       },
       async run(input, context): Promise<CommandResult> {
         const mail = projects.mail
         const [action, target, value, ...rest] = tokenize(input)
-        const actions = ['set', 'remove', 'test', 'pause', 'resume']
+        const actions = ['set', 'remove', 'test', 'pause', 'resume', 'outbox']
         if (action === undefined || !actions.includes(action)) {
           if (action === 'default') {
             const found = await mail.accountOf(null)
@@ -2411,11 +2413,23 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
 ` +
               `limits      ${perDay} recipients a day (${counts.total} in the last 24 hours), ${mb} MB of attachments a mail
 ` +
-              `send_mail   ${config.tools.mail}${config.tools.mail === 'ask' ? ': unasked only to trusted recipients, every other mail shown to a person first' : ''}
+              `send_mail   ${config.tools.mail}${config.tools.mail === 'ask' ? ': unasked only to trusted recipients, every other mail shown to a person first (it waits in the outbox)' : ''}
 ` +
               `mailbox     ${box === undefined ? `none (/mail set ${config.id} <imaps-url>, or a default)` : `${describeMailbox(box.account)}${box.own ? '' : ' (the default)'}, reads ${folders.join(', ')}`}
 ` +
               `reading     ${box === undefined ? 'no mailbox: its tools are hidden' : config.tools.mail_read}`,
+          )
+        }
+        if (action === 'outbox') {
+          const config = target === undefined ? undefined : projects.configOf(target)
+          if (config === undefined || value !== undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, target === undefined ? 'Which project? /mail outbox <project-id>' : `No project "${target}". Send /projects to see them.`)
+          const rows = projects.outboxOf(config.id)
+          if (rows.length === 0) return result(`${config.id}'s outbox is empty: no mail has waited for a person.`)
+          const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
+          return result(
+            `${config.id}'s outbox, newest first (times UTC):\n` +
+              rows.map((row) => `#${row.id}  ${row.status.padEnd(8)}  ${when(row.created_at)}  ${row.recipients} recipient(s)${row.why === null ? '' : `  asked: ${row.why}`}${row.note === null ? '' : `  (${row.note})`}`).join('\n') +
+              (rows.some((row) => row.status === 'waiting') ? '\nA waiting mail is answered where it was asked, or in the web\'s inbox.' : ''),
           )
         }
         if (!context.isAdmin) return errorResult('Only the admin can change a mail account.')

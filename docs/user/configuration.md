@@ -830,12 +830,19 @@ mail:
   [trusted](#sending-unasked-to-trusted-recipients) and within its count: from, to, cc,
   bcc, subject, the attachments with their sizes, and the text (cut after 3,000
   characters in the chat; the web shows all). The buttons are Approve and Deny only: no
-  "for this run", no "always", and no rule or template makes `send_mail` run unasked. A
-  scheduled run with nobody watching can send only to trusted recipients.
+  "for this run", no "always", and no rule or template makes `send_mail` run unasked.
+- **An asked mail waits in the outbox; nothing waits for it.** `send_mail` answers at
+  once ("it waits in the outbox as #12"), and the run goes on or ends, freeing its
+  project and its slot, scheduled runs included. The question is asked where the run's
+  answer goes, and in the web's inbox. Approve sends the mail; Deny, or no answer within
+  the approvals timeout, drops it; either way you are told. A restart of Argus drops what
+  waits (send it again). `/mail outbox <project>` shows what waits and what was decided.
 - **Recipients are counted, not mails**: one mail to three people uses three of
   `max_per_day`, the ceiling for every mail, asked or not.
-- **What goes is what was shown.** An attachment that changed after the question is
-  refused; send again to be asked again.
+- **What goes is what was shown.** The outbox keeps a copy of the attachments as they
+  were shown, so a file changed afterwards does not change the mail; and an approved mail
+  is checked against the project's file again, so a recipient removed since is not
+  written to.
 - **Attachments are files in the project's folder**: not a link, not a file outside it.
 - One account per project, or a default for all (`/mail set default …`); a project's own
   wins. TLS is required (`smtps://`, or `smtp://` with STARTTLS), with the server's

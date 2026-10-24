@@ -7,6 +7,7 @@
 import type { Owner } from '@argus-agent/types'
 import type { ContentBlockLike } from '@argus-agent/types'
 import type { InvalidProject } from './project-loader.js'
+import type { OutboxEvent } from './mail.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
@@ -78,6 +79,20 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'ops/mail-paused'(payload: { readonly projectId: string; readonly why: string }): void
+
+    /**
+     * A mail went into the project's outbox to wait for a person's approval, or left it:
+     * sent, refused (denied, or no longer allowed), expired or failed.
+     * `ops-approvals-bridge` asks about a waiting one; the web shows the outbox.
+     *
+     * @param payload.projectId the project.
+     * @param payload.id the mail's number in the outbox.
+     * @param payload.runId the run that sent it.
+     * @param payload.state where it stands.
+     * @param payload.text for `waiting`, the mail as a person is asked about it; otherwise what happened.
+     * @mode emit
+     */
+    'ops/mail-outbox'(payload: OutboxEvent): void
 
     /**
      * An agent returned to idle.

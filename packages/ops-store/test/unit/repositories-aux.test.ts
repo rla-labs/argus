@@ -458,3 +458,18 @@ describe('RuntimeStateRepository', () => {
     expect(store.runtimeState.get('panic')).toBe(true)
   })
 })
+
+describe('MailOutboxRepository', () => {
+  it('keeps a waiting mail, decides it once, and lists what waits', () => {
+    const store = openMemoryStore()
+    const id = store.mailOutbox.insert({ project_id: 'site', run_id: 'r1', recipients: 2, digest: 'd', why: null }, T0)
+    const other = store.mailOutbox.insert({ project_id: 'site', run_id: null, recipients: 1, digest: 'e', why: 'a limit' }, T0 + 1)
+    expect(store.mailOutbox.waiting().map((row) => row.id)).toEqual([id, other])
+    expect(store.mailOutbox.decide(id, 'sent', 'ana', null, T0 + 5)).toBe(true)
+    // A late answer changes nothing.
+    expect(store.mailOutbox.decide(id, 'refused', 'bob', null, T0 + 6)).toBe(false)
+    expect(store.mailOutbox.get(id)).toMatchObject({ status: 'sent', decided_by: 'ana', decided_at: T0 + 5 })
+    expect(store.mailOutbox.waiting().map((row) => row.id)).toEqual([other])
+    expect(store.mailOutbox.byProject('site').map((row) => row.id)).toEqual([other, id])
+  })
+})

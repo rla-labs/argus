@@ -1,8 +1,8 @@
 // == ARGUS AGENT PROJECT ==
 /**
- * send_mail through dsh's real tool pipeline: a person is shown the whole mail and only
- * Approve or Deny, never "for the run" or "always"; approved, exactly that mail goes with
- * an account the agent never sees; a recipient not allowed is refused before any
+ * send_mail through dsh's real tool pipeline: an asked mail waits in the outbox while its
+ * run ends; a person is shown the whole mail and only Approve or Deny, never "for the run"
+ * or "always"; approved, exactly that mail goes with an account the agent never sees; a recipient not allowed is refused before any
  * question; a trusted recipient within its count gets it unasked, marked as automatic;
  * a task cannot mail at all.
  */
@@ -83,29 +83,51 @@ async function boot(call: Record<string, unknown>, project = 'mail: {allowed_rec
 const MAIL = { to: ['ana@acme.ro'], subject: 'Raport Q3', text: 'Bună ziua,\nraportul e atașat.\nCu drag, Argus', attachments: ['report.pdf'] }
 
 describe('send_mail', () => {
-  it('shows the whole mail with Approve and Deny only, and sends that mail with an account the agent never sees', async () => {
+  it('keeps an asked mail in the outbox while its run ends, shows it whole with Approve and Deny only, and sends that mail when approved', async () => {
     const b = await boot(MAIL)
     writeFileSync(join(b.dataDir, 'projects', 'alpha', 'report.pdf'), 'PDF')
     await b.opsProjects.mail.setAccount(null, `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`)
 
     b.opsGovernor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'mail ana the report' }], priority: 0 })
     await waitFor(() => b.adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the question' })
-    const question = b.adapter.sent.at(-1)!.message
+    // The run does not wait for the answer: it ends, and frees its slot.
+    await waitFor(() => b.opsGovernor.status().running.length === 0, { timeoutMs: 30_000, label: 'the run ended' })
+    const question = b.adapter.sent.find((entry) => entry.message.text.startsWith('Approval needed'))!.message
+    expect(question.text).toContain('waits in the outbox as #1; the run went on')
     expect(question.text).toContain('from: office@acme.ro (via mail.acme.ro)\nto: ana@acme.ro\nsubject: Raport Q3\nattachments: report.pdf (3 B)')
     expect(question.text).toContain('Bună ziua,\nraportul e atașat.\nCu drag, Argus')
     expect(question.text).not.toContain(PASSWORD)
     expect((question.buttons ?? []).map((button) => button.value)).toEqual([APPROVE, 'deny'])
-    b.adapter.answer(APPROVE, 'dev')
-    await waitFor(() => b.opsGovernor.status().running.length === 0 && b.sent.length > 0, { timeoutMs: 30_000, label: 'sent' })
+    expect(JSON.stringify((await b.opsProjects.ensureAgent('alpha')).session.snapshotEvents())).toContain('it waits in the outbox as #1')
+    expect(b.opsStore.mailOutbox.get(1)).toMatchObject({ project_id: 'alpha', status: 'waiting', recipients: 1 })
+    expect(b.sent).toHaveLength(0)
 
+    b.adapter.answer(APPROVE, 'dev')
+    await waitFor(() => b.adapter.sent.some((entry) => entry.message.text === 'Mail #1 of alpha was sent to ana@acme.ro.'), { timeoutMs: 30_000, label: 'told it was sent' })
     expect(b.sent).toHaveLength(1)
     expect(b.sent[0]).toMatchObject({ from: 'office@acme.ro', to: ['ana@acme.ro'], subject: 'Raport Q3' })
+    const decider = b.opsStore.approvals.recent(1)[0]!.decided_by
+    expect(decider).not.toBeNull()
+    expect(b.opsStore.mailOutbox.get(1)).toMatchObject({ status: 'sent', decided_by: decider })
     // The password is in the credentials store only: never in the session, the audit, the approvals or the folder.
     const session = await b.opsProjects.ensureAgent('alpha')
     expect(JSON.stringify(session.session.snapshotEvents())).not.toContain(PASSWORD)
     expect(JSON.stringify(b.opsStore.audit.recent(100))).not.toContain(PASSWORD)
     expect(JSON.stringify(b.opsStore.approvals.recent(10))).not.toContain(PASSWORD)
+    expect(b.opsStore.approvals.recent(1)[0]!.status).toBe('granted')
     expect(b.opsStore.approvals.recent(1)[0]!.request_json).toContain('"always":null')
+  }, 60_000)
+
+  it('drops an asked mail that is denied, and says so', async () => {
+    const b = await boot({ ...MAIL, attachments: [] })
+    await b.opsProjects.mail.setAccount(null, `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`)
+    b.opsGovernor.submit({ source: 'channel', target: { projectId: 'alpha' }, content: [{ type: 'text', text: 'mail ana' }], priority: 0 })
+    await waitFor(() => b.adapter.pendingCount > 0, { timeoutMs: 20_000, label: 'the question' })
+    b.adapter.answer('deny', 'dev')
+    await waitFor(() => b.adapter.sent.some((entry) => entry.message.text === 'Mail #1 of alpha was denied: nothing was sent.'), { timeoutMs: 30_000, label: 'told it was denied' })
+    expect(b.opsStore.mailOutbox.get(1)).toMatchObject({ status: 'refused', decided_by: b.opsStore.approvals.recent(1)[0]!.decided_by })
+    expect(b.opsStore.approvals.recent(1)[0]!.status).toBe('denied')
+    expect(b.sent).toHaveLength(0)
   }, 60_000)
 
   it('refuses a recipient not allowed before any question', async () => {

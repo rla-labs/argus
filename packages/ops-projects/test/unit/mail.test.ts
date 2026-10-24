@@ -4,11 +4,11 @@
  * attachments (inside the folder, no link, under the limit), the daily limit, the mail a
  * person approved and nothing else, and an audit that never holds the password.
  */
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { loopReason, mailSecretName, parseMailAccount, parseMailBlock, ProjectMailer, routeMail, transportOptions, type MailAccount, type MailerHooks, type OriginalMail, type ProjectMail } from '../../src/mail.js'
+import { loopReason, mailSecretName, parseMailAccount, parseMailBlock, ProjectMailer, routeMail, transportOptions, type MailAccount, type MailerHooks, type MailOutboxRows, type OriginalMail, type OutboxEvent, type OutboxState, type ProjectMail } from '../../src/mail.js'
 
 const PASSWORD = 'pa55-w0rd-SECRET'
 const URL_TEXT = `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`
@@ -51,9 +51,29 @@ describe('a mail account', () => {
   })
 })
 
-/** A mailer over memory: secrets, an audit log, and a transport that records. */
+/** An outbox over memory, its folders in a temporary one. */
+function memoryOutbox() {
+  const rows: Array<{ id: number; project_id: string; run_id: string | null; status: OutboxState; note: string | null; decided_by: string | null }> = []
+  const events: OutboxEvent[] = []
+  const store: MailOutboxRows = {
+    insert: (input) => rows.push({ id: rows.length + 1, project_id: input.project_id, run_id: input.run_id, status: 'waiting', note: null, decided_by: null }),
+    get: (id) => rows.find((row) => row.id === id),
+    decide: (id, status, by, note) => {
+      const row = rows.find((entry) => entry.id === id && entry.status === 'waiting')
+      if (row === undefined) return false
+      Object.assign(row, { status, decided_by: by, note })
+      return true
+    },
+    waiting: () => rows.filter((row) => row.status === 'waiting'),
+  }
+  const root = mkdtempSync(join(tmpdir(), 'mail-state-'))
+  return { rows, events, root, outbox: { rows: store, dir: (projectId: string) => join(root, projectId, 'outbox'), changed: (event: OutboxEvent) => void events.push(event) } }
+}
+
+/** A mailer over memory: secrets, an audit log, an outbox, and a transport that records. */
 function harness(settings: Partial<ProjectMail> = {}, hooks: MailerHooks = {}) {
   const cwd = mkdtempSync(join(tmpdir(), 'mail-project-'))
+  const box = memoryOutbox()
   const values = new Map<string, string>()
   const audit: Array<{ ts: number; action: string; target: string; details: Record<string, unknown> }> = []
   const sent: Array<Record<string, unknown>> = []
@@ -83,12 +103,18 @@ function harness(settings: Partial<ProjectMail> = {}, hooks: MailerHooks = {}) {
     }),
     (name) => name,
     Date.now,
-    hooks,
+    { outbox: box.outbox, ...hooks },
   )
   const mail: ProjectMail = { from: null, allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 20, max_attachment_mb: 1, read_folders: ['INBOX'], trusted_recipients: {}, unattended_per_day: 10, on_limit: 'ask', ...settings }
   const ask = async (callId: string, args: Record<string, unknown>) => mailer.preview('site', callId, cwd, mail, args)
-  const send = async (callId: string, args: Record<string, unknown>) => mailer.send('site', callId, cwd, mail, args)
-  return { cwd, values, audit, sent, mailer, ask, send, failWith: (error: Error) => void (fail = error) }
+  const send = async (callId: string, args: Record<string, unknown>) => mailer.send('site', callId, cwd, mail, args, 'run-1')
+  /** Asked, kept in the outbox, then approved by ana: what she is told. */
+  const approve = async (callId: string, args: Record<string, unknown>) => {
+    await ask(callId, args)
+    await send(callId, args)
+    return mailer.decideOutbox(box.rows.length, 'approve', 'ana', mail)
+  }
+  return { cwd, values, audit, sent, mailer, ask, send, approve, box, mail, failWith: (error: Error | undefined) => void (fail = error) }
 }
 
 const MAIL = { to: ['ana@acme.ro'], cc: ['bob@client.com'], subject: 'Raport Q3', text: 'Bună ziua,\nraportul e atașat.', attachments: ['out/report.pdf'] }
@@ -107,27 +133,53 @@ describe('send_mail', () => {
     expect(preview.text).toContain('raportul e atașat.')
     expect(preview.text).not.toContain(PASSWORD)
 
-    expect(await h.send('c1', MAIL)).toBe('Sent to ana@acme.ro, bob@client.com (<m1@acme.ro>).')
+    expect(preview.queued).toBe(true)
+    expect(await h.send('c1', MAIL)).toBe('This mail needs a person\'s approval: it waits in the outbox as #1, and Argus sends it when someone approves it, or drops it if nobody does in time. Do not send it again; carry on.')
+    expect(h.sent).toHaveLength(0)
+    expect(h.box.events).toEqual([{ projectId: 'site', id: 1, runId: 'run-1', state: 'waiting', text: preview.text }])
+    // The project's file changes after the question: what goes is the copy that was shown.
+    writeFileSync(join(h.cwd, 'out', 'report.pdf'), 'PDF-2, swapped')
+    expect(await h.mailer.decideOutbox(1, 'approve', 'ana', h.mail)).toBe('Mail #1 of site was sent to ana@acme.ro, bob@client.com.')
+    expect(await h.mailer.decideOutbox(1, 'deny', 'bob', h.mail)).toBe('Mail #1 was already sent.')
+    expect(existsSync(join(h.box.root, 'site', 'outbox', '1'))).toBe(false)
     expect(h.sent).toHaveLength(1)
     expect(h.sent[0]).toMatchObject({ from: 'office@acme.ro', to: ['ana@acme.ro'], cc: ['bob@client.com'], subject: 'Raport Q3', text: MAIL.text, headers: { 'Auto-Submitted': 'auto-generated', 'X-Argus-Project': 'site' } })
     expect(String((h.sent[0]!['attachments'] as Array<{ content: Buffer }>)[0]!.content)).toBe('PDF-1')
-    expect(h.audit).toEqual([expect.objectContaining({ action: 'mail.send', target: 'site', details: expect.objectContaining({ ok: true, path: 'approved', recipients: 2, addresses: ['ana@acme.ro', 'bob@client.com'], attachments: [{ name: 'report.pdf', size: 5 }] }) })])
+    expect(h.audit.filter((row) => row.action === 'mail.send')).toEqual([expect.objectContaining({ target: 'site', details: expect.objectContaining({ ok: true, path: 'approved', outbox: 1, approved_by: 'ana', recipients: 2, addresses: ['ana@acme.ro', 'bob@client.com'], attachments: [{ name: 'report.pdf', size: 5 }] }) })])
     expect(JSON.stringify(h.audit)).not.toContain(PASSWORD)
     expect(JSON.stringify(h.audit)).not.toContain('Raport Q3')
     expect(JSON.stringify(h.audit)).not.toContain('raportul')
   })
 
-  it('sends nothing nobody was shown, nor a mail whose attachment changed after it was shown', async () => {
+  it('keeps nothing nobody checked, nor a mail whose attachment changed after the check; denied or expired, nothing goes', async () => {
     const h = harness()
     await h.mailer.setAccount(null, URL_TEXT)
     mkdirSync(join(h.cwd, 'out'))
     writeFileSync(join(h.cwd, 'out', 'report.pdf'), 'PDF-1')
-    expect(await h.send('c0', MAIL)).toContain('only after a person approved the mail, or for trusted recipients')
+    expect(await h.send('c0', MAIL)).toContain('runs only for trusted recipients within their limits, or through the outbox')
     expect((await h.ask('c1', MAIL)).ok).toBe(true)
     writeFileSync(join(h.cwd, 'out', 'report.pdf'), 'PDF-2, swapped')
-    expect(await h.send('c1', MAIL)).toContain('changed after it was approved (report.pdf): nothing was sent')
-    // The approval is used once.
-    expect(await h.send('c1', MAIL)).toContain('only after a person approved')
+    expect(await h.send('c1', MAIL)).toContain('changed after it was checked (report.pdf): nothing was sent')
+    // The check is used once.
+    expect(await h.send('c1', MAIL)).toContain('runs only for trusted recipients')
+    await h.ask('c2', MAIL)
+    await h.send('c2', MAIL)
+    await h.ask('c3', MAIL)
+    await h.send('c3', MAIL)
+    expect(await h.mailer.decideOutbox(1, 'deny', 'ana', h.mail)).toBe('Mail #1 of site was denied: nothing was sent.')
+    expect(await h.mailer.expireWaiting('Argus restarted')).toBe(1)
+    expect(h.box.rows.map((row) => [row.status, row.note])).toEqual([['refused', null], ['expired', 'Argus restarted']])
+    expect(h.box.events.map((event) => event.state)).toEqual(['waiting', 'waiting', 'refused', 'expired'])
+    expect(h.sent).toHaveLength(0)
+  })
+
+  it('checks the project\'s file again when approved: a recipient removed since is not written to', async () => {
+    const h = harness()
+    await h.mailer.setAccount('site', URL_TEXT)
+    const one = { to: ['bob@client.com'], subject: 's', text: 't' }
+    await h.ask('a', one)
+    await h.send('a', one)
+    expect(await h.mailer.decideOutbox(1, 'approve', 'ana', { ...h.mail, allowed_recipients: ['ana@acme.ro'] })).toBe('Mail #1 of site was not sent: bob@client.com may no longer receive its mail')
     expect(h.sent).toHaveLength(0)
   })
 
@@ -158,13 +210,9 @@ describe('send_mail', () => {
     await h.mailer.setAccount('site', URL_TEXT)
     const two = { ...MAIL, attachments: [] }
     h.failWith(new Error('421 try later'))
-    await h.ask('x', two)
-    await h.send('x', two)
-    h.failWith(undefined as unknown as Error)
-    for (const id of ['a', 'b']) {
-      await h.ask(id, two)
-      expect(await h.send(id, two)).toContain('Sent to')
-    }
+    expect(await h.approve('x', two)).toContain('the mail server refused it: 421 try later')
+    h.failWith(undefined)
+    for (const id of ['a', 'b']) expect(await h.approve(id, two)).toContain('was sent to')
     expect((await h.ask('c', { ...two, cc: [] })).text).toContain('reached 4 recipient(s) in the last 24 hours; 1 more would pass its limit of 4')
     expect(h.mailer.sentToday('site')).toBe(2)
     expect(h.mailer.counts('site').total).toBe(4)
@@ -175,12 +223,12 @@ describe('send_mail', () => {
     await h.mailer.setAccount('site', URL_TEXT)
     h.failWith(new Error(`535 Authentication failed for office@acme.ro:${PASSWORD}`))
     const one = { ...MAIL, attachments: [] }
-    await h.ask('c1', one)
-    const said = await h.send('c1', one)
+    const said = await h.approve('c1', one)
     expect(said).toContain('535 Authentication failed')
     expect(said).not.toContain(PASSWORD)
     expect(JSON.stringify(h.audit)).not.toContain(PASSWORD)
-    expect(h.audit[0]!.details['ok']).toBe(false)
+    expect(h.audit.find((row) => row.action === 'mail.send')!.details['ok']).toBe(false)
+    expect(h.box.rows[0]!.status).toBe('failed')
   })
 
   it('keeps the account in the credentials store only, and says which one a project uses', async () => {
@@ -217,7 +265,8 @@ describe('unasked mail to trusted recipients', () => {
     expect(third.unasked).toBeUndefined()
     expect(third.text).toContain('Asked because romeo@acme.ro already got 2 unasked mail(s) in the last 24 hours, its limit')
     // An approved mail does not use a trusted count, but the total ceiling holds.
-    expect(await h.send('c', REPORT)).toBe('Sent to romeo@acme.ro (<m3@acme.ro>).')
+    await h.send('c', REPORT)
+    expect(await h.mailer.decideOutbox(1, 'approve', 'ana', h.mail)).toBe('Mail #1 of site was sent to romeo@acme.ro.')
     expect(h.mailer.counts('site').unattended).toBe(3)
   })
 
@@ -287,7 +336,7 @@ describe('a reply', () => {
     const reply = { reply_to: 'INBOX:7', text: 'Am primit comanda.' }
     const asked = await h.ask('a', reply)
     expect(asked.text).toContain('to: ana@client.com\nsubject: Re: Comanda 17\na reply to INBOX:7')
-    await h.send('a', reply)
+    await h.approve('a', reply)
     expect(h.sent[0]).toMatchObject({ to: ['ana@client.com'], subject: 'Re: Comanda 17', inReplyTo: '<c17@client.com>', references: ['<c16@client.com>', '<c17@client.com>'] })
     expect((await h.ask('b', { ...reply, to: ['eve@client.com'] })).text).toContain('goes only to the sender of the mail it answers, ana@client.com')
     expect((await h.ask('c', { ...reply, cc: ['bob@client.com'] })).text).toContain('no cc or bcc')
