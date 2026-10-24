@@ -62,6 +62,8 @@ export interface MailSummary {
   readonly uid: number
   readonly date: Date | null
   readonly from: string
+  /** The sender's address alone, lower case. */
+  readonly address: string
   readonly subject: string
   readonly size: number
   readonly seen: boolean
@@ -110,7 +112,18 @@ export interface MailboxSession {
   read(folder: string, uid: number): Promise<ReadMail | undefined>
   /** Mark a mail as read; false when there is no such mail. */
   markSeen(folder: string, uid: number): Promise<boolean>
+  /**
+   * The mails that came after a UID, oldest first, at most `limit`, read-only; and the
+   * folder's UIDVALIDITY and next UID, which a cursor keeps.
+   */
+  newSince(folder: string, afterUid: number, limit: number): Promise<{ uidValidity: string; uidNext: number; mails: MailSummary[] }>
   close(): Promise<void>
+}
+
+/** Where a trigger's look at a folder stopped. */
+export interface MailCursor {
+  readonly uidValidity: string
+  readonly lastUid: number
 }
 
 /** Opens a session with an account. */
@@ -333,6 +346,35 @@ export class ProjectMailbox {
     // ponytail: the whole mail is fetched to be parsed; a mail over the limit is refused rather than read in parts.
     if (bytes > settings.max_attachment_mb * 1024 * 1024 * 1.4) return `${mailId(folder, uid)} is ${size(bytes)}, more than this project reads (mail.max_attachment_mb).`
     return (await session.read(folder, uid)) ?? `No mail ${mailId(folder, uid)}.`
+  }
+
+  /**
+   * New mail for a trigger: what came into a folder after a cursor, read-only, nothing
+   * marked as read. Without a cursor, or when the folder's UIDVALIDITY changed, it starts
+   * from now: the past is never processed.
+   *
+   * @param cursor where the last check stopped.
+   * @returns the folder's cursor now and the new mails, oldest first; or why it failed.
+   */
+  async newMail(projectId: string, folder: string, cursor: MailCursor | null, limit: number): Promise<{ ok: true; cursor: MailCursor; mails: MailSummary[] } | { ok: false; message: string }> {
+    const found = await this.accountOf(projectId)
+    if (found === undefined) return { ok: false, message: 'the project has no mailbox' }
+    let session: MailboxSession
+    try {
+      session = await this.connect(found.account)
+    } catch (error) {
+      return { ok: false, message: `could not reach the mailbox: ${why(error)}` }
+    }
+    try {
+      const fresh = cursor === null
+      const read = await session.newSince(folder, fresh ? Number.MAX_SAFE_INTEGER : cursor.lastUid, limit)
+      if (fresh || read.uidValidity !== cursor.uidValidity) return { ok: true, cursor: { uidValidity: read.uidValidity, lastUid: read.uidNext - 1 }, mails: [] }
+      return { ok: true, cursor, mails: read.mails }
+    } catch (error) {
+      return { ok: false, message: `the mailbox refused to look at ${folder}: ${why(error)}` }
+    } finally {
+      await session.close().catch(() => undefined)
+    }
   }
 
   /**

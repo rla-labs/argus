@@ -14,7 +14,7 @@ const URL_TEXT = `imaps://comenzi%40acme.ro:${PASSWORD}@mail.acme.ro`
 
 const SETTINGS: ProjectMail = { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 1, read_folders: ['INBOX', 'Comenzi'], trusted_recipients: {}, unattended_per_day: 10, on_limit: 'ask' }
 
-const SUMMARY: MailSummary = { uid: 4521, date: new Date('2026-10-24T09:12:00Z'), from: 'Ana <ana@client.ro>', subject: 'Comanda 17', size: 34_000, seen: false, attachments: 1 }
+const SUMMARY: MailSummary = { uid: 4521, date: new Date('2026-10-24T09:12:00Z'), from: 'Ana <ana@client.ro>', address: 'ana@client.ro', subject: 'Comanda 17', size: 34_000, seen: false, attachments: 1 }
 const MAIL: ReadMail = {
   from: 'Ana <ana@client.ro>',
   to: 'comenzi@acme.ro',
@@ -30,7 +30,7 @@ const MAIL: ReadMail = {
 }
 
 /** A mailbox over memory: secrets, an audit log, a fake session and a placer that records. */
-function harness(options: { size?: number } = {}) {
+function harness(options: { size?: number; uidValidity?: string } = {}) {
   const values = new Map<string, string>()
   const audit: Array<{ action: string; target: string; details: Record<string, unknown> }> = []
   const placed: Array<{ projectId: string; cwd: string; relative: string; content: string }> = []
@@ -49,6 +49,7 @@ function harness(options: { size?: number } = {}) {
       return uid === 4521
     },
     close: async () => void (closed += 1),
+    newSince: async (_folder, afterUid) => ({ uidValidity: options.uidValidity ?? 'v1', uidNext: 4522, mails: afterUid < 4521 ? [SUMMARY] : [] }),
   }
   const mailbox = new ProjectMailbox(
     () => ({
@@ -159,6 +160,17 @@ describe('the mailbox tools', () => {
     values.set(mailboxSecretName('site'), URL_TEXT)
     expect(await mailbox.markRead('site', SETTINGS, { id: 'Comenzi:4521' })).toBe('Comenzi:4521 is marked as read.')
     expect(calls).toContain('seen Comenzi 4521')
+  })
+})
+
+describe('new mail for a trigger', () => {
+  it('starts from now, then gives what came after the cursor; a new UIDVALIDITY starts from now again', async () => {
+    const { mailbox, values } = harness()
+    values.set(mailboxSecretName('site'), URL_TEXT)
+    expect(await mailbox.newMail('site', 'INBOX', null, 50)).toEqual({ ok: true, cursor: { uidValidity: 'v1', lastUid: 4521 }, mails: [] })
+    expect(await mailbox.newMail('site', 'INBOX', { uidValidity: 'v1', lastUid: 4500 }, 50)).toEqual({ ok: true, cursor: { uidValidity: 'v1', lastUid: 4500 }, mails: [SUMMARY] })
+    expect(await mailbox.newMail('site', 'INBOX', { uidValidity: 'v0', lastUid: 4500 }, 50)).toEqual({ ok: true, cursor: { uidValidity: 'v1', lastUid: 4521 }, mails: [] })
+    expect(await harness().mailbox.newMail('site', 'INBOX', null, 50)).toEqual({ ok: false, message: 'the project has no mailbox' })
   })
 })
 

@@ -473,3 +473,21 @@ describe('MailOutboxRepository', () => {
     expect(store.mailOutbox.byProject('site').map((row) => row.id)).toEqual([other, id])
   })
 })
+
+describe('TriggersRepository', () => {
+  it('finds what is due, records checks and the cursor, and turns on and off', () => {
+    const store = openMemoryStore()
+    store.triggers.insert({ id: 'comenzi', project_id: 'site', source: 'mail', config_json: '{}', reply_chat: 'console:dev', next_check_at: T0 }, T0)
+    expect(store.triggers.get('comenzi')).toMatchObject({ enabled: true, cursor_json: null, runs_json: '[]', failures: 0 })
+    expect(store.triggers.due(T0).map((row) => row.id)).toEqual(['comenzi'])
+    store.triggers.checked('comenzi', T0, T0 + 300_000, 'refused', 1, null)
+    expect(store.triggers.due(T0)).toEqual([])
+    store.triggers.setCursor('comenzi', '{"last":7}', `[${T0}]`)
+    store.triggers.checked('comenzi', T0 + 300_000, T0 + 600_000, null, 0, T0 + 300_000)
+    expect(store.triggers.get('comenzi')).toMatchObject({ cursor_json: '{"last":7}', runs_json: `[${T0}]`, last_error: null, failures: 0, last_match_at: T0 + 300_000 })
+    expect(store.triggers.setEnabled('comenzi', false, T0)).toBe(true)
+    expect(store.triggers.due(T0 + 600_000)).toEqual([])
+    expect(store.triggers.delete('comenzi')).toBe(true)
+    expect(store.triggers.list()).toEqual([])
+  })
+})

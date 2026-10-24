@@ -14,6 +14,7 @@ import { integrityCheck, openDatabase, type DatabaseHandle, type OpenOptions } f
 import { appliedMigrations, migrate, type AppliedMigration, type Migration } from './migrations.js'
 import { ApprovalsRepository } from './repositories/approvals.js'
 import { MailOutboxRepository } from './repositories/mail-outbox.js'
+import { TriggersRepository } from './repositories/triggers.js'
 import { AuditRepository } from './repositories/audit.js'
 import { BudgetsRepository } from './repositories/budgets.js'
 import { ChatContextRepository } from './repositories/chat-context.js'
@@ -113,6 +114,8 @@ export class OpsStore {
   readonly approvals: ApprovalsRepository
   /** The `mail_outbox` repository. */
   readonly mailOutbox: MailOutboxRepository
+  /** The `triggers` repository. */
+  readonly triggers: TriggersRepository
   /** The `runtime_state` repository. */
   readonly runtimeState: RuntimeStateRepository
   /** The `users` / `identities` repository. */
@@ -149,6 +152,7 @@ export class OpsStore {
     this.audit = new AuditRepository(this.db)
     this.approvals = new ApprovalsRepository(this.db)
     this.mailOutbox = new MailOutboxRepository(this.db)
+    this.triggers = new TriggersRepository(this.db)
     this.runtimeState = new RuntimeStateRepository(this.db)
     this.users = new UsersRepository(this.db)
     this.webAuth = new WebAuthRepository(this.db)

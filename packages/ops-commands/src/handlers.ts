@@ -2906,6 +2906,32 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       },
     },
 
+    // ── /trigger ───────────────────────────────────────────────────────────
+    {
+      spec: {
+        name: 'trigger',
+        description: 'Start a project’s run when a mail arrives, checked in code',
+        syntax: '/trigger list [project] | add <project> mail from:<address>[,<address>] [subject:<text>] [folder:<folder>] [every:<minutes>] [per_hour:<n>] "<prompt>" | remove <id> | enable <id> | disable <id> | check <id>',
+        detail:
+          'A trigger checks the project’s mailbox every few minutes in code, with no model and ' +
+          'no tokens, for new mail from the senders it names (exact addresses or @domain), ' +
+          'and starts a run in the project for each one, with the prompt you give: ' +
+          '{{mail.id}}, {{mail.from}}, {{mail.subject}} and {{mail.date}} are filled in, and the ' +
+          'agent reads the mail itself with mail_read. Mail already there when it is added ' +
+          'does not count. per_hour (default 6) caps its runs; past it, mails wait for the ' +
+          'next hour. A subject with spaces goes in single quotes. check says what it would ' +
+          'start now, without starting it.',
+        examples: ['/trigger add site-firma mail from:comenzi@client.ro subject:Comanda "Process the order in mail {{mail.id}} and draft the reply."', '/trigger list', '/trigger check trig-1a2b3c4d'],
+        mutating: true,
+        requires: 'ops-scheduler',
+      },
+      async run(input, context): Promise<CommandResult> {
+        const scheduler = options.scheduler?.()
+        if (scheduler === undefined) return errorResult('The scheduler is not installed on this deployment.')
+        return scheduler.triggers.run(input, context)
+      },
+    },
+
     // ── /health ────────────────────────────────────────────────────────────
     {
       spec: {

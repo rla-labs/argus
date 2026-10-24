@@ -24,7 +24,7 @@ import { describeSchema, type SchemaNode } from '@argus-agent/commands'
 import { projectConfigSchema } from '@argus-agent/projects'
 import { INVITE_TTL_MS, WebAuth } from './auth.js'
 import { webOf, webSchema } from './config.js'
-import { overview, projectDetail, projectList, requestText, runsAndCosts, scheduleList, settings, taskList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
+import { overview, projectDetail, projectList, requestText, runsAndCosts, scheduleList, settings, taskList, triggerList, type FrontDeskPort, type InstructionsPort, type ProvidersPort, type SchedulePort } from './data.js'
 import { startWebServer, type CommandOutcome } from './server.js'
 import { DownloadLinks } from './files.js'
 import { SETUP_TTL_MS, SetupGate } from './setup.js'
@@ -284,6 +284,7 @@ export async function apply(ctx: Context): Promise<void> {
       templates: () => ctx.opsCommands.templates(),
       tasks: () => taskList(sources),
       schedules: () => scheduleList(sources),
+      triggers: () => triggerList(sources),
       runs: () => runsAndCosts(sources),
       settings: () => ({ ...settings(sources), system }),
       systemSettings: () => ctx.opsCommands.systemSettings(),

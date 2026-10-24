@@ -16,6 +16,8 @@ export * from './config.js'
 export * from './cron.js'
 export * from './fire.js'
 export * from './service.js'
+export * from './triggers.js'
+export * from './trigger-service.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-scheduler'

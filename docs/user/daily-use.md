@@ -347,6 +347,35 @@ Write a scheduled prompt so it can run with nobody watching: say what to check, 
 counts as a problem, and what to report. "Report only if something is wrong" keeps the
 chat quiet on good days.
 
+### When a mail arrives: triggers
+
+A schedule asks the model at a time whether there is anything to do, and pays for the
+question even when there is nothing. A **trigger** looks in code instead, with no model
+and no tokens, and starts a run only when there is something to do. The first one
+watches the project's [mailbox](configuration.md#reading-a-mailbox-imap):
+
+```
+/trigger add site-firma mail from:comenzi@client.ro subject:Comanda "Process the order in mail {{mail.id}} and draft the reply."
+```
+
+Or in the project's **Schedules** tab: *When* → *When a mail arrives*.
+
+- Every few minutes (`every:`, default 5) Argus signs in to the mailbox, looks at what
+  came in since its last look, and signs out. Nothing in the mailbox changes: no mail is
+  marked as read.
+- For each new mail **from** one of the senders it names (exact addresses or `@domain`;
+  required), and whose subject contains `subject:` when one is given, it starts one run
+  in the project, as a scheduled run, with your prompt. `{{mail.id}}` and the others are
+  filled in. The mail's own words never reach the prompt: the agent reads it with
+  `mail_read`, where it is marked as information from outside.
+- Mail already in the mailbox when the trigger is added does not count. Each mail starts
+  one run at most, also across a restart.
+- At most `per_hour:` runs an hour (default 6); past it, the rest wait for the next hour
+  and you are told once. A paused project or an exhausted budget leaves the mail for a
+  later check.
+- A check that fails (the mailbox refuses, the server is down) is tried again less often,
+  up to once an hour; after 3 failures in a row you are told. `/trigger list` shows it.
+
 ---
 
 ## Memory, files and history

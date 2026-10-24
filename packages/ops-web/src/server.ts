@@ -71,6 +71,7 @@ export interface ServerDeps {
   readonly templates: () => unknown
   readonly tasks: () => unknown
   readonly schedules: () => unknown
+  readonly triggers?: () => unknown
   readonly runs: () => unknown
   readonly settings: () => unknown
   /** Every `ops.yaml` setting, described; `undefined` when the file is not known. */
@@ -404,7 +405,7 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     }
     if (method === 'GET' && path === '/api/projects') return send(response, 200, { projects: deps.projects() })
     if (method === 'GET' && path === '/api/tasks') return send(response, 200, { tasks: deps.tasks() })
-    if (method === 'GET' && path === '/api/schedules') return send(response, 200, { schedules: deps.schedules() })
+    if (method === 'GET' && path === '/api/schedules') return send(response, 200, { schedules: deps.schedules(), triggers: deps.triggers?.() ?? [] })
     if (method === 'GET' && path === '/api/runs') return send(response, 200, deps.runs())
     if (method === 'GET' && path === '/api/templates') return send(response, 200, { templates: deps.templates() })
     const upload = /^\/api\/projects\/([^/]+)\/upload$/.exec(path)

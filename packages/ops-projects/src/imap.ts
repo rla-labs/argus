@@ -83,6 +83,7 @@ export const imapConnect: MailboxConnect = async (account: MailboxAccount): Prom
             uid: message.uid,
             date: date === undefined ? null : new Date(date),
             from: addresses(message.envelope?.from),
+            address: (message.envelope?.from?.[0]?.address ?? '').toLowerCase(),
             subject: message.envelope?.subject ?? '',
             size: message.size ?? 0,
             seen: message.flags?.has('\\Seen') === true,
@@ -116,6 +117,30 @@ export const imapConnect: MailboxConnect = async (account: MailboxAccount): Prom
           // The raw lines: a header's value as sent, unfolded.
           headers: Object.fromEntries(parsed.headerLines.filter((line) => LOOP_HEADERS.includes(line.key)).map((line) => [line.key, line.line.slice(line.line.indexOf(':') + 1).replace(/\s+/g, ' ').trim()])),
         }
+      }),
+    newSince: (folder, afterUid, limit) =>
+      inFolder(folder, false, async () => {
+        const box = client.mailbox === false ? undefined : client.mailbox
+        const uidValidity = String(box?.uidValidity ?? '')
+        const uidNext = Number(box?.uidNext ?? 1)
+        if (afterUid + 1 >= uidNext) return { uidValidity, uidNext, mails: [] }
+        const mails: MailSummary[] = []
+        // `n:*` always yields the newest mail, even below n: hence the filter.
+        for await (const message of client.fetch(`${afterUid + 1}:*`, { uid: true, envelope: true, flags: true, size: true, bodyStructure: true }, { uid: true })) {
+          if (message.uid <= afterUid) continue
+          const date = message.envelope?.date
+          mails.push({
+            uid: message.uid,
+            date: date === undefined ? null : new Date(date),
+            from: addresses(message.envelope?.from),
+            address: (message.envelope?.from?.[0]?.address ?? '').toLowerCase(),
+            subject: message.envelope?.subject ?? '',
+            size: message.size ?? 0,
+            seen: message.flags?.has('\\Seen') === true,
+            attachments: countAttachments(message.bodyStructure),
+          })
+        }
+        return { uidValidity, uidNext, mails: mails.sort((a, b) => a.uid - b.uid).slice(0, limit) }
       }),
     markSeen: (folder, uid) => inFolder(folder, true, () => client.messageFlagsAdd(String(uid), ['\\Seen'], { uid: true })),
     close: () => client.logout(),

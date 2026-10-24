@@ -201,6 +201,41 @@ export interface MailOutboxRow {
   readonly note: string | null
 }
 
+/** A trigger: a source checked in code, and a run started in a project for each match. */
+export interface TriggerRow {
+  readonly id: string
+  readonly project_id: string
+  /** `mail` in 0.7.4. */
+  readonly source: string
+  /** The source's filter, the prompt, the model, the check's interval and the run limit. */
+  readonly config_json: string
+  /** Where its runs answer, and where a problem is told: an encoded address. */
+  readonly reply_chat: string
+  readonly enabled: boolean
+  /** Where the source stopped; null before its first check. */
+  readonly cursor_json: string | null
+  /** The times of the runs it started in the last hour. */
+  readonly runs_json: string
+  readonly next_check_at: number
+  readonly last_check_at: number | null
+  readonly last_match_at: number | null
+  readonly last_error: string | null
+  /** Checks that failed in a row. */
+  readonly failures: number
+  readonly created_at: number
+}
+
+/** A trigger as it is created. */
+export interface TriggerInput {
+  readonly id: string
+  readonly project_id: string
+  readonly source: string
+  readonly config_json: string
+  readonly reply_chat: string
+  readonly enabled?: boolean
+  readonly next_check_at: number
+}
+
 /** An approval as it is recorded. */
 export type ApprovalInput = Omit<ApprovalRow, 'status' | 'decided_by' | 'decided_at' | 'created_at'> &
   Partial<Pick<ApprovalRow, 'status' | 'created_at'>>

@@ -18,7 +18,7 @@ For which command fits which moment, read
 | Getting around | [`/help`](#help-command) · [`/start`](#start) · [`/projects`](#projects) · [`/p`](#p-project-id) · [`/web`](#web) · [`/link`](#link-code) |
 | What is happening | [`/status`](#status-project-id) · [`/usage`](#usage-scope-daymonth) · [`/runs`](#runs-project-id--all) · [`/log`](#log-project-id--all-) · [`/approvals`](#approvals) · [`/health`](#health) |
 | A project's results | [`/memory`](#memory-project-id) · [`/instructions`](#instructions-project-id--project-id-text) · [`/forget`](#forget-project-id-section--asks-first) · [`/files`](#files-project-id-folder) · [`/get`](#get-project-id-path) · [`/tools`](#tools-project-id) · [`/skill`](#skill-project-id--add-project-id-name-text--remove-project-id-name) |
-| Work | [`/task`](#task-text) · [`/session`](#session-id-text--close-id) · [`/cron`](#cron-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
+| Work | [`/task`](#task-text) · [`/session`](#session-id-text--close-id) · [`/cron`](#cron-) · [`/trigger`](#trigger-) · [`/stop`](#stop-project-id) · [`/undo`](#undo-project-id-list----run-id) · [`/panic`](#panic--asks-first) · [`/resume-all`](#resume-all) |
 | Money | [`/estimate`](#estimate-project-id--tasks) · [`/budget`](#budget-scope-action) · [`/model`](#model-project-id-providermodel) · [`/defaults`](#defaults-tasksfrontdeskjudge-providermodel) · [`/allow-free`](#allow-free-providermodel--asks-first) |
 | Projects | [`/new`](#new-id-template-providermodel) · [`/template`](#template-name) · [`/ext`](#ext-list--install-git-url--pathfolderref--update-nameref--remove-name--enabledisable-project-id-name) · [`/reload`](#reload) · [`/reset`](#reset-project-id--asks-first) |
 | Admin only (see [who may run what](#who-may-run-what)) | [`/users`](#users-invite-name--remove-user--enable-user--reset-user--name-user-name--tailscale-user-login--admin) · [`/set`](#set-project-id-key-value--admin) · [`/config`](#config-key-value--reset-key--admin) · [`/restart`](#restart--admin-asks-first) · [`/rule`](#rule-project-id-command--host-host--admin) · [`/key`](#key-provider-key--name-value--remove-providername--admin) · [`/mail`](#mail) · [`/mcp`](#mcp) · [`/archive`](#archive-project-id--admin-asks-first) · [`/allow`](#allow-user-id--remove-user-id--admin) |
@@ -1184,6 +1184,33 @@ one-off task. The result is delivered to the chat the schedule was created from.
 `run` fires a schedule now, which is how to test one.
 
 Without that plugin: `The scheduler is not installed on this deployment.`
+
+---
+
+## `/trigger ...`
+
+A run that starts when a mail arrives, rather than at a time. See
+[triggers](daily-use.md#when-a-mail-arrives-triggers).
+
+```
+/trigger add site-firma mail from:comenzi@client.ro "Process the order in mail {{mail.id}} and draft the reply."
+/trigger add site-firma mail from:comenzi@client.ro,@acme.ro subject:'Comandă nouă' every:10 per_hour:3 "…"
+/trigger list [project]
+/trigger check <id>
+/trigger enable <id>
+/trigger disable <id>
+/trigger remove <id>
+```
+
+- `from:` is required: exact addresses or `@domain`, separated by commas.
+- `subject:` (optional) is contained in the subject, case-insensitive; with spaces, in
+  single quotes. `folder:` is one of the project's `mail.read_folders` (default `INBOX`).
+- `every:` minutes between checks (1-1440, default 5); `per_hour:` runs it may start in
+  an hour (1-60, default 6).
+- The prompt goes last, in double quotes; `{{mail.id}}`, `{{mail.from}}`,
+  `{{mail.subject}}` and `{{mail.date}}` are filled in.
+- `check` says what it would start now, without starting anything. `list` shows each
+  trigger's last check, last match, runs this hour, and why it fails, if it does.
 
 ---
 

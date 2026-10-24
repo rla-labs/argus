@@ -35,6 +35,7 @@ export {
   RunsRepository,
   RuntimeStateRepository,
   SchedulesRepository,
+  TriggersRepository,
   UsageRepository,
   UsersRepository,
   WebAuthRepository,

@@ -21,6 +21,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   copies of its attachments; the run goes on or ends, and the mail goes when someone
   approves it (or is dropped at the approvals timeout). A scheduled run can now ask about
   a mail too. `/mail outbox <project>`.
+- **Triggers: a run when a mail arrives.** `/trigger add <project> mail from:… "<prompt>"`,
+  or *When a mail arrives* in a project's Schedules tab. Argus checks the mailbox in code,
+  with no model and no tokens, and starts a run only for a new mail from the senders you
+  name, at most a few an hour.
 - **Changed:** `mail.max_per_day` now counts recipients, not mails: a mail to three
   people uses three. Raise it if a project mails several people at once.
 

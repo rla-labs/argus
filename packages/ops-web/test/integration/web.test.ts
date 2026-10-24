@@ -650,9 +650,14 @@ describe('the web interface', () => {
     expect((runs['scopes'] as Array<{ scope: string }>).map((row) => row.scope)).toEqual(['global', 'adhoc', 'orchestrator', 'project:alpha'])
     expect((runs['runs'] as unknown[]).length).toBeGreaterThan(0)
     expect((runs['log'] as Array<{ action: string }>).length).toBeGreaterThan(0)
-    expect(await json('/api/schedules')).toEqual({ schedules: [] })
+    expect(await json('/api/schedules')).toEqual({ schedules: [], triggers: [] })
     expect((await run('/cron add alpha "0 9 * * 1-5" check the build')).error).toBe(false)
     expect((await json('/api/schedules'))['schedules']).toEqual([expect.objectContaining({ cron: '0 9 * * 1-5', projectId: 'alpha', prompt: 'check the build', enabled: true })])
+    expect((await run(`/trigger add alpha mail from:comenzi@client.ro subject:'Comanda nouă' every:10 "Process {{mail.id}}"`)).error).toBe(false)
+    expect((await json('/api/schedules'))['triggers']).toEqual([
+      expect.objectContaining({ projectId: 'alpha', from: ['comenzi@client.ro'], subject: 'Comanda nouă', folder: 'INBOX', every: 10, prompt: 'Process {{mail.id}}', enabled: true, runsThisHour: 0, perHour: 6, error: null }),
+    ])
+    expect((await run('/trigger add alpha mail "no senders"')).error).toBe(true)
     // A run id that is no running task falls through to a project, and none is that.
     expect((await run('/stop not-a-run')).text).toContain('not running')
   }, 60_000)

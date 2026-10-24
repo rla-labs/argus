@@ -28,6 +28,7 @@ import type { CommandContext, CommandResult } from '@argus-agent/commands'
 import { checkCron, delayUntil, nextRunAfter, planMisfire, describeSeconds } from './cron.js'
 import { decideFiring, isNoteworthySkip, skipReasonOf, skipText, type FireSnapshot, type SkipReason } from './fire.js'
 import { isMisfirePolicy, type MisfirePolicy, type SchedulerSection } from './config.js'
+import { OpsTriggers } from './trigger-service.js'
 import './events.js'
 
 /** Options for the service. */
@@ -90,11 +91,15 @@ export class OpsScheduler {
   submissions = 0
   /** Skips by reason. */
   readonly skips = new Map<SkipReason, number>()
+  /** The triggers: sources checked in code, runs started for what they find. */
+  readonly triggers: OpsTriggers
 
   constructor(
     private readonly ctx: Context,
     private readonly options: SchedulerOptions,
-  ) {}
+  ) {
+    this.triggers = new OpsTriggers(ctx, options)
+  }
 
   // ── lifecycle ────────────────────────────────────────────────────────────
 
@@ -106,6 +111,7 @@ export class OpsScheduler {
   async start(): Promise<number> {
     const handled = await this.applyMisfire()
     this.rearm()
+    this.triggers.start()
     return handled
   }
 
@@ -505,6 +511,7 @@ export class OpsScheduler {
   stop(): void {
     this.stopped = true
     this.cancelTimer()
+    this.triggers.stop()
   }
 
   // ── `/cron` ──────────────────────────────────────────────────────────────

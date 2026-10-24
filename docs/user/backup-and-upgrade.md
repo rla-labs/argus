@@ -423,7 +423,7 @@ docker exec argus-agent node -e '
 
 Nothing to do by hand. What changes for you:
 
-- **One database migration** (0007): the mail outbox. It runs at the first start and is
+- **One database migration** (0007): the mail outbox, and triggers. It runs at the first start and is
   in the backup `argus upgrade` takes first.
 - **`mail.max_per_day` counts recipients**, not mails. Raise it if a project writes to
   several people at once.

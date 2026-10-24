@@ -82,6 +82,7 @@ export interface CommandsOptions {
 /** What `/cron` needs from `ops-scheduler`. */
 export interface SchedulerPort {
   run(line: string, context: CommandContext): CommandResult
+  readonly triggers: { run(line: string, context: CommandContext): Promise<CommandResult> }
 }
 
 /** What `/memory` needs from `ops-memory`. */

@@ -41,6 +41,22 @@ interface ScheduleView {
   readonly next: number
 }
 
+interface TriggerView {
+  readonly id: string
+  readonly projectId: string
+  readonly from: readonly string[]
+  readonly subject: string | null
+  readonly folder: string
+  readonly every: number
+  readonly prompt: string
+  readonly enabled: boolean
+  readonly lastCheck: number | null
+  readonly lastMatch: number | null
+  readonly runsThisHour: number
+  readonly perHour: number
+  readonly error: string | null
+}
+
 const TABS = ['chat', 'schedules', 'files', 'activity', 'settings'] as const
 type Tab = (typeof TABS)[number]
 
@@ -95,8 +111,13 @@ export function nextRuns(frequency: Frequency, time: string, weekday: number, mo
 }
 
 function Schedules({ id, version, run, can }: { id: string; version: number; run: (line: string) => void; can: (name: string) => boolean }): VNode {
-  const data = useData<{ schedules: ScheduleView[] }>('/api/schedules', version)
+  const data = useData<{ schedules: ScheduleView[]; triggers?: TriggerView[] }>('/api/schedules', version)
   const [what, setWhat] = useState('')
+  const [kind, setKind] = useState<'cron' | 'mail'>('cron')
+  const [from, setFrom] = useState('')
+  const [subject, setSubject] = useState('')
+  const [every, setEvery] = useState(5)
+  const triggers = (data?.triggers ?? []).filter((row) => row.projectId === id)
   const [frequency, setFrequency] = useState<Frequency>('weekdays')
   const [time, setTime] = useState('09:00')
   const [weekday, setWeekday] = useState(1)
@@ -112,13 +133,31 @@ function Schedules({ id, version, run, can }: { id: string; version: number; run
       : t(`cron.say.${frequency}`, { time, minute: time.split(':')[1] ?? '00', day: days.find((each) => each.value === String(weekday))?.label ?? '', date: monthday })
   const add = (event: Event): void => {
     event.preventDefault()
-    if (what.trim().length === 0 || cron.length === 0) return
+    if (what.trim().length === 0) return
+    if (kind === 'mail') {
+      const senders = from.split(/[\s,]+/).filter((entry) => entry.length > 0).join(',')
+      if (senders.length === 0) return
+      const about = subject.trim().replace(/'/g, '')
+      run(`/trigger add ${id} mail from:${senders}${about.length === 0 ? '' : ` subject:'${about}'`} every:${every} "${what.trim().replace(/"/g, '')}"`)
+      setWhat('')
+      return
+    }
+    if (cron.length === 0) return
     run(`/cron add ${id} "${cron.replace(/"/g, '')}" ${what.trim()}`)
     setWhat('')
   }
   return html`<div class="split">
     <section class="panel" aria-label=${t('schedule.list')} style="flex:1 1 380px;min-width:0">
-      ${mine.length === 0 ? html`<p class="empty pad">${t('cron.none')}</p>` : null}
+      ${mine.length === 0 && triggers.length === 0 ? html`<p class="empty pad">${t('cron.none')}</p>` : null}
+      ${triggers.map((row) => html`<div class="ri" key=${row.id}>
+        <div style="flex:1 1 200px;min-width:0"><b>${row.prompt}</b>
+          <div class="muted" style="font-size:12.5px">${t('trig.row', { from: row.from.join(', ') })}${row.subject === null ? '' : `, ${t('trig.subjectIs', { subject: row.subject })}`} · ${row.folder}</div>
+          <div class=${row.enabled ? '' : 'faint'} style="font-size:12.5px">${row.enabled ? t('trig.status', { check: row.lastCheck === null ? t('trig.never') : when(row.lastCheck), match: row.lastMatch === null ? t('trig.never') : when(row.lastMatch), runs: row.runsThisHour, perHour: row.perHour }) : t('schedule.disabled')}</div>
+          ${row.error === null ? null : html`<div style="font-size:12.5px;color:var(--bad)">${t('trig.failing', { error: row.error })}</div>`}</div>
+        ${can('trigger') ? html`<button type="button" class="btn sm" onClick=${() => run(`/trigger check ${row.id}`)}>${t('trig.check')}</button>
+          <${Toggle} checked=${row.enabled} label=${row.prompt} onChange=${(on: boolean) => run(`/trigger ${on ? 'enable' : 'disable'} ${row.id}`)} />
+          <button type="button" class="btn sm icon" aria-label=${t('settings.remove')} onClick=${() => run(`/trigger remove ${row.id}`)}><${Icon} name="close" size=${14} /></button>` : null}
+      </div>`)}
       ${mine.map((row) => html`<div class="ri" key=${row.id}>
         <div style="flex:1 1 200px;min-width:0"><b>${row.prompt}</b>
           <div class="muted mono" style="font-size:12.5px">${row.cron}</div>
@@ -131,8 +170,18 @@ function Schedules({ id, version, run, can }: { id: string; version: number; run
     ${can('cron')
       ? html`<form class="panel corners pad stack" style="flex:1 1 420px;min-width:0" onSubmit=${add}>
           <h2>${t('cron.new')}</h2>
-          <div class="field"><label for="c-what">${t('cron.what')}</label><textarea id="c-what" class="in" rows="2" placeholder=${t('cron.whatPlaceholder')} value=${what} onInput=${(event: Event) => setWhat((event.target as HTMLTextAreaElement).value)}></textarea></div>
-          <div class="field"><span class="flabel">${t('cron.how')}</span>
+          <div class="field"><label for="c-what">${t('cron.what')}</label><textarea id="c-what" class="in" rows="2" placeholder=${t(kind === 'mail' ? 'trig.whatPlaceholder' : 'cron.whatPlaceholder')} value=${what} onInput=${(event: Event) => setWhat((event.target as HTMLTextAreaElement).value)}></textarea></div>
+          ${can('trigger') ? html`<div class="field"><span class="flabel">${t('trig.when')}</span>
+            <${Seg} label=${t('trig.when')} value=${kind} onChange=${setKind} options=${[{ value: 'cron', label: t('trig.k.cron') }, { value: 'mail', label: t('trig.k.mail') }]} /></div>` : null}
+          ${kind === 'mail'
+            ? html`<div class="field"><label for="t-from">${t('trig.from')}</label><input id="t-from" class="mono" placeholder="comenzi@client.ro, @acme.ro" value=${from} onInput=${(event: Event) => setFrom((event.target as HTMLInputElement).value)} /><p class="help">${t('trig.fromHint')}</p></div>
+              <div class="cluster" style="gap:14px;align-items:flex-end">
+                <div class="field" style="flex:1 1 200px"><label for="t-subject">${t('trig.subject')}</label><input id="t-subject" value=${subject} onInput=${(event: Event) => setSubject((event.target as HTMLInputElement).value)} /></div>
+                <div class="field" style="width:150px"><label for="t-every">${t('trig.every')}</label><input id="t-every" type="number" min="1" max="1440" class="mono" value=${every} onInput=${(event: Event) => setEvery(Math.min(1440, Math.max(1, Number((event.target as HTMLInputElement).value) || 5)))} /></div>
+              </div>
+              <div class="callout info">${t('trig.help', { perHour: 6 })}</div>
+              <div class="cluster"><button type="submit" class="btn primary" disabled=${what.trim().length === 0 || from.trim().length === 0}>${t('trig.save')}</button></div>`
+            : html`<div class="field"><span class="flabel">${t('cron.how')}</span>
             <${Seg} label=${t('cron.how')} value=${frequency} onChange=${setFrequency} options=${(['hourly', 'daily', 'weekdays', 'weekly', 'monthly', 'custom'] as const).map((value) => ({ value, label: t(`cron.f.${value}`) }))} /></div>
           ${frequency === 'custom'
             ? html`<div class="field"><label for="c-custom">${t('cron.line')}</label><input id="c-custom" class="mono" value=${custom} onInput=${(event: Event) => setCustom((event.target as HTMLInputElement).value)} /><p class="help">${t('cron.lineHint')}</p></div>`
@@ -145,7 +194,7 @@ function Schedules({ id, version, run, can }: { id: string; version: number; run
             <div class="cluster"><b>${summary}</b><span class="mono faint">${cron}</span></div>
             <div class="cluster" style="gap:6px">${upcoming.length === 0 ? html`<span class="faint">${t('cron.afterSave')}</span>` : upcoming.map((at) => html`<span class="chip" style="color:var(--text)">${when(at.getTime())}</span>`)}</div>
           </div>
-          <div class="cluster"><button type="submit" class="btn primary" disabled=${what.trim().length === 0}>${t('cron.save')}</button></div>
+          <div class="cluster"><button type="submit" class="btn primary" disabled=${what.trim().length === 0}>${t('cron.save')}</button></div>`}
         </form>`
       : null}
   </div>`

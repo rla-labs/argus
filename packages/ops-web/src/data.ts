@@ -16,6 +16,26 @@ import { ownerKey, type Owner, type Scope, type ToolPolicy } from '@argus-agent/
 /** What the overview needs from the scheduler, when it is mounted. */
 export interface SchedulePort {
   list(): ReadonlyArray<{ id: string; cron: string; project_id: string | null; prompt: string; enabled: boolean; next_run_at: number; model: string | null }>
+  readonly triggers?: {
+    list(): ReadonlyArray<{ id: string; project_id: string; config_json: string; enabled: boolean; runs_json: string; last_check_at: number | null; last_match_at: number | null; last_error: string | null }>
+  }
+}
+
+/** A trigger, as a project's Schedules tab shows it. */
+export interface TriggerView {
+  readonly id: string
+  readonly projectId: string
+  readonly from: readonly string[]
+  readonly subject: string | null
+  readonly folder: string
+  readonly every: number
+  readonly prompt: string
+  readonly enabled: boolean
+  readonly lastCheck: number | null
+  readonly lastMatch: number | null
+  readonly runsThisHour: number
+  readonly perHour: number
+  readonly error: string | null
 }
 
 /** What the settings page needs from the providers row. */
@@ -395,6 +415,29 @@ export function scheduleList(sources: DataSources): ScheduleView[] {
   return (sources.schedules()?.list() ?? [])
     .map((row) => ({ id: row.id, cron: row.cron, projectId: row.project_id, prompt: row.prompt, enabled: row.enabled, next: row.next_run_at, model: row.model }))
     .sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.next - b.next)
+}
+
+/** Every trigger, for the Schedules tabs. */
+export function triggerList(sources: DataSources): TriggerView[] {
+  const now = sources.now()
+  return (sources.schedules()?.triggers?.list() ?? []).map((row) => {
+    const config = JSON.parse(row.config_json) as { from: string[]; subject: string | null; folder: string; every_minutes: number; prompt: string; max_runs_per_hour: number }
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      from: config.from,
+      subject: config.subject,
+      folder: config.folder,
+      every: config.every_minutes,
+      prompt: config.prompt,
+      enabled: row.enabled,
+      lastCheck: row.last_check_at,
+      lastMatch: row.last_match_at,
+      runsThisHour: (JSON.parse(row.runs_json) as number[]).filter((at) => at > now - 3_600_000).length,
+      perHour: config.max_runs_per_hour,
+      error: row.last_error,
+    }
+  })
 }
 
 /** Spending and limits for one budget scope. */
