@@ -39,6 +39,7 @@ token.
         ├──▶ registry                  the image pull, at install/upgrade
         ├──▶ your git hosts            a project's remotes, by Argus, with their tokens
         ├──▶ your mail server          a project's approved mail, by Argus (SMTP over TLS)
+        ├──▶ your mailbox              what a project reads, by Argus (IMAP over TLS)
         └──▶ what you add              an MCP server's URL, the npm registry when `npx`
                                        fetches one, an extension's download at install,
                                        the sites a project fetches
@@ -169,6 +170,14 @@ data out, so: every mail is shown whole to a person, with Approve and Deny only 
 grant, no "always", no setting that skips it); the recipients must be in the project's
 `mail.allowed_recipients`; the attachments must be files in the project's folder, and
 one that changes after the question is not sent; a daily limit applies.
+
+**A mailbox is read the same way.** Its account (`imaps://`) is kept under
+`ARGUS_MAIL_IMAP_…`, and only Argus's mailbox tools use it. A project reads only the
+folders its file lists; it can save an attachment into its folder (written through the
+command sandbox, so a link cannot lead it out) and mark a mail as read, nothing else. A
+mail is where instructions from strangers arrive: it reaches the model framed as
+information from outside, and nothing in it widens what the project may do; above all,
+`send_mail` still writes only to `allowed_recipients`, each mail approved by a person.
 
 The tests plant each of these in a project's repository and check that nothing ran
 with Argus's rights and that another project's commits never left.

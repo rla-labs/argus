@@ -3,6 +3,13 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.7.4 (in progress)
+
+- **A project reads its mailbox.** `/mail set <project> imaps://…` gives it `mail_list`,
+  `mail_read`, `mail_save_attachment` and `mail_mark_read` on the folders its file names
+  (`mail.read_folders`, `INBOX` by default). It cannot delete, move or send through the
+  mailbox, and a mail reaches it as information from outside, never as your instructions.
+
 ## 0.7.3
 
 **The web interface, first-class.**

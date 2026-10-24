@@ -807,22 +807,29 @@ anyone's; the rest is the admin's.
 
 ```
 /mail [project-id|default]
-/mail set <project-id|default> <smtps-url>      (admin)
-/mail test <project-id|default> <address>       (admin)
-/mail remove <project-id|default>               (admin)
+/mail set <project-id|default> <smtps-url|imaps-url>   (admin)
+/mail test <project-id|default> <address|imap>         (admin)
+/mail remove <project-id|default> [imap]               (admin)
 ```
 
 A project's mail: the account `send_mail` sends with, who it may write to, its limits,
-and how many mails it sent in the last 24 hours. Argus sends the mail; the account never
-reaches the agent. See [mail](configuration.md#mail--who-a-project-may-write-to).
+how many mails it sent in the last 24 hours, and the mailbox it reads. Argus sends and
+reads; the accounts never reach the agent. See
+[mail](configuration.md#mail--who-a-project-may-write-to) and
+[reading a mailbox](configuration.md#reading-a-mailbox-imap).
 
 - **`/mail set <project> <url>`** deletes your message at once and saves the account for
   that project, as `smtps://user:password@host:465`, or `smtp://user:password@host:587`
   for STARTTLS (required). A `@` in the user is written `%40`:
   `smtps://office%40acme.ro:…@mail.acme.ro:465`. `default` saves one for every project
   that has none of its own. The audit log keeps `set <project>` only.
-- **`/mail test <project> <address>`** sends one mail with the account, to check it.
-- **`/mail remove <project>`** forgets the account.
+- **`/mail set <project> imaps://user:password@host:993`** saves the mailbox the project
+  reads, the same way (`imaps://` only: TLS).
+- **`/mail test <project> <address>`** sends one mail with the account, to check it;
+  **`/mail test <project> imap`** signs in to the mailbox and says how many unread mails
+  its first folder has.
+- **`/mail remove <project>`** forgets the account; **`/mail remove <project> imap`** the
+  mailbox.
 
 Who the project may write to is in its file: `/set <project> mail.allowed_recipients
 [ana@acme.ro, @client.com]`. Seeing is anyone's; the rest is the admin's.

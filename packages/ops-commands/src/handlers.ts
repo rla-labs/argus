@@ -39,7 +39,7 @@ import {
 } from './types.js'
 import type { UserRow } from '@argus-agent/store'
 import type { CommandsOptions } from './service.js'
-import { BUILT_IN_TEMPLATES, GIT_REMOTE_PATTERN, describeAccount, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
+import { BUILT_IN_TEMPLATES, GIT_REMOTE_PATTERN, describeAccount, describeMailbox, layerTemplate, loadTemplates, parseSource, remoteUrlProblem, type ExtensionManifest, type StagedExtension } from '@argus-agent/projects'
 import type { CommandHandler } from './types.js'
 import { describeSchema, FIXED_SYSTEM_KEYS, LIVE_SYSTEM_KEYS, schemaAt, systemApply, type SchemaNode } from './settings.js'
 
@@ -2355,18 +2355,21 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
     {
       spec: {
         name: 'mail',
-        description: 'A project’s mail account and settings (admin to change)',
-        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url> | /mail remove <project-id|default> | /mail test <project-id|default> <address>',
+        description: 'A project’s mail accounts and settings (admin to change)',
+        syntax: '/mail [project-id|default] | /mail set <project-id|default> <smtps-url|imaps-url> | /mail remove <project-id|default> [imap] | /mail test <project-id|default> <address|imap>',
         detail:
           'A project sends mail with send_mail, and Argus does it: the account never reaches ' +
           'the agent, its shell or the conversation, and every mail is shown to a person ' +
           'first. set deletes your message at once and saves the account, as ' +
           'smtps://user:password@host:465 (or smtp://…:587, with STARTTLS required), for that ' +
-          'project or as the default for all. Who it may write to, and how much, is in the ' +
-          'project’s file: mail.allowed_recipients, mail.max_per_day, mail.max_attachment_mb. ' +
-          'test sends one mail with the account to the address you give. Seeing it is ' +
-          'anyone’s; the rest is the admin’s.',
-        examples: ['/mail site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail test site-firma ana@acme.ro', '/mail remove site-firma'],
+          'project or as the default for all. An imaps://user:password@host:993 URL sets the ' +
+          'mailbox the project reads instead (mail_list, mail_read, mail_save_attachment, ' +
+          'mail_mark_read; the folders in mail.read_folders). Who it may write to, and how much, ' +
+          'is in the project’s file: mail.allowed_recipients, mail.max_per_day, ' +
+          'mail.max_attachment_mb. test sends one mail with the account to the address you ' +
+          'give, or, with imap, signs in to the mailbox. Seeing it is anyone’s; the rest is ' +
+          'the admin’s.',
+        examples: ['/mail site-firma', '/mail set default smtps://office%40acme.ro:…@mail.acme.ro:465', '/mail set site-firma imaps://comenzi%40acme.ro:…@mail.acme.ro:993', '/mail test site-firma ana@acme.ro', '/mail test site-firma imap', '/mail remove site-firma imap'],
         mutating: true,
         secret: 2,
       },
@@ -2377,13 +2380,18 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (action === undefined || !actions.includes(action)) {
           if (action === 'default') {
             const found = await mail.accountOf(null)
-            return result(found === undefined ? 'No default mail account. Set one: /mail set default smtps://user:password@host:465' : `The default mail account: ${describeAccount(found.account)}. A project with no account of its own sends with it.`)
+            const box = await projects.mailbox.accountOf(null)
+            return result(
+              `${found === undefined ? 'No default mail account. Set one: /mail set default smtps://user:password@host:465' : `The default mail account: ${describeAccount(found.account)}. A project with no account of its own sends with it.`}\n` +
+                (box === undefined ? 'No default mailbox. Set one: /mail set default imaps://user:password@host:993' : `The default mailbox: ${describeMailbox(box.account)}. A project with no mailbox of its own reads it.`),
+            )
           }
           const id = projectOf(action, context)
           const config = id === undefined ? undefined : projects.configOf(id)
           if (config === undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, id === undefined ? 'Which project? /mail <project-id>' : `No project "${id}". Send /projects to see them.`)
           const found = await mail.accountOf(config.id)
-          const { allowed_recipients: allowed, max_per_day: perDay, max_attachment_mb: mb, from } = config.mail
+          const box = await projects.mailbox.accountOf(config.id)
+          const { allowed_recipients: allowed, max_per_day: perDay, max_attachment_mb: mb, from, read_folders: folders } = config.mail
           return result(
             `${config.id}'s mail:
 ` +
@@ -2395,7 +2403,11 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
 ` +
               `limits      ${perDay} a day (${mail.sentToday(config.id)} sent in the last 24 hours), ${mb} MB of attachments a mail
 ` +
-              `send_mail   ${config.tools.mail}: every mail is shown to a person first`,
+              `send_mail   ${config.tools.mail}: every mail is shown to a person first
+` +
+              `mailbox     ${box === undefined ? `none (/mail set ${config.id} <imaps-url>, or a default)` : `${describeMailbox(box.account)}${box.own ? '' : ' (the default)'}, reads ${folders.join(', ')}`}
+` +
+              `reading     ${box === undefined ? 'no mailbox: its tools are hidden' : config.tools.mail_read}`,
           )
         }
         if (!context.isAdmin) return errorResult('Only the admin can change a mail account.')
@@ -2404,12 +2416,20 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
         if (projectId !== null && projects.configOf(projectId) === undefined) return errorResult(`No project "${target}". Send /projects to see them.`)
         const who = projectId ?? 'the default'
         if (action === 'set') {
-          if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'set needs the account, as one smtps:// URL.')
-          const saved = await mail.setAccount(projectId, value)
+          if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'set needs the account, as one smtps:// or imaps:// URL.')
+          const saved = /^imaps?:/i.test(value.trim()) ? await projects.mailbox.setAccount(projectId, value) : await mail.setAccount(projectId, value)
           return saved.ok ? result(saved.message) : errorResult(`Not saved. ${saved.message}`)
         }
-        if (action === 'remove') return result((await mail.removeAccount(projectId)) ? `${who}: the mail account is removed.` : `${who} has no mail account of its own.`)
-        if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'test needs one address to send to.')
+        if (action === 'remove') {
+          if (value === 'imap' && rest.length === 0) return result((await projects.mailbox.removeAccount(projectId)) ? `${who}: the mailbox is removed.` : `${who} has no mailbox of its own.`)
+          if (value !== undefined) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'remove takes a project, or default, and imap for the mailbox.')
+          return result((await mail.removeAccount(projectId)) ? `${who}: the mail account is removed.` : `${who} has no mail account of its own.`)
+        }
+        if (value === 'imap' && rest.length === 0) {
+          const tested = await projects.mailbox.test(projectId, projectId === null ? 'INBOX' : (projects.configOf(projectId)?.mail.read_folders[0] ?? 'INBOX'))
+          return tested.ok ? result(tested.message) : errorResult(tested.message)
+        }
+        if (value === undefined || rest.length > 0) return failWith({ syntax: this.spec.syntax } as CommandSpec, 'test needs one address to send to, or imap.')
         const sent = await mail.test(projectId, value)
         return sent.ok ? result(sent.message) : errorResult(sent.message)
       },

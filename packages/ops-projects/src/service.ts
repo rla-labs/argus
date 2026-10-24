@@ -9,11 +9,12 @@
  * @module @argus-agent/projects/service
  */
 import { randomUUID } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { execFile, execFileSync } from 'node:child_process'
+import { promisify } from 'node:util'
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { hiddenTools, taskToolPolicy, type DoctorFinding, type McpServer, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
+import { hiddenTools, taskToolPolicy, TOOL_GROUPS, type DoctorFinding, type McpServer, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
 // Type-only: brings in the `ctx.agentPresets` augmentation.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
@@ -44,6 +45,8 @@ import type { Extensions } from './extensions.js'
 import { GitError, GitRemotes, isGitTokenName, type GitRemote, type PushPlan, type TokenStore } from './git-remotes.js'
 import { createTransport } from 'nodemailer'
 import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, type MailTransport } from './mail.js'
+import { ProjectMailbox, type MailboxConnect } from './mailbox.js'
+import { imapConnect } from './imap.js'
 import { EgressProxy } from './egress.js'
 import { McpOAuth, OAuthProxy, isOAuthSecretName, type OAuthClientSettings, type OAuthSecrets } from './oauth.js'
 
@@ -68,6 +71,8 @@ interface LiveAgent {
   config?: ProjectConfig
   /** Its project's OAuth grants when it was built: a grant made or lost rebuilds it too. */
   authEpoch?: number
+  /** The mailboxes when it was built: one set or removed rebuilds it, to show or hide its tools. */
+  mailboxEpoch?: number
   /** When it was created or last given work: a session idle too long is closed. */
   lastActive: number
 }
@@ -145,6 +150,8 @@ export class OpsProjects {
   private readonly egress = new EgressProxy()
   /** Bumped per project when one of its grants changes. */
   private readonly authEpochs = new Map<string, number>()
+  /** Bumped when any mailbox is set or removed. */
+  private mailboxEpoch = 0
   private readonly projectsRoot: string
   private readonly snapshots: Snapshots | undefined
   /** The installed extensions (`/ext`); undefined in a bare composition. */
@@ -153,6 +160,8 @@ export class OpsProjects {
   readonly git: GitRemotes
   /** The projects' mail: accounts, the question's preview, the sending. */
   readonly mail: ProjectMailer
+  /** The projects' mailboxes: accounts, and reading. */
+  readonly mailbox: ProjectMailbox
   private readonly snapshotSettings: () => SnapshotSettings
   private gitPresent: boolean | undefined
   private disposed = false
@@ -160,7 +169,7 @@ export class OpsProjects {
   constructor(
     ctx: Context,
     store: OpsStore,
-    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions; mailTransport?: MailTransport; oauthClients?: () => Readonly<Record<string, OAuthClientSettings>>; oauthFetch?: typeof fetch },
+    options: { scratchDir: string; projectsRoot: string; stateDir?: string; snapshots?: Snapshots; snapshotSettings?: () => SnapshotSettings; extensions?: Extensions; mailTransport?: MailTransport; mailboxConnect?: MailboxConnect; oauthClients?: () => Readonly<Record<string, OAuthClientSettings>>; oauthFetch?: typeof fetch },
   ) {
     this.ctx = ctx
     this.store = store
@@ -184,6 +193,16 @@ export class OpsProjects {
       { record: (entry, ts) => store.audit.record(entry, ts), byAction: (action, limit) => store.audit.byAction(action, limit) },
       options.mailTransport ?? nodemailerTransport,
       (name) => credentialRef(name),
+    )
+    this.mailbox = new ProjectMailbox(
+      () => ctx.get('credentials' as never) as unknown as MailSecrets | undefined,
+      { record: (entry, ts) => store.audit.record(entry, ts), byAction: (action, limit) => store.audit.byAction(action, limit) },
+      options.mailboxConnect ?? imapConnect,
+      (name) => credentialRef(name),
+      (projectId, cwd, relative, content) => this.placeFile(projectId, cwd, relative, content),
+      () => {
+        this.mailboxEpoch += 1
+      },
     )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
     this.oauthProxy = new OAuthProxy(options.oauthFetch)
@@ -228,6 +247,59 @@ export class OpsProjects {
   sendMail(projectId: string, callId: string, args: unknown): Promise<string> {
     const config = this.requireConfig(projectId)
     return this.mail.send(projectId, callId, config.cwd, config.mail, args)
+  }
+
+  /**
+   * One of the mailbox's tools, for a project.
+   *
+   * @param tool the tool's name.
+   * @param args its arguments.
+   * @returns the answer for the agent.
+   */
+  mailboxTool(projectId: string, tool: 'mail_list' | 'mail_read' | 'mail_save_attachment' | 'mail_mark_read', args: Record<string, unknown>): Promise<string> {
+    const config = this.requireConfig(projectId)
+    const str = (key: string): string | undefined => (typeof args[key] === 'string' && (args[key] as string).length > 0 ? (args[key] as string) : undefined)
+    switch (tool) {
+      case 'mail_list': {
+        const folder = str('folder')
+        const since = str('since')
+        const from = str('from')
+        return this.mailbox.list(projectId, config.mail, {
+          ...(folder === undefined ? {} : { folder }),
+          ...(since === undefined ? {} : { since }),
+          ...(from === undefined ? {} : { from }),
+          unread_only: args['unread_only'] === true,
+          ...(typeof args['limit'] === 'number' ? { limit: args['limit'] } : {}),
+        })
+      }
+      case 'mail_read':
+        return this.mailbox.read(projectId, config.mail, { id: args['id'] })
+      case 'mail_save_attachment':
+        return this.mailbox.saveAttachment(projectId, config.cwd, config.mail, { id: args['id'], name: args['name'] })
+      case 'mail_mark_read':
+        return this.mailbox.markRead(projectId, config.mail, { id: args['id'] })
+    }
+  }
+
+  /**
+   * Write a file into a project's folder, its folders made, through the command sandbox:
+   * the copy can write only inside the folder, so a link the agent planted cannot lead it
+   * out. Staged in Argus's own state first.
+   */
+  async placeFile(projectId: string, cwd: string, relative: string, content: Buffer): Promise<void> {
+    const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[]): Promise<{ argv: readonly string[] }> } | undefined
+    if (sandbox?.confineReading === undefined) throw new Error('saving into the folder needs the command sandbox, which is not available')
+    const staging = join(this.stateRoot, projectId, 'staging', randomUUID())
+    mkdirSync(staging, { recursive: true })
+    try {
+      const source = join(staging, 'file')
+      writeFileSync(source, content, { mode: 0o640 })
+      const target = join(cwd, relative)
+      const { argv } = await sandbox.confineReading(['/bin/sh', '-c', 'mkdir -p -- "$1" && cp -f -- "$2" "$3"', 'sh', dirname(target), source, target], { mode: 'workspace-write', workspaceRoot: cwd }, [staging])
+      await promisify(execFile)(argv[0] as string, argv.slice(1), { cwd, env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', LANG: 'C' }, timeout: 30_000 })
+    } finally {
+      rmSync(staging, { recursive: true, force: true })
+    }
   }
 
   // ── extensions in the project's shell ────────────────────────────────────
@@ -642,7 +714,8 @@ export class OpsProjects {
 
     const existing = this.live.get(projectId)
     const regranted = existing !== undefined && (existing.authEpoch ?? 0) !== (this.authEpochs.get(projectId) ?? 0)
-    const changed = existing === undefined ? [] : [...changedKeys(existing.config, config), ...(regranted ? ['mcp.oauth'] : [])]
+    const remailed = existing !== undefined && (existing.mailboxEpoch ?? 0) !== this.mailboxEpoch
+    const changed = existing === undefined ? [] : [...changedKeys(existing.config, config), ...(regranted ? ['mcp.oauth'] : []), ...(remailed ? ['mail.mailbox'] : [])]
     // A changed setting reaches the agent between runs: the same session, resumed by an
     // agent built from the new settings. One in a run keeps its agent until the run ends.
     if (existing !== undefined && (changed.length === 0 || existing.runId !== undefined || existing.handle.agent.status === 'running')) {
@@ -727,7 +800,9 @@ export class OpsProjects {
         // is published, or its first turn would run without its tools.
         await this.ctx.agentPresets.mount(agentCtx, config.preset)
       }
-      hideTools(agentCtx, hiddenTools(config.tools))
+      // The mailbox's tools are for a project that has one.
+      const mailbox = (await this.mailbox.accountOf(config.id).catch(() => undefined)) !== undefined
+      hideTools(agentCtx, [...hiddenTools(config.tools), ...(mailbox ? [] : TOOL_GROUPS.mail_read)])
       await this.mountMcp(agentCtx, config)
       await this.mountSkills(agentCtx, config)
       this.addExtensionInstructions(agentCtx, config)
@@ -1138,7 +1213,7 @@ export class OpsProjects {
       runId: undefined,
       runEvents: [],
       producing: false,
-      ...(config === undefined ? {} : { config, authEpoch: this.authEpochs.get(config.id) ?? 0 }),
+      ...(config === undefined ? {} : { config, authEpoch: this.authEpochs.get(config.id) ?? 0, mailboxEpoch: this.mailboxEpoch }),
       lastActive: Date.now(),
     }
     this.live.set(key, entry)

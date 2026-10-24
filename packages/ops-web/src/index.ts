@@ -451,6 +451,7 @@ async function projectSettings(ctx: Context, id: string): Promise<unknown> {
   const memory = ctx.get('opsMemory' as never) as unknown as { sections?: (projectId: string) => Array<{ name: string; chars: number }> } | undefined
   const undo = await ctx.opsProjects.undoList(id).catch(() => [])
   const account = await ctx.opsProjects.mail.accountOf(id).catch(() => undefined)
+  const mailbox = await ctx.opsProjects.mailbox.accountOf(id).catch(() => undefined)
   return {
     id,
     template: config.template,
@@ -473,7 +474,11 @@ async function projectSettings(ctx: Context, id: string): Promise<unknown> {
       return { name: entry.name, version: manifest?.version ?? null, summary: manifest?.summary ?? null, enabled: enabled.has(entry.name), network: manifest?.requires.network ?? false }
     }),
     git: await Promise.all(Object.entries(config.git.remotes).map(async ([name, remote]) => ({ name, url: remote.url, protected: remote.protected, token: await ctx.opsProjects.git.hasToken(id, name) }))),
-    mail: { ...config.mail, account: account === undefined ? null : { own: account.own, host: account.account.host, user: account.account.user } },
+    mail: {
+      ...config.mail,
+      account: account === undefined ? null : { own: account.own, host: account.account.host, user: account.account.user },
+      mailbox: mailbox === undefined ? null : { own: mailbox.own, host: mailbox.account.host, user: mailbox.account.user },
+    },
     memory: memory?.sections?.(id) ?? [],
     undo: undo.slice(0, 10),
   }
@@ -540,6 +545,8 @@ async function secretsInventory(ctx: Context): Promise<Array<{ group: string; se
     }
     const account = await ctx.opsProjects.mail.accountOf(config.id).catch(() => undefined)
     if (account?.own === true) mail.push({ name: `${config.id}`, used: `${account.account.user} @ ${account.account.host}`, state: 'set', set: `/mail set ${config.id}`, remove: `/mail remove ${config.id}` })
+    const mailbox = await ctx.opsProjects.mailbox.accountOf(config.id).catch(() => undefined)
+    if (mailbox?.own === true) mail.push({ name: `${config.id} · imap`, used: `${mailbox.account.user} @ ${mailbox.account.host}`, state: 'set', set: `/mail set ${config.id}`, remove: `/mail remove ${config.id} imap` })
     for (const [server, entry] of Object.entries(config.mcp)) {
       if (entry.oauth === null) continue
       const grant = await ctx.opsProjects.oauth.status(config.id, server)
@@ -547,6 +554,8 @@ async function secretsInventory(ctx: Context): Promise<Array<{ group: string; se
     }
   }
   const shared = await ctx.opsProjects.mail.accountOf(null).catch(() => undefined)
+  const sharedBox = await ctx.opsProjects.mailbox.accountOf(null).catch(() => undefined)
+  if (sharedBox !== undefined) mail.unshift({ name: 'default · imap', used: `${sharedBox.account.user} @ ${sharedBox.account.host}`, state: 'set', set: '/mail set default', remove: '/mail remove default imap' })
   if (shared !== undefined) mail.unshift({ name: 'default', used: `${shared.account.user} @ ${shared.account.host}`, state: 'set', set: '/mail set default', remove: '/mail remove default' })
   return [
     { group: 'models', secrets: models },

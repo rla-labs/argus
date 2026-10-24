@@ -10,7 +10,7 @@
  */
 
 /** A group of tools a project names in its `tools:` block. */
-export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'git' | 'mail' | 'other'
+export type ToolGroup = 'read' | 'write' | 'shell' | 'web' | 'agents' | 'git' | 'mail' | 'mail_read' | 'other'
 
 /**
  * What a project allows for a group.
@@ -31,6 +31,11 @@ export interface ToolPolicy {
   readonly git: ToolAccess
   /** `send_mail`, done by Argus with the project's mail account. Never `allow`: every mail is asked about. */
   readonly mail: Exclude<ToolAccess, 'allow'>
+  /**
+   * `mail_list`, `mail_read`, `mail_save_attachment`, `mail_mark_read`, done by Argus with
+   * the project's mailbox. Shown only to a project that has one.
+   */
+  readonly mail_read: ToolAccess
   /** Any tool not in a group: one a later dsh adds, or an integration's. Never `off`. */
   readonly other: Exclude<ToolAccess, 'off'>
   /** Hosts `web_fetch` reaches unasked under `web: ask`; a host covers its subdomains. */
@@ -54,6 +59,7 @@ export const TOOL_GROUPS: Readonly<Record<Exclude<ToolGroup, 'other'>, readonly 
   agents: ['subagent', 'workflow', 'ralph', 'send_message', 'interrupt_agent', 'list_agents', 'list_subagent_models', 'ask_project'],
   git: ['git_clone', 'git_pull', 'git_push'],
   mail: ['send_mail'],
+  mail_read: ['mail_list', 'mail_read', 'mail_save_attachment', 'mail_mark_read'],
 }
 
 /**
@@ -90,6 +96,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
   agents: 'off',
   git: 'ask',
   mail: 'ask',
+  mail_read: 'allow',
   other: 'ask',
   web_hosts: [],
   exceptions: {},
@@ -105,7 +112,7 @@ export const PROJECT_TOOL_DEFAULTS: ToolPolicy = {
  */
 export function taskToolPolicy(adhoc: 'auto' | 'ask' | 'deny'): ToolPolicy {
   const risky = adhoc === 'deny' ? 'deny' : 'ask'
-  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', git: 'off', mail: 'off', other: risky, web_hosts: [], exceptions: {} }
+  return { read: 'allow', write: risky, shell: risky, web: 'allow', agents: 'off', git: 'off', mail: 'off', mail_read: 'off', other: risky, web_hosts: [], exceptions: {} }
 }
 
 /**

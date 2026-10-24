@@ -15,7 +15,7 @@ const URL_TEXT = `smtps://office%40acme.ro:${PASSWORD}@mail.acme.ro:465`
 
 describe('a project\'s mail block', () => {
   it('has safe defaults, and refuses what it cannot use', () => {
-    expect(parseMailBlock(undefined)).toEqual({ mail: { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20 }, issues: [] })
+    expect(parseMailBlock(undefined)).toEqual({ mail: { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20, read_folders: ['INBOX'] }, issues: [] })
     expect(parseMailBlock({ allowed_recipients: ['Ana@Acme.ro', '@client.com'], max_per_day: 5 }).mail).toMatchObject({ allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 5 })
     const bad = parseMailBlock({ allowed_recipients: ['nobody'], max_per_day: 0, from: 'x', smtp: 'y' })
     expect(bad.issues.map((issue) => issue.path).sort()).toEqual(['mail.allowed_recipients', 'mail.from', 'mail.max_per_day', 'mail.smtp'])
@@ -71,7 +71,7 @@ function harness(settings: Partial<ProjectMail> = {}) {
     }),
     (name) => name,
   )
-  const mail: ProjectMail = { from: null, allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 20, max_attachment_mb: 1, ...settings }
+  const mail: ProjectMail = { from: null, allowed_recipients: ['ana@acme.ro', '@client.com'], max_per_day: 20, max_attachment_mb: 1, read_folders: ['INBOX'], ...settings }
   const ask = async (callId: string, args: Record<string, unknown>) => mailer.preview('site', callId, cwd, mail, args)
   const send = async (callId: string, args: Record<string, unknown>) => mailer.send('site', callId, cwd, mail, args)
   return { cwd, values, audit, sent, mailer, ask, send, failWith: (error: Error) => void (fail = error) }

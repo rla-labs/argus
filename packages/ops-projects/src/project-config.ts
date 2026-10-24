@@ -127,7 +127,7 @@ function toolAccess(fallback: string) {
 }
 
 /** The keys a `tools:` block may hold: a misspelt group would otherwise be ignored. */
-const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other', 'web_hosts', 'exceptions']
+const TOOL_KEYS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'mail_read', 'other', 'web_hosts', 'exceptions']
 
 /** What one tool's exception may be. */
 const ACCESS_VALUES = ['off', 'deny', 'ask', 'allow']
@@ -288,6 +288,7 @@ export const projectConfigSchema = z.object({
       agents: toolAccess(PROJECT_TOOL_DEFAULTS.agents),
       git: toolAccess(PROJECT_TOOL_DEFAULTS.git),
       mail: z.union([z.const('off'), z.const('deny'), z.const('ask')]).default(PROJECT_TOOL_DEFAULTS.mail),
+      mail_read: toolAccess(PROJECT_TOOL_DEFAULTS.mail_read),
       other: z.union([z.const('deny'), z.const('ask'), z.const('allow')]).default(PROJECT_TOOL_DEFAULTS.other),
       web_hosts: z.array(z.string()).default([]),
     })

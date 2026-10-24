@@ -27,11 +27,15 @@ export interface ProjectMail {
   readonly allowed_recipients: readonly string[]
   /** Mails sent in any 24 hours. */
   readonly max_per_day: number
-  /** The attachments of one mail, together, in MB. */
+  /** The attachments of one mail, together, in MB; also the largest mail its mailbox reads. */
   readonly max_attachment_mb: number
+  /** The mailbox's folders its tools may read. */
+  readonly read_folders: readonly string[]
 }
 
-export const MAIL_DEFAULTS: ProjectMail = { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20 }
+export const MAIL_DEFAULTS: ProjectMail = { from: null, allowed_recipients: [], max_per_day: 20, max_attachment_mb: 20, read_folders: ['INBOX'] }
+
+const MAIL_KEYS = ['from', 'allowed_recipients', 'max_per_day', 'max_attachment_mb', 'read_folders']
 
 /** Text over this is shown cut in the question; the mail itself is sent whole. */
 const SHOWN_TEXT = 3000
@@ -59,10 +63,10 @@ export function mailSecretName(projectId: string | null): string {
 export function parseMailBlock(value: unknown): { mail: ProjectMail; issues: Array<{ path: string; message: string }> } {
   const issues: Array<{ path: string; message: string }> = []
   if (value === undefined || value === null) return { mail: MAIL_DEFAULTS, issues }
-  if (typeof value !== 'object' || Array.isArray(value)) return { mail: MAIL_DEFAULTS, issues: [{ path: 'mail', message: 'must be a mapping: from, allowed_recipients, max_per_day, max_attachment_mb' }] }
+  if (typeof value !== 'object' || Array.isArray(value)) return { mail: MAIL_DEFAULTS, issues: [{ path: 'mail', message: `must be a mapping: ${MAIL_KEYS.join(', ')}` }] }
   const block = value as Record<string, unknown>
   for (const key of Object.keys(block)) {
-    if (!['from', 'allowed_recipients', 'max_per_day', 'max_attachment_mb'].includes(key)) issues.push({ path: `mail.${key}`, message: 'not a mail setting; use from, allowed_recipients, max_per_day or max_attachment_mb' })
+    if (!MAIL_KEYS.includes(key)) issues.push({ path: `mail.${key}`, message: `not a mail setting; use ${MAIL_KEYS.join(', ')}` })
   }
   const from = block['from'] ?? null
   if (from !== null && (typeof from !== 'string' || !ADDRESS.test(from))) issues.push({ path: 'mail.from', message: 'must be an address, e.g. office@example.com' })
@@ -78,12 +82,16 @@ export function parseMailBlock(value: unknown): { mail: ProjectMail; issues: Arr
     }
     return raw
   }
+  const folders = block['read_folders'] ?? MAIL_DEFAULTS.read_folders
+  const folderList = Array.isArray(folders) && folders.length >= 1 && folders.length <= 20 && folders.every((entry) => typeof entry === 'string' && entry.trim().length > 0 && entry.length <= 200 && ![...entry].some((char) => char.charCodeAt(0) < 0x20))
+  if (!folderList) issues.push({ path: 'mail.read_folders', message: 'must list 1 to 20 folder names, e.g. [INBOX, Comenzi]' })
   return {
     mail: {
       from: typeof from === 'string' ? from : null,
       allowed_recipients: Array.isArray(recipients) ? recipients.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.toLowerCase()) : [],
       max_per_day: count('max_per_day', MAIL_DEFAULTS.max_per_day, 500),
       max_attachment_mb: count('max_attachment_mb', MAIL_DEFAULTS.max_attachment_mb, 50),
+      read_folders: folderList ? (folders as string[]).map((entry) => entry.trim()) : MAIL_DEFAULTS.read_folders,
     },
     issues,
   }

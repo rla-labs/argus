@@ -21,6 +21,7 @@ import { invalidProjectsOf, loadProjectConfigs, syncProjects, type InvalidProjec
 import type { BudgetDefaults, ProjectConfig, ProjectLimits } from './project-config.js'
 import { loadTemplates, templateIssues } from './templates.js'
 import { Extensions } from './extensions.js'
+import { mailboxTools } from './mailbox.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import './events.js'
 
@@ -35,6 +36,7 @@ export * from './templates.js'
 export * from './extensions.js'
 export * from './git-remotes.js'
 export * from './mail.js'
+export * from './mailbox.js'
 export * from './oauth.js'
 export { EgressProxy, isPublicAddress } from './egress.js'
 
@@ -214,6 +216,19 @@ export function apply(ctx: Context): void {
           return service.sendMail(projectId, String((exec as { callId: unknown }).callId), args)
         },
       }),
+      ...mailboxTools.map(({ name, description, parameters }) =>
+        defineTool({
+          name,
+          description,
+          parameters,
+          output: text,
+          execute: async (args, exec) => {
+            const projectId = projectOf(exec)
+            if (projectId === undefined) return `${name} works only in a project.`
+            return service.mailboxTool(projectId, name, args as Record<string, unknown>)
+          },
+        }),
+      ),
     ]
     for (const tool of tools) child.effect(() => (child as unknown as { tools: { register(tool: unknown): () => void } }).tools.register(tool))
   })

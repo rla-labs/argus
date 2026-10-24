@@ -36,7 +36,13 @@ interface Described {
   readonly mcp: ReadonlyArray<{ name: string; kind: 'local' | 'remote'; target: string; access: string; tools: Readonly<Record<string, string>>; oauth: boolean; state: 'connected' | 'not connected' | 'failed' | null; extension: string | null }>
   readonly extensions: ReadonlyArray<{ name: string; version: string | null; summary: string | null; enabled: boolean; network: boolean }>
   readonly git: ReadonlyArray<{ name: string; url: string; protected: readonly string[]; token: boolean }>
-  readonly mail: { readonly allowed_recipients: readonly string[]; readonly max_per_day: number; readonly account: { own: boolean; host: string; user: string } | null }
+  readonly mail: {
+    readonly allowed_recipients: readonly string[]
+    readonly max_per_day: number
+    readonly read_folders: readonly string[]
+    readonly account: { own: boolean; host: string; user: string } | null
+    readonly mailbox: { own: boolean; host: string; user: string } | null
+  }
   readonly memory: ReadonlyArray<{ name: string; chars: number }>
   readonly undo: ReadonlyArray<{ id: string; at: number; kind?: string; label?: string; runId?: string }>
 }
@@ -52,7 +58,7 @@ interface Model {
 const SECTIONS = ['general', 'tools', 'extensions', 'connections', 'budget', 'memory', 'danger', 'advanced'] as const
 type Section = (typeof SECTIONS)[number]
 
-const TOOL_GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other'] as const
+const TOOL_GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'mail_read', 'other'] as const
 const RANK: Record<string, number> = { off: 0, deny: 0, ask: 1, allow: 2 }
 
 /** A value as `/set` takes it: text quoted, lists and maps as JSON (YAML reads it). */
@@ -229,6 +235,8 @@ function Connections({ data, act, admin }: SectionProps): VNode {
   const [token, setToken] = useState<{ remote: string; value: string } | undefined>()
   const [account, setAccount] = useState('')
   const [recipients, setRecipients] = useState<string[]>([...data.mail.allowed_recipients])
+  const [box, setBox] = useState('')
+  const [folders, setFolders] = useState<string[]>([...data.mail.read_folders])
   const [testTo, setTestTo] = useState('')
   useEffect(() => setRecipients([...data.mail.allowed_recipients]), [data.mail.allowed_recipients.join(',')])
   const stateChip = (state: Described['mcp'][number]['state']): VNode | null =>
@@ -280,6 +288,18 @@ function Connections({ data, act, admin }: SectionProps): VNode {
         ? html`<${Row} title=${t('projects.mailTest')}><form class="cluster" onSubmit=${(event: Event) => { event.preventDefault(); if (testTo.trim().length > 0) act(`/mail test ${data.id} ${testTo.trim()}`) }}>
             <input class="in" style="width:220px" aria-label=${t('projects.mailTestTo')} placeholder="you@example.com" value=${testTo} onInput=${(event: Event) => setTestTo((event.target as HTMLInputElement).value)} /><button type="submit" class="btn sm">${t('projects.mailTest')}</button></form><//>`
         : null}
+      <${Row} title=${t('ps.mailbox')} help=${data.mail.mailbox === null ? t('ps.mailboxNone') : t(data.mail.mailbox.own ? 'ps.mailOwn' : 'ps.mailShared', { user: data.mail.mailbox.user, host: data.mail.mailbox.host })}>
+        ${admin ? html`<form class="cluster" autocomplete="off" onSubmit=${(event: Event) => { event.preventDefault(); if (box.trim().length > 0) { act(`/mail set ${data.id} ${box.trim()}`); setBox('') } }}>
+          <input class="in mono" type="password" style="width:260px" aria-label=${t('ps.mailbox')} placeholder="imaps://user:password@host:993" value=${box} onInput=${(event: Event) => setBox((event.target as HTMLInputElement).value)} />
+          <button type="submit" class="btn sm">${t('settings.save')}</button>
+          ${data.mail.mailbox !== null ? html`<button type="button" class="btn sm" onClick=${() => act(`/mail test ${data.id} imap`)}>${t('projects.mailTest')}</button>` : null}
+          ${data.mail.mailbox?.own === true ? html`<button type="button" class="btn sm danger" onClick=${() => act(`/mail remove ${data.id} imap`)}>${t('projects.mailRemove')}</button>` : null}
+        </form>` : null}<//>
+      ${data.mail.mailbox === null
+        ? null
+        : html`<${Row} wide=${true} title=${t('ps.readFolders')} help=${t('ps.readFoldersHelp')}>
+            <div class="stack" style="gap:8px"><${ChipList} values=${folders} onChange=${setFolders} label=${t('ps.readFolders')} placeholder="INBOX" />
+              ${admin && folders.length > 0 && folders.join(',') !== data.mail.read_folders.join(',') ? html`<div><button type="button" class="btn sm primary" onClick=${() => act(`/set ${data.id} mail.read_folders ${encode(folders)}`)}>${t('settings.save')}</button></div>` : null}</div><//>`}
     </section>
     ${adding ? html`<${AddServer} id=${data.id} act=${act} onClose=${() => setAdding(false)} />` : null}
     ${token === undefined

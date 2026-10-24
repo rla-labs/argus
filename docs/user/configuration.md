@@ -558,6 +558,7 @@ Each group takes one of four values:
 | `agents` | `subagent`, `workflow`, `ralph`, `send_message`, `interrupt_agent`, `list_agents`, `list_subagent_models`, `ask_project` | `off` |
 | `git` | `git_clone`, `git_pull`, `git_push`, on the project's [remotes](#git--remotes-argus-clones-pulls-and-pushes) | `ask` |
 | `mail` | `send_mail`, with the project's [mail account](#mail--who-a-project-may-write-to). `off`, `deny` or `ask`, never `allow`: every mail is shown to a person | `ask` (`off` in a one-off task) |
+| `mail_read` | `mail_list`, `mail_read`, `mail_save_attachment`, `mail_mark_read`, in the project's [mailbox](#reading-a-mailbox-imap); shown only to a project that has one | `allow` (`off` in a one-off task) |
 | `other` | any tool not listed: a newer dsh's, an integration's | `ask` (never `off`) |
 
 **A read or write outside the project's folder asks even under `allow`**, and is
@@ -837,6 +838,38 @@ mail:
   wins. TLS is required (`smtps://`, or `smtp://` with STARTTLS), with the server's
   certificate checked. Every send is in the audit log (`mail.send`), with the number of
   recipients and the attachments' names and sizes, never the text or the password.
+
+#### Reading a mailbox (IMAP)
+
+A project can also read a mailbox. The admin sets it like the SMTP account, with an
+`imaps://` URL: `/mail set <project> imaps://comenzi%40acme.ro:…@mail.acme.ro:993`, or
+`/mail set default imaps://…` for every project with none of its own. For Gmail or
+Outlook, use an app password. The project's agent then has, from its next message:
+
+| Tool | Does |
+|---|---|
+| `mail_list` | the newest mails of a folder: id (`INBOX:4521`), date, sender, subject, read or not, size, attachments; filters `unread_only`, `since`, `from`, up to 50 |
+| `mail_read` | one mail: sender, recipients, subject, its text (HTML turned into text, cut after 50,000 characters), its attachments' names and sizes. Reading does not mark it as read |
+| `mail_save_attachment` | one attachment into the project's folder, under `mail/<date>-<id>/` |
+| `mail_mark_read` | marks a mail as read |
+
+```yaml
+mail:
+  read_folders: [INBOX, Comenzi]   # the folders it may read (default: INBOX)
+```
+
+- **It cannot delete, move or send.** Reading, saving an attachment and marking as read
+  are all it does; nothing else in the mailbox changes.
+- **A mail is information, not instructions.** What a mail says reaches the agent inside
+  a frame that tells it so: a mail asking it to send something somewhere is not your
+  request, and `send_mail` still writes only to `allowed_recipients`, with a person
+  approving each mail.
+- **Only the listed folders**, and a mail larger than `max_attachment_mb` is not read.
+- The password stays in the credentials store; Argus signs in over TLS (certificates
+  checked) for each call and signs out. Each call is in the audit (`mail.read`: the tool,
+  the folder, how many), never what a mail says.
+- `tools.mail_read` is `allow` by default (a project with a mailbox may read it); `ask`
+  or `off` like any group. A project without a mailbox does not see the tools.
 
 ### `extensions` — tools, skills and instructions installed once
 

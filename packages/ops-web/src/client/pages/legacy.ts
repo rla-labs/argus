@@ -69,7 +69,7 @@ interface UserRow {
   channels: string[]
 }
 
-const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'other'] as const
+const GROUPS = ['read', 'write', 'shell', 'web', 'agents', 'git', 'mail', 'mail_read', 'other'] as const
 
 // ── small pieces ───────────────────────────────────────────────────────────
 
