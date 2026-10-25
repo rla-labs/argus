@@ -63,7 +63,9 @@ export interface CommandOutcome {
 
 /** Run a command line as the signed-in person. */
 export async function command(line: string): Promise<CommandOutcome> {
-  return (await post<CommandOutcome>('/api/command', { line })).body
+  const result = await post<CommandOutcome & { error?: unknown }>('/api/command', { line })
+  // A refusal of the request itself is shown as the command's error, never read as an outcome.
+  return result.ok ? result.body : { text: typeof result.body.error === 'string' ? result.body.error : `HTTP ${result.status}`, error: true, buttons: [] }
 }
 
 /**

@@ -376,6 +376,22 @@ describe('the web interface', () => {
     expect(((await command.json()) as { text: string }).text).toContain('tools.web')
   }, 60_000)
 
+  it('runs a confirmation button the page sends back, and refuses other lines', async () => {
+    const booted = await bootWeb()
+    const cookie = await signIn(booted)
+    const send = async (line: string): Promise<{ status: number; body: { text?: string; error?: unknown; buttons?: Array<{ label: string; command: string }> } }> => {
+      const response = await fetch(`${booted.base}/api/command`, { method: 'POST', headers: { cookie, 'content-type': 'application/json', 'x-argus': '1' }, body: JSON.stringify({ line }) })
+      return { status: response.status, body: (await response.json()) as never }
+    }
+    const asked = await send('/archive alpha')
+    const yes = asked.body.buttons?.find((button) => button.label === 'Yes')
+    expect(yes?.command).toMatch(/^__confirm:/)
+    const done = await send(yes?.command ?? '')
+    expect(done.status).toBe(200)
+    expect(done.body.text).toContain('alpha')
+    expect((await send('archive alpha')).status).toBe(400)
+  }, 60_000)
+
   it('is a chat channel: a command typed there is answered there', async () => {
     const booted = await bootWeb()
     const cookie = await signIn(booted)

@@ -29,6 +29,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   addresses with what each used in the last 24 hours, the daily limits, pause and
   resume, and the outbox; a waiting mail is answered in the **Inbox**, shown whole.
 - **Fixed:** `/set <project> mail.trusted_recipients {…}` was refused as an unknown key.
+- **Fixed:** in the web, a question's **Yes** or **No** in a dialog (installing or removing
+  an extension, a restart, forgetting a memory section…) failed with "Cannot read
+  properties of undefined" and did nothing. In 0.7.3, answer such a question from the
+  chat instead (type the command there), or from Telegram.
 - **pdf 2.0.0** (extension): `pdftool` is a native program, each command in
   milliseconds, and the extension is about 30 MB instead of 150. New: `pdftool from-html`
   and `pdftool from-md` make a PDF, with diacritics right in the text and the bookmarks,

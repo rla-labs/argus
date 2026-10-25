@@ -497,7 +497,8 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
     if (method === 'POST' && path === '/api/command') {
       const body = await readJson(request)
       const line = typeof body['line'] === 'string' ? body['line'].trim() : ''
-      if (!line.startsWith('/')) return send(response, 400, { error: 'line must be a command' })
+      // A command, or a confirmation button's token, which runCommand turns into /confirm.
+      if (!line.startsWith('/') && !/^__confirm:[^:]+:(yes|no)$/.test(line)) return send(response, 400, { error: 'line must be a command' })
       return send(response, 200, await deps.runCommand(line, session))
     }
     const approval = /^\/api\/approvals\/([^/]+)$/.exec(path)
