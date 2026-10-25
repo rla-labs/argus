@@ -3,7 +3,7 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.7.4 (in progress)
+## 0.7.4
 
 - **A project reads its mailbox.** `/mail set <project> imaps://…` gives it `mail_list`,
   `mail_read`, `mail_save_attachment` and `mail_mark_read` on the folders its file names
