@@ -137,6 +137,7 @@ if [ "${MODE}" = "--upgrade" ]; then
   # shellcheck disable=SC2016  # evaluated on the VPS, not here
   check "/restart may restart it: the unit says so, or systemd is its parent" vps bash -c 'grep -q "^Environment=ARGUS_SUPERVISED=" /etc/systemd/system/argus-agent.service || [ "$(ps -o ppid= -p "$(systemctl show -p MainPID --value argus-agent)" | tr -d " ")" = 1 ]'
   check "the database has the users' language (migration 0006)" vps su -s /bin/bash ops -c "cd /opt/argus-agent/packages/ops-store && node -e \"const D=require('better-sqlite3');const d=new D('/srv/argus-agent/data/ops.sqlite',{readonly:true});process.exit(d.prepare('PRAGMA table_info(users)').all().some((c)=>c.name==='language')?0:1)\""
+  check "the database has the outbox and the triggers (migration 0007)" vps su -s /bin/bash ops -c "cd /opt/argus-agent/packages/ops-store && node -e \"const D=require('better-sqlite3');const d=new D('/srv/argus-agent/data/ops.sqlite',{readonly:true});process.exit(d.prepare(\\\"SELECT count(*) n FROM sqlite_master WHERE type='table' AND name IN ('mail_outbox','triggers')\\\").get().n===2?0:1)\""
   echo
   if [ "${FAILED}" = "0" ]; then echo "native VPS test (upgrade): PASSED"; else echo "native VPS test (upgrade): FAILED"; exit 1; fi
   exit 0
