@@ -29,6 +29,12 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   addresses with what each used in the last 24 hours, the daily limits, pause and
   resume, and the outbox; a waiting mail is answered in the **Inbox**, shown whole.
 - **Fixed:** `/set <project> mail.trusted_recipients {…}` was refused as an unknown key.
+- **pdf 2.0.0** (extension): `pdftool` is a native program, each command in
+  milliseconds, and the extension is about 30 MB instead of 150. New: `pdftool from-html`
+  and `pdftool from-md` make a PDF, with diacritics right in the text and the bookmarks,
+  and images from the document's folder (nothing is fetched). `qpdf` is on the
+  project's PATH for anything else. **`pdf-python` is gone**; `pdftool`'s commands and
+  arguments are unchanged. `/ext update pdf` installs it.
 - **Changed:** `mail.max_per_day` now counts recipients, not mails: a mail to three
   people uses three. Raise it if a project mails several people at once.
 

@@ -5,8 +5,9 @@
 # as PID 1, where install-native.sh runs exactly as an operator would run it as root.
 #
 #   pnpm test:native-vps               a Telegram install: health, smoke, backup, the
-#                                      first-party extensions next to this repository
-#                                      (installed and run confined), kill -9
+#                                      first-party extensions next to this repository,
+#                                      or in ARGUS_EXTENSIONS (installed and run
+#                                      confined), kill -9
 #   pnpm test:native-vps --web-only    no Telegram: the setup link creates the admin, the
 #                                      web chat answers, `argus setup-link --admin` works
 #   pnpm test:native-vps --upgrade [v] install v (default v0.4.0), then upgrade to
@@ -156,12 +157,13 @@ check "smoke-native.sh passes" vps bash -c 'bash /opt/argus-agent/deploy/native/
 
 check "backup-native.sh works without sqlite3" vps bash -c '! command -v sqlite3 >/dev/null && bash /opt/argus-agent/deploy/native/backup-native.sh >/dev/null 2>&1'
 
-# The first-party extensions next to this repository, as the service's user installs
-# and runs them: confined, under the native install's Landlock.
-if [ -d "${REPO}/../argus-extensions/.git" ]; then
+# The first-party extensions next to this repository (or in ARGUS_EXTENSIONS), as the
+# service's user installs and runs them: confined, under the native install's Landlock.
+EXTENSIONS="${ARGUS_EXTENSIONS:-${REPO}/../argus-extensions}"
+if [ -d "${EXTENSIONS}/.git" ]; then
   # What the images extension's README asks of a native install: ImageMagick's system libraries.
   vps bash -c 'apt-get update -qq && apt-get install -y -qq --no-install-recommends libx11-6 libfontconfig1 libfreetype6 libharfbuzz0b libfribidi0 fonts-dejavu-core libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 fonts-liberation' >/dev/null 2>&1
-  docker cp "${REPO}/../argus-extensions" "${NAME}:/srv/argus-extensions"
+  docker cp "${EXTENSIONS}" "${NAME}:/srv/argus-extensions"
   vps chown -R ops:ops /srv/argus-extensions
   docker cp "${REPO}/scripts/extension-check.mjs" "${NAME}:/tmp/extension-check.mjs"
   extensions="$(vps su -s /bin/bash ops -c 'node /tmp/extension-check.mjs /opt/argus-agent /srv/argus-agent/data /srv/argus-extensions' 2>&1 || true)"
