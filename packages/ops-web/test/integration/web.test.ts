@@ -143,6 +143,10 @@ describe('the web interface', () => {
     // Shown in the list with its spacing tidied; sent verbatim.
     expect(sessions).toEqual([expect.objectContaining({ id: 'task-web12345', text: 'compare three hosts' })])
 
+    // A command typed in a session runs as a command, answered there, not sent to the task.
+    expect((await post('/api/chat', { thread: 's:task-web12345', text: '/projects' })).status).toBe(202)
+    await until(async () => (await history('s:task-web12345')).some((entry) => entry.from === 'argus' && entry.text.includes('alpha')), 'the command answers in the session')
+
     expect((await post('/api/chat', { thread: 'p:nope', text: 'hi' })).status).toBe(404)
     expect((await post('/api/chat', { thread: 'x:../alpha', text: 'hi' })).status).toBe(400)
     expect((await post('/api/chat', { thread: 's:../../etc', text: 'hi' })).status).toBe(400)

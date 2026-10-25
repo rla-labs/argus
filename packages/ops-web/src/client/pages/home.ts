@@ -158,7 +158,8 @@ function AskBox({ projects, run, can }: { projects: readonly ProjectCard[]; run:
     const value = text.trim()
     if (value.length === 0) return
     setText('')
-    if (where === '') run(`/task ${value}`)
+    // A command typed here runs as one; anything else is a one-off task.
+    if (where === '') run(value.startsWith('/') ? value : `/task ${value}`)
     else {
       try {
         sessionStorage.setItem(`argus.draft.${where}`, value)

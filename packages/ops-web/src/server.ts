@@ -529,9 +529,10 @@ export async function startWebServer(deps: ServerDeps): Promise<WebServer> {
       const thread = typeof body['thread'] === 'string' ? body['thread'] : ''
       if (text.trim().length === 0) return send(response, 400, { error: 'empty message' })
       if (threadChat(session.userId, thread) === undefined) return send(response, 400, { error: 'no such conversation' })
-      // A project's thread speaks to the project; a session's goes to it as /session, the text verbatim inside.
+      // A project's thread speaks to the project; a session's goes to it as /session, the text
+      // verbatim inside, except a command, which runs as one there.
       if (thread.startsWith('p:') && !deps.bindThread(session.userId, thread.slice(2))) return send(response, 404, { error: 'no such project' })
-      deps.chat.receive(session.userId, text, thread, thread.startsWith('s:') ? `/session ${thread.slice(2)} ${text}` : undefined)
+      deps.chat.receive(session.userId, text, thread, thread.startsWith('s:') && !text.startsWith('/') ? `/session ${thread.slice(2)} ${text}` : undefined)
       return send(response, 202, { ok: true })
     }
     if (method === 'POST' && path === '/api/chat/press') {

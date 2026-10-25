@@ -33,6 +33,10 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   an extension, a restart, forgetting a memory section…) failed with "Cannot read
   properties of undefined" and did nothing. In 0.7.3, answer such a question from the
   chat instead (type the command there), or from Telegram.
+- **Fixed:** a command typed in the web's box with no project ("Ask for something") or
+  in a session's conversation went to a one-off task as text, so the task answered it
+  instead of Argus. A line starting with `/` now runs as a command there. In 0.7.3, type
+  commands in a project's conversation, or from Telegram.
 - **pdf 2.0.0** (extension): `pdftool` is a native program, each command in
   milliseconds, and the extension is about 30 MB instead of 150. New: `pdftool from-html`
   and `pdftool from-md` make a PDF, with diacritics right in the text and the bookmarks,
