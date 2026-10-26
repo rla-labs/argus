@@ -3,7 +3,7 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.8.0 (in progress)
+## 0.8.0
 
 - **Claude Code under Argus.** The `claude-code` extension: a project's agent hands a
   multi-step coding task to Claude Code (`run`), on your Claude subscription or Anthropic
