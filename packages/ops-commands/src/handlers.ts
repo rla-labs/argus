@@ -1968,7 +1968,12 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
       async run(input): Promise<CommandResult> {
         const keys = options.keys?.()
         if (keys === undefined) return errorResult('Keys cannot be managed here: the providers are not loaded.')
-        const [first, second, ...rest] = tokenize(input)
+        const [first, given, ...more] = tokenize(input)
+        // A subscription's token copied from a terminal often comes wrapped over lines:
+        // it has no whitespace of its own, so the pieces are one token.
+        const joined = first === 'CLAUDE_CODE_OAUTH_TOKEN' && given !== undefined
+        const second = joined ? [given, ...more].join('') : given
+        const rest = joined ? [] : more
         if (first === undefined) {
           const all = keys.keyStatus()
           const set = all.filter((entry) => entry.configured)
@@ -3137,6 +3142,7 @@ function hostText(server: ExtensionManifest['mcp'][string]): string {
     ...(server.host.includes('steps') ? ['reports its steps'] : []),
     ...(server.host.includes('usage') ? ['reports its usage'] : []),
     ...(server.network === 'proxy' ? ['network only through Argus\'s proxy'] : []),
+    ...(server.route === 'anthropic' ? ['reaches Anthropic through Argus with the project\'s subscription or API key, which it never holds'] : []),
   ]
   return parts.length === 0 ? '' : `; ${parts.join(', ')}`
 }

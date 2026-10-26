@@ -17,7 +17,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync,
 import { isAbsolute, join, normalize, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { parse as parseYaml, stringify as toYaml } from 'yaml'
-import { HOST_CAPABILITIES, MCP_SERVER_PATTERN, MCP_TOOL_PATTERN, OpsError, isInside, type HostCapability, type ServerNetwork } from '@argus-agent/types'
+import { HOST_CAPABILITIES, MCP_SERVER_PATTERN, MCP_TOOL_PATTERN, OpsError, isInside, type HostCapability, type ServerNetwork, type ServerRoute } from '@argus-agent/types'
 
 const run = promisify(execFile)
 
@@ -44,6 +44,8 @@ export interface ExtensionServer {
   readonly host: readonly HostCapability[]
   /** `proxy`: its network only through Argus's egress proxy (enforced from 0.8.0 step 6). */
   readonly network: ServerNetwork
+  /** A model provider its agent reaches through Argus, which adds the credential; null: none. */
+  readonly route: ServerRoute | null
 }
 
 /** A validated `extension.yaml`. */
@@ -190,7 +192,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
         continue
       }
       for (const key of Object.keys(value)) {
-        if (!['command', 'args', 'env', 'access', 'tools', 'timeout_s', 'host', 'network'].includes(key)) problems.push(`${where}.${key}: not a server key; use command, args, env, access, tools, timeout_s, host, network`)
+        if (!['command', 'args', 'env', 'access', 'tools', 'timeout_s', 'host', 'network', 'route'].includes(key)) problems.push(`${where}.${key}: not a server key; use command, args, env, access, tools, timeout_s, host, network, route`)
       }
       const tools = value['tools'] ?? {}
       if (!isMapping(tools)) problems.push(`${where}.tools: tool names or globs to allow, ask or deny`)
@@ -206,6 +208,8 @@ export function parseManifest(raw: unknown): ExtensionManifest {
       const network = value['network'] ?? 'open'
       if (!Array.isArray(host) || host.some((item) => !(HOST_CAPABILITIES as readonly unknown[]).includes(item)) || new Set(host).size !== host.length) problems.push(`${where}.host: a list of ${HOST_CAPABILITIES.join(', ')}, each once`)
       if (network !== 'open' && network !== 'proxy') problems.push(`${where}.network: open or proxy`)
+      const route = value['route'] ?? null
+      if (route !== null && route !== 'anthropic') problems.push(`${where}.route: anthropic`)
       if (typeof value['command'] !== 'string' || value['command'].length === 0) problems.push(`${where}.command: the program to run`)
       if (!isMapping(env) || Object.values(env).some((item) => typeof item !== 'string')) problems.push(`${where}.env: names to strings`)
       if (access !== 'deny' && access !== 'ask' && access !== 'allow') problems.push(`${where}.access: deny, ask or allow`)
@@ -219,6 +223,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
         timeout_s: Number(timeout),
         host: Array.isArray(host) ? (host as HostCapability[]) : [],
         network: network === 'proxy' ? 'proxy' : 'open',
+        route: route === 'anthropic' ? 'anthropic' : null,
       }
     }
   }

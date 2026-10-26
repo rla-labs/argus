@@ -1496,8 +1496,9 @@ export class OpsGovernor {
 
   /**
    * One turn of an agent an extension runs for a project (`usage` on the server's host
-   * channel): recorded against the run and the project at cost 0 (a subscription), its
-   * list-price cost beside it, and counted against the project's `delegate.day_turns`.
+   * channel), priced from the catalog as `anthropic/<model>`: on a subscription
+   * (`delegate.backend: subscription`) at cost 0 with that price beside it; on the API
+   * (`api`) at that price, against the budgets. Counted against `delegate.day_turns`.
    *
    * @param call the message, with the project and run from the socket.
    * @returns whether the delegated agent goes on: not past the day's turns.
@@ -1510,20 +1511,30 @@ export class OpsGovernor {
     }
     const track = [...this.running.values()].find((entry) => entry.runId === call.runId)
     const now = this.options.now()
-    const model = typeof message['model'] === 'string' && message['model'].length > 0 ? message['model'].slice(0, 80) : 'unknown'
-    this.options.meter.record({
-      sessionId: track?.sessionId ?? call.runId,
-      rootSessionId: track?.sessionId ?? call.runId,
-      owner: { kind: 'project', projectId: call.projectId },
-      model: { provider: call.server, model },
-      usage: { inputTokens: count('input_tokens'), outputTokens: count('output_tokens'), cacheReadTokens: count('cached_tokens') } as TokenUsage,
-      runId: call.runId,
-      ts: now,
-      costMicros: 0 as MicroUsd,
-      notionalMicros: count('notional_micros') as MicroUsd,
-      delegated: call.server,
-    })
-    const limit = this.options.projects.configOf(call.projectId)?.delegate.day_turns
+    const model: ModelRef = { provider: 'anthropic', model: typeof message['model'] === 'string' && message['model'].length > 0 ? message['model'].slice(0, 80) : 'unknown' }
+    const usage = { inputTokens: count('input_tokens'), outputTokens: count('output_tokens'), cacheReadTokens: count('cached_tokens'), cacheWriteTokens: count('cache_write_tokens') } as TokenUsage
+    const delegate = this.options.projects.configOf(call.projectId)?.delegate
+    const onApi = delegate?.backend === 'api'
+    try {
+      this.options.meter.record({
+        sessionId: track?.sessionId ?? call.runId,
+        rootSessionId: track?.sessionId ?? call.runId,
+        owner: { kind: 'project', projectId: call.projectId },
+        model,
+        usage,
+        runId: call.runId,
+        ts: now,
+        // On the API the catalog prices it as a cost; on a subscription it costs nothing.
+        ...(onApi ? {} : { costMicros: 0 as MicroUsd, notionalMicros: this.options.meter.quote(model, usage) }),
+        delegated: call.server,
+      })
+    } catch (error) {
+      // An unpriced model under `unknown_model_policy: block`: no turn on the API without a price.
+      const detail = `${(error as Error).message}; the agent stops`
+      this.ctx.emit('ops/delegated-stop', { projectId: call.projectId, runId: call.runId, server: call.server, reason: 'budget_stopped', detail })
+      return { continue: false, reason: detail }
+    }
+    const limit = delegate?.day_turns
     const turns = this.options.meter.delegatedTurns(call.projectId, now)
     if (limit !== undefined && turns >= limit) {
       const detail = `the project's agents run by extensions took their ${limit} turns for today (delegate.day_turns)`

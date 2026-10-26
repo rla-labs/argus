@@ -47,7 +47,7 @@ import { createTransport } from 'nodemailer'
 import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, type MailTransport } from './mail.js'
 import { ProjectMailbox, type MailboxConnect } from './mailbox.js'
 import { imapConnect } from './imap.js'
-import { EgressProxy } from './egress.js'
+import { EgressProxy, type RouteCredential } from './egress.js'
 import { HostChannel, type HostHandler } from './host.js'
 import { McpOAuth, OAuthProxy, isOAuthSecretName, type OAuthClientSettings, type OAuthSecrets } from './oauth.js'
 
@@ -92,6 +92,9 @@ export interface TaskSession {
 
 /** The name an MCP server's `env` uses for the egress proxy's address. */
 export const EGRESS_PROXY_NAME = 'ARGUS_EGRESS_PROXY'
+
+/** Where an Anthropic route goes; `ARGUS_ANTHROPIC_UPSTREAM` points it elsewhere (tests). */
+const ANTHROPIC_UPSTREAM = (): string => process.env['ARGUS_ANTHROPIC_UPSTREAM'] ?? 'https://api.anthropic.com'
 
 /** Options for creating an ephemeral agent. */
 export interface EphemeralOptions {
@@ -965,13 +968,22 @@ export class OpsProjects {
         if (host !== undefined) agentCtx.effect(() => () => this.host.close(config.id, name))
         // `network: proxy`: its connections only to the egress proxy, which it is pointed at.
         const proxy = server.command !== null && server.extension?.network === 'proxy' ? await this.egress.url() : undefined
+        // `route: anthropic`: its agent reaches Anthropic through a route that adds the
+        // project's credential; the server gets the route, never the key.
+        let routeUrl: string | undefined
+        if (server.command !== null && server.extension?.route === 'anthropic') {
+          const route = this.egress.addRoute(ANTHROPIC_UPSTREAM(), () => this.anthropicCredential(config.id))
+          agentCtx.effect(() => route.remove)
+          routeUrl = `${await this.egress.url()}${route.path}`
+        }
         const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args], host === undefined ? [] : [host.dir], proxy === undefined ? undefined : Number(new URL(proxy).port))
         let options
         if (server.command !== null) {
           const env = {
             ...(await this.expand(server.env)),
             ...(host === undefined ? {} : { ARGUS_HOST_SOCKET: host.socket, ARGUS_HOST_TOKEN: host.token }),
-            ...(proxy === undefined ? {} : { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '', no_proxy: '' }),
+            ...(proxy === undefined ? {} : { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' }),
+            ...(routeUrl === undefined ? {} : { ARGUS_ANTHROPIC_BASE_URL: routeUrl }),
           }
           options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env, cwd: config.cwd }
         } else if (server.oauth !== null) {
@@ -1045,6 +1057,26 @@ export class OpsProjects {
    */
   mcpHomeOf(projectId: string, server: string): string {
     return join(this.stateRoot, projectId, 'mcp', server)
+  }
+
+  /**
+   * The credential an Anthropic route adds for a project, from its `delegate.backend`:
+   * the subscription's token (`/key CLAUDE_CODE_OAUTH_TOKEN`), or Argus's Anthropic key.
+   *
+   * @param projectId the project.
+   * @returns the credential, or what to do when it is missing.
+   */
+  private async anthropicCredential(projectId: string): Promise<RouteCredential | string> {
+    const backend = this.configs.get(projectId)?.delegate.backend ?? 'subscription'
+    const name = backend === 'api' ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN'
+    const credentials = this.ctx.get('credentials' as never) as unknown as { resolve(ref: unknown): Promise<{ value: string } | undefined> } | undefined
+    const value = credentials === undefined ? process.env[name] : (await credentials.resolve(credentialRef(name)))?.value
+    if (value === undefined || value.trim() === '') {
+      return backend === 'api'
+        ? `project ${projectId} runs it on the Anthropic API (delegate.backend: api), and Argus has no Anthropic key: send /key anthropic <key>`
+        : `project ${projectId} runs it on a Claude subscription, and none is set: make a token with claude setup-token, then send /key CLAUDE_CODE_OAUTH_TOKEN <token>`
+    }
+    return { kind: backend === 'api' ? 'api-key' : 'oauth', value: value.replace(/\s+/g, '') }
   }
 
   /**

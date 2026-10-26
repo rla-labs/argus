@@ -13,10 +13,18 @@
  * Not a boundary against the agent's own shell, which has the network: that is the
  * `shell` approval's job.
  *
+ * It also serves **routes** (`/r/<random>/v1/…`): an agent an extension runs (Claude Code)
+ * talks to its model provider through one, and the route adds the credential, so the key
+ * or the subscription's token is never in that agent's environment, where its own shell
+ * could read it. A route is a capability: it works while its server runs, for the paths
+ * under `/v1/` only, and whoever holds it can use the credential, never read it.
+ *
  * @module @argus-agent/projects/egress
  */
+import { randomBytes } from 'node:crypto'
 import { lookup } from 'node:dns/promises'
 import { createServer, request as httpRequest, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { request as httpsRequest } from 'node:https'
 import { BlockList, connect, isIP, isIPv6 } from 'node:net'
 
 /** The ranges no browser of a project may reach: everything that is not public unicast. */
@@ -45,10 +53,37 @@ export type Resolve = (host: string) => Promise<readonly string[]>
 
 const systemResolve: Resolve = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address)
 
+/** The credential a route adds: an API key, or a subscription's OAuth token. */
+export type RouteCredential = { readonly kind: 'api-key' | 'oauth'; readonly value: string }
+
+/** A route to a model provider, with the credential it adds. */
+interface Route {
+  readonly upstream: URL
+  /** The credential now, or why there is none (said to the agent). */
+  readonly credential: () => Promise<RouteCredential | string>
+}
+
+/** The beta Anthropic requires for a subscription's OAuth token. */
+const OAUTH_BETA = 'oauth-2025-04-20'
+
 /** The forward proxy. */
 export class EgressProxy {
   private server: Server | undefined
   private starting: Promise<string> | undefined
+  private readonly routes = new Map<string, Route>()
+
+  /**
+   * Add a route to a model provider (`https://api.anthropic.com`), adding the credential.
+   *
+   * @param upstream the provider's base URL.
+   * @param credential the credential when a request comes, or why there is none.
+   * @returns its path on the proxy (`/r/<random>`), and what removes it.
+   */
+  addRoute(upstream: string, credential: Route['credential']): { readonly path: string; readonly remove: () => void } {
+    const id = randomBytes(18).toString('hex')
+    this.routes.set(id, { upstream: new URL(upstream), credential })
+    return { path: `/r/${id}`, remove: () => void this.routes.delete(id) }
+  }
 
   /**
    * @param resolve how names are resolved.
@@ -67,7 +102,14 @@ export class EgressProxy {
   url(): Promise<string> {
     this.starting ??= new Promise<string>((done, fail) => {
       const server = createServer((request, response) => {
-        void this.forward(request.url ?? '', request.method ?? 'GET', request.headers, request, response)
+        // A route, asked of the proxy directly or through it (an absolute URL to itself).
+        const target = request.url ?? ''
+        const local = target.startsWith('/r/') ? target : this.ownPath(target)
+        if (local !== undefined) {
+          void this.route(local, request, response)
+          return
+        }
+        void this.forward(target, request.method ?? 'GET', request.headers, request, response)
       })
       server.on('connect', (request, socket, head) => {
         const target = request.url ?? ''
@@ -110,6 +152,51 @@ export class EgressProxy {
       server.closeAllConnections()
       await new Promise<void>((done) => server.close(() => done()))
     }
+  }
+
+  /** The path of an absolute URL to this proxy itself, or undefined. */
+  private ownPath(target: string): string | undefined {
+    const port = (this.server?.address() as { port: number } | null | undefined)?.port
+    try {
+      const url = new URL(target)
+      return port !== undefined && (url.hostname === '127.0.0.1' || url.hostname === 'localhost') && Number(url.port) === port && url.pathname.startsWith('/r/') ? `${url.pathname}${url.search}` : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** A request on a route: to the provider, with the credential put in. */
+  private async route(target: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const refuse = (status: number, message: string): void => {
+      response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: status === 401 ? 'authentication_error' : 'not_found_error', message } }))
+    }
+    const match = /^\/r\/([0-9a-f]+)(\/v1\/[^?#]*(?:\?[^#]*)?)$/.exec(target)
+    const route = match === null ? undefined : this.routes.get(match[1] as string)
+    if (match === null || route === undefined) return refuse(404, 'Argus: no such route (it ends with the server that had it), or a path outside /v1/.')
+    let credential: RouteCredential | string
+    try {
+      credential = await route.credential()
+    } catch (error) {
+      credential = (error as Error).message
+    }
+    if (typeof credential === 'string') return refuse(401, `Argus: ${credential}`)
+    const url = new URL(match[2] as string, route.upstream)
+    const { host: _host, authorization: _authorization, 'x-api-key': _key, 'proxy-connection': _proxy, connection: _connection, ...rest } = request.headers
+    const headers: IncomingHttpHeaders = { ...rest, host: url.host }
+    if (credential.kind === 'api-key') {
+      headers['x-api-key'] = credential.value
+    } else {
+      headers['authorization'] = `Bearer ${credential.value}`
+      const betas = String(headers['anthropic-beta'] ?? '').split(',').map((beta) => beta.trim()).filter((beta) => beta.length > 0)
+      headers['anthropic-beta'] = [...new Set([...betas, OAUTH_BETA])].join(',')
+    }
+    const send = url.protocol === 'https:' ? httpsRequest : httpRequest
+    const upstream = send(url, { method: request.method ?? 'POST', headers }, (answer) => {
+      response.writeHead(answer.statusCode ?? 502, answer.headers)
+      answer.pipe(response)
+    })
+    upstream.on('error', () => (response.headersSent ? response.destroy() : refuse(502, 'Argus: the provider could not be reached.')))
+    request.pipe(upstream)
   }
 
   /** The address to connect to, or `undefined` when any answer is not allowed. */

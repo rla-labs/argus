@@ -53,6 +53,7 @@ afterEach(async () => {
 const PRICING = `
 pricing:
   fake/*: { input: 1, cached: 1, output: 1 }
+  anthropic/claude-sonnet-x: { input: 3, cached: 0.3, output: 15 }
 `
 
 /** Boot a tree with the whole chain mounted. */
@@ -1469,24 +1470,33 @@ describe('the steps of an agent an extension runs for a project', () => {
     expect(step('x', 'run-unknown')).toEqual({ continue: true })
   }, 30_000)
 
-  it('records its turns at no cost, with what they would have cost, and stops it past the day’s turns', async () => {
+  it('records its turns on a subscription at no cost, priced beside, and stops it past the day’s turns', async () => {
     const booted = await bootGovernor({ projects: { site: { delegate: { day_turns: 2 } } } })
     governedRun(booted, 'run-use')
     const stops: unknown[] = []
     booted.ctx.on('ops/delegated-stop', (payload) => void stops.push(payload))
-    const usage = () => booted.governor.delegatedUsage({ projectId: 'site', server: 'cc', runId: 'run-use', message: { model: 'claude-sonnet-x', input_tokens: 100, cached_tokens: 50, output_tokens: 20, notional_micros: 4_000 } })
+    // 100 × $3 + 50 × $0.30 + 20 × $15 per million tokens: 615 micro-USD a turn.
+    const usage = () => booted.governor.delegatedUsage({ projectId: 'site', server: 'cc', runId: 'run-use', message: { model: 'claude-sonnet-x', input_tokens: 100, cached_tokens: 50, output_tokens: 20 } })
     expect(usage()).toEqual({ continue: true })
     const second = usage()
     expect(second.continue).toBe(false)
     expect(second.reason).toContain('2 turns for today (delegate.day_turns)')
     expect(stops).toEqual([expect.objectContaining({ reason: 'day_limit', server: 'cc' })])
     expect(booted.meter.spending('project:site').dayMicros).toBe(0)
-    expect(booted.meter.notional('project:site', Date.now()).dayMicros).toBe(8_000)
+    expect(booted.meter.notional('project:site', Date.now()).dayMicros).toBe(1_230)
     expect(booted.meter.runTotals('run-use')).toMatchObject({ inputTokens: 200, outputTokens: 40 })
     // Its steps show in the run's status.
     booted.governor.delegatedStep({ projectId: 'site', server: 'cc', runId: 'run-use', message: { tool: 'Edit', arguments: {}, ok: true, result: 'ok' } })
     expect(booted.governor.status().running.find((run) => run.runId === 'run-use')?.delegated).toEqual({ steps: 1, server: 'cc', tool: 'Edit', ok: true })
     expect(() => booted.projects.hostHandle('usage', () => ({}))).toThrow(/already answered/)
+  }, 30_000)
+
+  it('charges its turns on the API against the budget, at the catalog’s price', async () => {
+    const booted = await bootGovernor({ projects: { site: { delegate: { backend: 'api' } } } })
+    governedRun(booted, 'run-api')
+    expect(booted.governor.delegatedUsage({ projectId: 'site', server: 'cc', runId: 'run-api', message: { model: 'claude-sonnet-x', input_tokens: 100, cached_tokens: 50, output_tokens: 20 } })).toEqual({ continue: true })
+    expect(booted.meter.spending('project:site').dayMicros).toBe(615)
+    expect(booted.meter.notional('project:site', Date.now()).dayMicros).toBe(0)
   }, 30_000)
 
   it('stops it while the run is stopping, and answers step on the host channel', async () => {

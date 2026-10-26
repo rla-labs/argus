@@ -186,7 +186,7 @@ export interface McpServer {
    * Set when an enabled extension brings it: it then runs confined, reading that folder.
    * `host` and `network` come from the extension's manifest only, never from a project's file.
    */
-  readonly extension?: { readonly name: string; readonly dir: string; readonly host: readonly HostCapability[]; readonly network: ServerNetwork }
+  readonly extension?: { readonly name: string; readonly dir: string; readonly host: readonly HostCapability[]; readonly network: ServerNetwork; readonly route: ServerRoute | null }
 }
 
 /**
@@ -198,6 +198,12 @@ export type HostCapability = (typeof HOST_CAPABILITIES)[number]
 
 /** An extension server's network (`mcp.<server>.network`): any host, or only through Argus's egress proxy. */
 export type ServerNetwork = 'open' | 'proxy'
+
+/**
+ * A model provider an extension server's agent reaches through Argus (`mcp.<server>.route`),
+ * which adds the project's credential: the key never reaches the server or its agent.
+ */
+export type ServerRoute = 'anthropic'
 
 /** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */
 export const MCP_SERVER_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/

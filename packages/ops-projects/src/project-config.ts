@@ -78,6 +78,11 @@ export interface ProjectDelegate {
   readonly max_minutes: number
   /** Turns all calls may take in a day. */
   readonly day_turns: number
+  /**
+   * What it runs on: the admin's Claude subscription (`/key CLAUDE_CODE_OAUTH_TOKEN`), or
+   * Argus's Anthropic API key, charged against the budgets.
+   */
+  readonly backend: 'subscription' | 'api'
 }
 
 /** A project's memory settings. */
@@ -293,6 +298,7 @@ export const projectConfigSchema = z.object({
       max_turns: z.natural().min(1).default(50),
       max_minutes: z.natural().min(1).default(30),
       day_turns: z.natural().min(1).default(300),
+      backend: z.union([z.const('subscription'), z.const('api')]).default('subscription'),
     })
     .default({}),
   memory: z
@@ -672,7 +678,7 @@ export function parseProjectConfig(
           // The schema fills an empty object in for a server with none: what the file says decides.
           oauth: !isMapping(document['mcp']) || !isMapping(document['mcp'][name]) || !isMapping(document['mcp'][name]['oauth']) ? null : { client: nonEmpty((server['oauth'] as Record<string, unknown>)['client']), scopes: (server['oauth'] as Record<string, unknown>)['scopes'] as string[] },
           // Its host channel and network come from the extension's manifest, never from this file.
-          ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir, host: brought.get(name)!.manifest.mcp[name]?.host ?? [], network: brought.get(name)!.manifest.mcp[name]?.network ?? 'open' } } : {}),
+          ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir, host: brought.get(name)!.manifest.mcp[name]?.host ?? [], network: brought.get(name)!.manifest.mcp[name]?.network ?? 'open', route: brought.get(name)!.manifest.mcp[name]?.route ?? null } } : {}),
         } as McpServer,
       ]),
     ),

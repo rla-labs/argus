@@ -251,8 +251,9 @@ describe('parseProjectConfig', () => {
 
 describe('the delegate block', () => {
   it('limits an agent an extension runs: 50 turns and 30 minutes a call, 300 turns a day, by default', () => {
-    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300 })
-    expect(parse({ delegate: { max_turns: 80 } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300 })
+    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300, backend: 'subscription' })
+    expect(parse({ delegate: { max_turns: 80, backend: 'api' } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'api' })
+    expect(parseFails({ delegate: { backend: 'free' } })).toBeInstanceOf(ProjectConfigError)
   })
 
   it('refuses a limit that is not a whole number of at least one', () => {

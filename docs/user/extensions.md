@@ -188,6 +188,14 @@ mcp:
 The admin sees it at install ("may ask for approvals of what it does, reports its steps,
 reports its usage") and in an update's changes. A project's file cannot set either key.
 
+`route: anthropic` gives the server `ARGUS_ANTHROPIC_BASE_URL`: a route through Argus to
+Anthropic's API that adds the project's credential, its admin's Claude subscription
+(`/key CLAUDE_CODE_OAUTH_TOKEN`) or Argus's Anthropic API key, as `delegate.backend`
+says. Point the agent at it (`ANTHROPIC_BASE_URL`, with any `ANTHROPIC_AUTH_TOKEN`):
+the server and its agent never hold the secret, which an agent's own commands could
+otherwise read from its environment. Only paths under `/v1/`; the route ends with the
+server.
+
 `network: proxy` holds the server, and everything it starts, to Argus's egress proxy:
 `HTTPS_PROXY` and `HTTP_PROXY` point at it, TCP connections reach only its port, and there
 is no UDP. A program that ignores the proxy variables cannot connect at all, and neither
@@ -234,10 +242,10 @@ object per line; each request has an `id`, which its answer carries back:
   `{"continue": true}`, or `{"continue": false, "reason": "…"}`: stop the agent now (a
   loop, an exhausted budget, the run stopping) and tell the project's agent the reason.
 - `usage` reports one turn of the agent: `model`, `input_tokens`, `cached_tokens`,
-  `output_tokens`, and `notional_micros`, what it would have cost at the API's list prices
-  (an integer, micro-USD). Argus records it against the run and the project at cost 0
-  (a subscription; budgets untouched) with the notional cost beside, and counts it against
-  the project's `delegate.day_turns`: past it, the answer is `{"continue": false, …}`.
+  `cache_write_tokens`, `output_tokens`. Argus prices it from its catalog as
+  `anthropic/<model>`: on a subscription at cost 0 with that price shown beside it, on the
+  API at that price, against the budgets (the project's `delegate.backend`). It counts
+  against `delegate.day_turns`: past it, the answer is `{"continue": false, …}`.
 - `stop` from Argus (`{"type":"stop","reason":"cancelled"}` or `"the run ended"`) means
   the same: stop the agent and everything it started.
 - A message is at most 64 KB; at most 50 a second; one connection at a time.

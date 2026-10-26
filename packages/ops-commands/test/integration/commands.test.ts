@@ -893,7 +893,9 @@ describe('admin-only commands', () => {
     await run(booted, '/set alpha description The site: blog, fix #3', admin())
     expect(booted.projects.configOf('alpha')?.description).toBe('The site: blog, fix #3')
     expect(await run(booted, '/set alpha delegate.max_turns 80', admin())).toContain('alpha: delegate.max_turns = 80.')
-    expect(booted.projects.configOf('alpha')?.delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300 })
+    expect(booted.projects.configOf('alpha')?.delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'subscription' })
+    expect(await run(booted, '/set alpha delegate.backend api', admin())).toContain('alpha: delegate.backend = "api".')
+    expect(await run(booted, '/set alpha delegate.backend free', admin())).toContain('does not validate')
     expect(await run(booted, '/set alpha delegate.max_minutes 0', admin())).toContain('does not validate')
     expect(readFileSync(file, 'utf8')).toMatch(/^# kept\n/)
   }, 30_000)
@@ -1862,17 +1864,33 @@ describe('/ext', () => {
     expect(await run(booted, '/ext')).toContain('No extension is installed')
   }, 60_000)
 
+  it('/key takes a subscription token wrapped over lines as one token', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const saved: Array<[string, string]> = []
+    ;(booted.ctx as unknown as { provide(name: string): void; set(name: string, value: unknown): void }).provide('opsProviders')
+    ;(booted.ctx as unknown as { set(name: string, value: unknown): void }).set('opsProviders', {
+      keyStatus: () => [],
+      check: () => undefined,
+      setKey: async (name: string, value: string) => (saved.push([name, value]), { ok: true, message: 'saved' }),
+      removeKey: async () => ({ ok: true, message: 'removed' }),
+    })
+    expect(await run(booted, '/key CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-abc\ndef\n ghi')).toBe('saved')
+    expect(saved).toEqual([['CLAUDE_CODE_OAUTH_TOKEN', 'sk-ant-oat01-abcdefghi']])
+    // Any other key is still one word.
+    expect(await run(booted, '/key openrouter sk-a sk-b')).toContain('one key')
+  }, 30_000)
+
   it('says what a server may do through Argus at install, and an update that adds it', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const repo = extensionRepo(manifest)
     const asked = await booted.commands.runCommand(`/ext install ${repo.path}`, contextFor())
     expect(asked.text).not.toContain('reports its')
     await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())
-    repo.commit(manifest.replace('1.0.0', '1.1.0').replace('access: ask}', 'access: ask, host: [approvals, steps, usage], network: proxy}'))
+    repo.commit(manifest.replace('1.0.0', '1.1.0').replace('access: ask}', 'access: ask, host: [approvals, steps, usage], network: proxy, route: anthropic}'))
     const update = await booted.commands.runCommand('/ext update notes', contextFor())
-    expect(update.text).toContain("notes: node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy")
+    expect(update.text).toContain("notes: node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy, reaches Anthropic through Argus with the project's subscription or API key, which it never holds")
     expect(update.text).toContain('- tools: notes (node <extension>/server.js, access ask)')
-    expect(update.text).toContain("+ tools: notes (node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy)")
+    expect(update.text).toContain("+ tools: notes (node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy, reaches Anthropic through Argus with the project's subscription or API key, which it never holds)")
     await booted.commands.confirm(update.confirm?.token as string, false, contextFor())
     const remove = await booted.commands.runCommand('/ext remove notes', contextFor())
     await booted.commands.confirm(remove.confirm?.token as string, true, contextFor())

@@ -341,6 +341,20 @@ export class OpsMeter {
     return costMicros
   }
 
+  /**
+   * What a request would cost at the catalog's prices, without recording it: the notional
+   * cost of a turn on a subscription.
+   *
+   * @param model the model.
+   * @param usage its tokens.
+   * @returns micro-USD, or 0 for an unpriced model.
+   */
+  quote(model: ModelRef, usage: TokenUsage): MicroUsd {
+    const price = this.options.prices.resolve(model)
+    if (price === undefined) return 0 as MicroUsd
+    return priceRequest(price, { inputTokens: usage.inputTokens, cachedTokens: usage.cacheReadTokens ?? 0, outputTokens: usage.outputTokens, cacheWriteTokens: usage.cacheWriteTokens ?? 0 })
+  }
+
   /** A project's delegated turns today, read from the store once a day (or after a restart). */
   private readonly delegatedTurnsByProject = new Map<string, { day: string; count: number }>()
 

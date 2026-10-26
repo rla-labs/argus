@@ -941,6 +941,7 @@ delegate:
   max_turns: 50     # turns one call may take
   max_minutes: 30   # minutes one call may take
   day_turns: 300    # turns all calls may take in a day, across the project
+  backend: subscription   # or api: what it runs on
 ```
 
 An extension such as `claude-code` runs another agent for the project when the project's
@@ -950,8 +951,12 @@ calls is decided like the project agent's own (its `tools`, `web_hosts`,
 `approvals.auto_allow`, the same questions); its steps are watched for loops with
 `limits.loop_repeat_threshold`, and a loop stops it, not the run: the project's agent is
 told why. A cancel, a stop or the run's end stops it too, and a question it still waits
-for is withdrawn. It runs on your own subscription: its turns cost nothing against the
-budgets, and the Costs page shows beside them what they would have cost at API prices.
+for is withdrawn. `backend: subscription` runs it on your Claude subscription (make a token once with `claude
+setup-token`, then `/key CLAUDE_CODE_OAUTH_TOKEN <token>`): its turns cost nothing against
+the budgets, and the Costs page shows beside them what they would have cost at API
+prices. `backend: api` runs it on Argus's Anthropic API key (`/key anthropic <key>`), at
+the catalog's prices, against the project's budgets. Either way the secret stays in
+Argus: the agent reaches Anthropic through a route that adds it.
 
 ### `INSTRUCTIONS.md` — what the project is told
 
