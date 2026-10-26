@@ -39,6 +39,9 @@ import { ALWAYS, APPROVE, APPROVE_ALL, CONTINUE, DENY, alwaysButton, checkpointB
 import type { ApprovalsSection } from './config.js'
 import type { ApprovalEnding } from './events.js'
 
+/** The tools a delegated agent's call may be labelled as (`as`); any other label is `other`. */
+const DELEGATED_TOOLS: ReadonlySet<string> = new Set(['bash', 'read', 'write', 'edit', 'web_fetch', 'web_search', 'todo_write'])
+
 /** Options for the service. */
 export interface BridgeOptions {
   readonly store: OpsStore
@@ -138,6 +141,27 @@ export class OpsApprovalsBridge {
     if (exec.agent === undefined) return undefined
     const owner = this.options.projects.ownerOf(exec.agent.id as string)
     if (owner === undefined || owner.kind === 'orchestrator') return undefined
+    const verdict = this.verdict(owner, exec.name, exec.arguments)
+    if (verdict?.kind === 'ask') this.gated.set(exec.callId, verdict.action)
+    return verdict === undefined ? undefined : { kind: verdict.kind, reason: verdict.reason }
+  }
+
+  /**
+   * The gate's decision for one call of an owner, shared by dsh's calls ({@link gate})
+   * and an extension's delegated agent's ({@link decideDelegated}).
+   *
+   * @param owner the project or one-off task the call is for.
+   * @param name the tool, as dsh names it.
+   * @param args its arguments, in dsh's shapes.
+   * @returns ask (with the action asked about) or deny, or undefined to let it run.
+   */
+  private verdict(
+    owner: Exclude<ReturnType<OpsProjects['ownerOf']>, undefined>,
+    name: string,
+    args: unknown,
+  ): { kind: 'ask'; reason: string; action: ParsedAction } | { kind: 'deny'; reason: string } | undefined {
+    if (owner.kind === 'orchestrator') return undefined
+    const exec = { name, arguments: args }
     const { argv, path } = argumentsOf(exec.arguments)
     // A command on the fixed read-only list is a read: under the sandbox it reads only
     // the project's folder and the system.
@@ -183,8 +207,7 @@ export class OpsApprovalsBridge {
       [record['url'], record['query']].find((value): value is string => typeof value === 'string') ??
       (server === undefined ? undefined : JSON.stringify(exec.arguments ?? {}))
     const action = parseAction(exec.name, argv, target)
-    this.gated.set(exec.callId, action)
-    return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length) }
+    return { kind: 'ask', reason: renderAction(action, this.options.config.max_action_length), action }
   }
 
   /**
@@ -352,12 +375,34 @@ export class OpsApprovalsBridge {
      * scope leak the category was meant to prevent.
      */
     const runId = this.options.projects.runOf(sessionId) ?? sessionId
-    const id = randomUUID()
 
     // The argv is not on the event, so it is recovered from the project's last
     // observed tool call for this run. When it cannot be recovered the action is
     // `undefined`, which never matches an allowlist.
     const parsed = this.actionFor(request, sessionId, runId)
+    return (await this.decideFor({ projectId, runId, toolName: request.toolName, callId: request.callId, reason: request.reason }, parsed, next)).outcome
+  }
+
+  /**
+   * Everything after the request's project, run and action are known: the rules, a run
+   * grant, the question, the record. Shared by dsh's requests and delegated ones.
+   */
+  private async decideFor(
+    request: { readonly projectId: string | null; readonly runId: string; readonly toolName: string; readonly callId?: string | undefined; readonly reason?: string | undefined; readonly via?: string },
+    parsed: ParsedAction | undefined,
+    next: () => Promise<ApprovalOutcome>,
+  ): Promise<{ outcome: ApprovalOutcome; id: string }> {
+    const id = randomUUID()
+    return { outcome: await this.decided(request, parsed, next, id), id }
+  }
+
+  private async decided(
+    request: { readonly projectId: string | null; readonly runId: string; readonly toolName: string; readonly callId?: string | undefined; readonly reason?: string | undefined; readonly via?: string },
+    parsed: ParsedAction | undefined,
+    next: () => Promise<ApprovalOutcome>,
+    id: string,
+  ): Promise<ApprovalOutcome> {
+    const { projectId, runId } = request
 
     const projectConfig = projectId === null ? undefined : this.options.projects.configOf(projectId)
     const policy = policyOf(projectConfig?.approvals, this.options.config.approvals_adhoc)
@@ -430,7 +475,7 @@ export class OpsApprovalsBridge {
 
   /** Ask the operator, and act on the answer. */
   private async ask(
-    request: BridgeRequest,
+    request: { readonly reason?: string | undefined; readonly via?: string | undefined },
     next: () => Promise<ApprovalOutcome>,
     id: string,
     base: { id: string; projectId: string | null; runId: string; toolName: string; kind: ActionKind; action: string },
@@ -469,6 +514,7 @@ export class OpsApprovalsBridge {
       ...(always === undefined || projectId === null ? {} : { repeated: this.timesApproved(projectId, id, base.action) }),
       ...(unattended ? { unattendedSeconds: this.options.config.unattended_timeout_s } : {}),
       ...(detail === undefined ? {} : { detail }),
+      ...(request.via === undefined ? {} : { via: request.via }),
     })
 
     // The question id is OURS, so the answer can be attributed to the person who
@@ -530,6 +576,44 @@ export class OpsApprovalsBridge {
     // value so a wiring mistake is visible rather than silent.
     this.ctx.logger('ops-approvals').warn('unknown approval answer %j; refusing', value)
     return toOutcome(this.finish(id, base, 'denied', 'denied', `unrecognized answer ${sanitize(value, 40)}`, by))
+  }
+
+  // ── delegated actions ────────────────────────────────────────────────────
+
+  /**
+   * Decide a tool call of an agent an extension's server runs for a project (Claude
+   * Code), sent as `ask` on the server's host channel. The call is judged as if the
+   * project's own agent made it, by the same gate and the same rules, questions, run
+   * grants and records: `as` names the equivalent tool (`bash`, `read`, `write`, `edit`,
+   * `web_fetch`, `web_search`, `todo_write`) and `arguments` are in its shape. What the
+   * arguments hold outranks the label: a `command` is a shell command, a `url` a fetch,
+   * whatever `as` says. Anything malformed, and any failure, is a refusal.
+   *
+   * @param call the message, with the project and run from the socket.
+   * @returns allow or deny, with the reason the delegated agent is told.
+   */
+  async decideDelegated(call: { readonly projectId: string; readonly server: string; readonly runId: string; readonly message: Readonly<Record<string, unknown>> }): Promise<{ decision: 'allow' | 'deny'; reason: string }> {
+    try {
+      const { message } = call
+      const tool = typeof message['tool'] === 'string' ? sanitize(message['tool'], 64) : undefined
+      const args = message['arguments'] ?? {}
+      if (tool === undefined || typeof args !== 'object' || args === null || Array.isArray(args)) return { decision: 'deny', reason: 'Argus could not read this request (tool and arguments are required); not allowed.' }
+      const record = args as Record<string, unknown>
+      const label = typeof message['as'] === 'string' && DELEGATED_TOOLS.has(message['as']) ? message['as'] : 'other'
+      const name = record['command'] !== undefined ? 'bash' : record['url'] !== undefined ? 'web_fetch' : label
+      const owner = { kind: 'project', projectId: call.projectId } as const
+      const verdict = this.verdict(owner, name, record)
+      if (verdict === undefined) return { decision: 'allow', reason: `allowed by project ${call.projectId}'s policy` }
+      if (verdict.kind === 'deny') return { decision: 'deny', reason: verdict.reason }
+      const via = `${call.server}: ${tool}`
+      const { outcome, id } = await this.decideFor({ projectId: call.projectId, runId: call.runId, toolName: name, via }, verdict.action, async () => 'unavailable')
+      if (outcome === 'allowed-once') return { decision: 'allow', reason: 'approved' }
+      const detail = this.history.findLast((entry) => entry.id === id)?.detail
+      return { decision: 'deny', reason: `Not approved${detail === undefined ? '' : `: ${detail}`}. Do not look for another way to do the same thing.` }
+    } catch (error) {
+      this.ctx.logger('ops-approvals').warn('a delegated request failed, refusing: %s', error instanceof Error ? error.message : String(error))
+      return { decision: 'deny', reason: 'Argus could not decide this request; not allowed.' }
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

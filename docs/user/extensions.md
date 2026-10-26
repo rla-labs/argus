@@ -203,8 +203,22 @@ object per line; each request has an `id`, which its answer carries back:
 - The first message must be `hello` with the token, or the connection is closed.
 - The project and the run come from the socket, never from a message.
 - `ask`, `step` and `usage` need `approvals`, `steps` and `usage` in `host`, and a run
-  in progress in the project; what they carry is described with the releases that
-  answer them (0.8.0).
+  in progress in the project.
+- `ask` asks whether the agent the server runs may make one tool call, judged as if
+  the project's own agent made it: the project's `tools:` groups, `web_hosts`, its
+  approval rules, a question to a person with the same buttons, run grants, the record.
+  `tool` is the agent's own name for it, shown in the question; `as` the equivalent
+  Argus tool (`bash`, `read`, `write`, `edit`, `web_fetch`, `web_search`, `todo_write`;
+  anything else is asked about as `other`); `arguments` in that tool's shape. What the
+  arguments hold decides: a `command` is a shell command whatever `as` says.
+
+  ```text
+  → {"id":3,"type":"ask","tool":"Bash","as":"bash","arguments":{"command":"npm test"}}
+  ← {"id":3,"ok":true,"decision":"allow","reason":"allow-listed …"}
+  ```
+
+  The answer may take as long as the project's approvals timeout; anything but
+  `"decision":"allow"` (a refusal, an error, no answer) means the call does not run.
 - A message is at most 64 KB; at most 50 a second; one connection at a time.
 - A refused message answers `ok: false` with a code: `HOST_MESSAGE_REFUSED`,
   `HOST_NO_RUN`, or the one of the service that refused it.

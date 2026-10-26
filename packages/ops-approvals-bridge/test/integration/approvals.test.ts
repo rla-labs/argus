@@ -5,11 +5,16 @@
  * The bridge is driven through its real `handle()` against a real store, a real
  * governor and a real channel — with the console adapter answering the question.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
+import ArgusSandbox from '@argus-agent/argus-agent/sandbox-row'
+import { Extensions } from '@argus-agent/projects'
 import {
   bootOps,
   BASE_ENTRIES,
@@ -67,6 +72,8 @@ async function bootBridge(options: {
   opsYaml?: string
   dataDir?: string
   script?: readonly unknown[]
+  /** More entries, mounted before the bridge: the command sandbox. */
+  entries?: readonly { id: string; name: string }[]
 } = {}): Promise<Booted> {
   const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), 'ops-appr-'))
   if (options.dataDir === undefined) dirs.push(dataDir)
@@ -97,6 +104,7 @@ async function bootBridge(options: {
       { id: 'agent-preset-registry', name: '@deepseek-ai/dsh-agent-preset-registry', config: { default: 'default' } },
       { id: 'ops-config-registry', name: '@argus-agent/argus-agent/registry-row' },
       { id: 'ops-store', name: '@argus-agent/store' },
+      ...(options.entries ?? []),
       { id: 'ops-projects', name: '@argus-agent/projects' },
       { id: 'ops-meter', name: '@argus-agent/meter' },
       { id: 'ops-governor', name: '@argus-agent/governor' },
@@ -1400,5 +1408,110 @@ describe('the loop checker', () => {
     expect(stops).toEqual([])
     expect(adapter.texts().some((text) => text.includes('loop checker'))).toBe(false)
     expect(booted.store.runs.recent(1)[0]).toMatchObject({ status: 'completed', steps: 6 })
+  }, 60_000)
+})
+
+describe('a delegated agent’s calls (Claude Code, through the host channel)', () => {
+  /** A project with this policy, and a bridge with a console to ask on. */
+  async function delegated(project: Record<string, unknown>) {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-del-'))
+    dirs.push(dataDir)
+    const booted = await bootBridge({ dataDir, projects: { site: projectDocument(dataDir, 'site', project) } })
+    const adapter = await withConsole(booted)
+    const cwd = join(dataDir, 'projects', 'site')
+    const ask = (message: Record<string, unknown>, runId = 'run-d1') => booted.bridge.decideDelegated({ projectId: 'site', server: 'cc', runId, message })
+    return { booted, adapter, cwd, ask }
+  }
+
+  it('lets run what the project’s policy lets its own agent run, and refuses what it refuses', async () => {
+    const { cwd, ask } = await delegated({ tools: { write: 'allow', web: 'ask', web_hosts: ['docs.example.com'], shell: 'deny' }, approvals: { mode: 'ask', auto_allow: [] } })
+    expect(await ask({ tool: 'Read', as: 'read', arguments: { file_path: join(cwd, 'a.txt') } })).toMatchObject({ decision: 'allow' })
+    expect(await ask({ tool: 'Write', as: 'write', arguments: { file_path: join(cwd, 'b.txt') } })).toMatchObject({ decision: 'allow' })
+    expect(await ask({ tool: 'WebFetch', as: 'web_fetch', arguments: { url: 'https://docs.example.com/x' } })).toMatchObject({ decision: 'allow' })
+    const shell = await ask({ tool: 'Bash', as: 'bash', arguments: { command: 'npm install' } })
+    expect(shell.decision).toBe('deny')
+    expect(shell.reason).toContain('tools.shell: deny')
+    // The arguments outrank the label: a command called a read is still a command.
+    expect(await ask({ tool: 'Bash', as: 'read', arguments: { command: 'rm -rf src', file_path: join(cwd, 'a.txt') } })).toMatchObject({ decision: 'deny' })
+    // A read-only command is a read, as for the project's own agent: the confinement bounds what it reads.
+    expect(await ask({ tool: 'Bash', as: 'bash', arguments: { command: 'ls -la' } })).toMatchObject({ decision: 'allow' })
+  }, 30_000)
+
+  it('runs an allow-listed command unasked, and asks about another, saying who wants it; the answer is respected and recorded', async () => {
+    const { booted, adapter, ask } = await delegated({ approvals: { mode: 'ask', auto_allow: ['npm test'] } })
+    expect(await ask({ tool: 'Bash', as: 'bash', arguments: { command: 'npm test' } })).toMatchObject({ decision: 'allow' })
+
+    const denied = ask({ tool: 'Bash', as: 'bash', arguments: { command: 'rm -rf build' } })
+    await answerNext(booted, DENY)
+    expect(await denied).toMatchObject({ decision: 'deny', reason: expect.stringContaining('Not approved') })
+    const question = adapter.sent.map((sent) => sent.message.text).find((text) => text.includes('rm -rf build'))
+    expect(question).toContain('through   cc: Bash')
+    expect(question).toContain('project site')
+
+    const approved = ask({ tool: 'Bash', as: 'bash', arguments: { command: 'rm -rf build' } })
+    await answerNext(booted, APPROVE)
+    expect(await approved).toMatchObject({ decision: 'allow' })
+    const rows = booted.store.approvals.byRun('run-d1')
+    // The allow-listed one is recorded too, as for the project's own agent.
+    expect(rows.map((row) => row.status).sort()).toEqual(['denied', 'granted', 'granted'])
+  }, 30_000)
+
+  it('takes “approve all for this run” for the rest of that run only', async () => {
+    const { booted, ask } = await delegated({ approvals: { mode: 'ask', auto_allow: [] } })
+    const first = ask({ tool: 'Bash', as: 'bash', arguments: { command: 'make one' } })
+    await answerNext(booted, APPROVE_ALL)
+    expect(await first).toMatchObject({ decision: 'allow' })
+    expect(await ask({ tool: 'Bash', as: 'bash', arguments: { command: 'make two' } })).toMatchObject({ decision: 'allow' })
+    // Another run is asked again.
+    const other = ask({ tool: 'Bash', as: 'bash', arguments: { command: 'make two' } }, 'run-d2')
+    await answerNext(booted, DENY)
+    expect(await other).toMatchObject({ decision: 'deny' })
+  }, 30_000)
+
+  it('asks about a read outside the folder and an unknown tool, and refuses a request it cannot read', async () => {
+    const { booted, ask } = await delegated({})
+    const outside = ask({ tool: 'Read', as: 'read', arguments: { file_path: '/etc/shadow' } })
+    await answerNext(booted, DENY)
+    expect(await outside).toMatchObject({ decision: 'deny' })
+    const unknown = ask({ tool: 'Teleport', as: 'teleport', arguments: {} })
+    await answerNext(booted, DENY)
+    expect(await unknown).toMatchObject({ decision: 'deny' })
+    expect(await ask({ as: 'bash', arguments: { command: 'ls' } })).toMatchObject({ decision: 'deny', reason: expect.stringContaining('could not read') })
+    expect(await ask({ tool: 'Bash', as: 'bash', arguments: 'ls' })).toMatchObject({ decision: 'deny' })
+  }, 30_000)
+
+  it('answers ask on the host channel through ops-projects', async () => {
+    const { booted } = await delegated({})
+    // The handler the bridge registered: a second registration is refused.
+    expect(() => booted.projects.hostHandle('ask', () => ({}))).toThrow(/already answered/)
+  }, 30_000)
+
+  const landlock = new ArgusSandbox(new Context()).doctor()[0]?.ok === true
+
+  it.skipIf(!landlock)('decides an ask sent by a confined extension server on its socket, in a run, and records it', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-appr-host-'))
+    dirs.push(dataDir)
+    const repo = mkdtempSync(join(tmpdir(), 'ext-cc-'))
+    dirs.push(repo)
+    writeFileSync(join(repo, 'extension.yaml'), 'name: cc\nversion: 1.0.0\nsummary: A delegate\nmcp:\n  cc: {command: node, args: ["${EXTENSION_DIR}/host-probe-mcp.mjs"], access: allow, host: [approvals]}\n')
+    copyFileSync(fileURLToPath(new URL('../../../ops-projects/test/fixtures/host-probe-mcp.mjs', import.meta.url)), join(repo, 'host-probe-mcp.mjs'))
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env })
+    const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+    await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+
+    const booted = await bootBridge({
+      dataDir,
+      projects: { site: projectDocument(dataDir, 'site', { extensions: ['cc'], approvals: { mode: 'ask', auto_allow: ['npm test'] } }) },
+      entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }],
+    })
+    const agent = await booted.projects.ensureAgent('site')
+    const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): { execute(args: unknown, exec: unknown): Promise<unknown> } | undefined } } }).ctx
+    ;(booted.projects as unknown as { live: Map<string, { runId?: string }> }).live.get('site')!.runId = 'run-host'
+    const out = JSON.stringify(await ctx.tools.get('mcp__cc__talk', scopeOf(ctx as never))?.execute({ ask: { tool: 'Bash', as: 'bash', arguments: { command: 'npm test' } } }, { signal: new AbortController().signal }))
+    ;(booted.projects as unknown as { live: Map<string, { runId?: string }> }).live.get('site')!.runId = undefined
+    expect(out).toContain('\\"decision\\":\\"allow\\"')
+    expect(booted.store.approvals.byRun('run-host').map((row) => row.status)).toEqual(['granted'])
+    await extensions.remove('cc')
   }, 60_000)
 })

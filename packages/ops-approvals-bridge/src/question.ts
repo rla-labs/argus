@@ -92,6 +92,8 @@ export interface QuestionInput {
   readonly unattendedSeconds?: number
   /** What the call does, shown whole under the action: a mail, as it will be sent. */
   readonly detail?: string
+  /** An extension's agent that wants it (`cc: Bash`), when it is not the project's own agent. */
+  readonly via?: string
 }
 
 /**
@@ -126,6 +128,7 @@ export function approvalQuestion(input: QuestionInput): string {
     `  project   ${where}`,
     `  run       ${input.runId}`,
     `  tool      ${input.toolName}`,
+    ...(input.via === undefined ? [] : [`  through   ${sanitize(input.via, 80)} (an extension's agent, working for the project)`]),
     `  kind      ${kind}`,
     `  action    ${action}`,
   ]

@@ -79,6 +79,11 @@ export function apply(ctx: Context): void {
 
   ctx.provide('opsApprovals', bridge)
 
+  // A delegated agent's tool calls (Claude Code, through its extension's host channel),
+  // judged as the project's own agent's are. Disabled bridge: no answerer, so `ask` is
+  // refused as not available, and the extension refuses the call.
+  ctx.effect(() => ctx.opsProjects.hostHandle('ask', (call) => bridge.decideDelegated(call)))
+
   /**
    * The answerer.
    *
