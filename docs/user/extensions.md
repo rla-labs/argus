@@ -235,7 +235,7 @@ object per line; each request has an `id`, which its answer carries back:
   `"decision":"allow"` (a refusal, an error, no answer) means the call does not run.
 - `hello`'s answer also carries what the server enforces itself, from the project's
   [`delegate`](configuration.md#delegate--an-agent-an-extension-runs-for-the-project)
-  block: `limits: {max_turns, max_minutes}`, and `approval_timeout_s`, so its own
+  block: `limits: {max_turns, max_minutes}`, `model`, and `approval_timeout_s`, so its own
   timeouts sit above a question's.
 - `step` reports one step the agent took, after it ran: `tool`, `arguments`, `ok`,
   `result` (its text, cut to a few KB). Argus watches the steps for loops and answers

@@ -942,6 +942,7 @@ delegate:
   max_minutes: 30   # minutes one call may take
   day_turns: 300    # turns all calls may take in a day, across the project
   backend: subscription   # or api: what it runs on
+  model: sonnet           # or opus, haiku, or a model id
 ```
 
 An extension such as `claude-code` runs another agent for the project when the project's
@@ -956,7 +957,9 @@ setup-token`, then `/key CLAUDE_CODE_OAUTH_TOKEN <token>`): its turns cost nothi
 the budgets, and the Costs page shows beside them what they would have cost at API
 prices. `backend: api` runs it on Argus's Anthropic API key (`/key anthropic <key>`), at
 the catalog's prices, against the project's budgets. Either way the secret stays in
-Argus: the agent reaches Anthropic through a route that adds it.
+Argus: the agent reaches Anthropic through a route that adds it. `model` is chosen here:
+through that route Claude Code cannot see the subscription's plan, and on its own it would
+stay on its default, Opus, which spends a plan fastest; Sonnet fits most code work.
 
 ### `INSTRUCTIONS.md` — what the project is told
 

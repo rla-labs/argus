@@ -83,6 +83,12 @@ export interface ProjectDelegate {
    * Argus's Anthropic API key, charged against the budgets.
    */
   readonly backend: 'subscription' | 'api'
+  /**
+   * The model it uses: an alias its agent knows (`sonnet`, `opus`, `haiku`) or a full id.
+   * Chosen here, because on a subscription reached through Argus's route the agent cannot
+   * see the plan and would stay on its own default (Opus), which spends the plan fastest.
+   */
+  readonly model: string
 }
 
 /** A project's memory settings. */
@@ -167,6 +173,10 @@ function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
     return Array.isArray(value) ? value : []
   }
   const issues: ProjectConfigIssue[] = []
+  const delegateModel = isMapping(document['delegate']) ? document['delegate']['model'] : undefined
+  if (delegateModel !== undefined && (typeof delegateModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(delegateModel))) {
+    issues.push({ path: 'delegate.model', message: 'a model alias (sonnet, opus, haiku) or a model id: letters, digits, . _ : -' })
+  }
   for (const [index, rule] of listOf(document['approvals'], 'auto_allow').entries()) {
     if (typeof rule === 'string' && rule.split(/\s+/).slice(0, -1).some((token) => token.includes('*'))) {
       issues.push({ path: `approvals.auto_allow.${index}`, message: `"${rule}": * may only end a rule, alone ("docker logs *")` })
@@ -299,6 +309,7 @@ export const projectConfigSchema = z.object({
       max_minutes: z.natural().min(1).default(30),
       day_turns: z.natural().min(1).default(300),
       backend: z.union([z.const('subscription'), z.const('api')]).default('subscription'),
+      model: z.string().default('sonnet'),
     })
     .default({}),
   memory: z

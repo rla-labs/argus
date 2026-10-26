@@ -148,7 +148,7 @@ describe('an extension enabled in a project', () => {
 
     // Outside a run: hello works, with the limits from the project's file; the rest is refused.
     const idle = await talk()
-    expect(idle.answers[0]).toMatchObject({ ok: true, project: 'site', server: 'cc', host: ['approvals'], limits: { max_turns: 7, max_minutes: 30 }, approval_timeout_s: 1800 })
+    expect(idle.answers[0]).toMatchObject({ ok: true, project: 'site', server: 'cc', host: ['approvals'], limits: { max_turns: 7, max_minutes: 30 }, model: 'sonnet', approval_timeout_s: 1800 })
     expect(idle.answers[1]).toMatchObject({ ok: false, error: { code: 'HOST_NO_RUN' } })
     // Its socket and its folder are out of its reach.
     expect(idle.removed).toMatch(/refused/)

@@ -230,7 +230,7 @@ export class OpsProjects {
       // and how long a question may wait, so its own timeouts sit above it.
       (projectId) => {
         const config = this.configs.get(projectId)
-        return config === undefined ? {} : { limits: { max_turns: config.delegate.max_turns, max_minutes: config.delegate.max_minutes }, approval_timeout_s: config.approvals.timeout_minutes * 60 }
+        return config === undefined ? {} : { limits: { max_turns: config.delegate.max_turns, max_minutes: config.delegate.max_minutes }, model: config.delegate.model, approval_timeout_s: config.approvals.timeout_minutes * 60 }
       },
     )
     this.oauth = new McpOAuth({
