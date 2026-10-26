@@ -11,7 +11,7 @@ import { money, since, t } from '../i18n.js'
 import { Bar, Icon, Seg, StateChip, Toggle, toast } from '../kit.js'
 import { href } from '../router.js'
 import { useData, type PageProps } from '../ui.js'
-import { spentText, stateOf, when, type ProjectCard } from './home.js'
+import { spentText, stateOf, when, workingText, type ProjectCard } from './home.js'
 import type { Overview } from './legacy.js'
 import { ProjectSettings } from './project-settings.js'
 import { Thread } from './thread.js'
@@ -343,7 +343,7 @@ export function ProjectSpace({ id, tab, sec, version, chatVersion, run, can, ove
     ${current === 'chat'
       ? html`<div class="split">
           <div style="flex:999 1 520px;min-width:0"><${Thread} thread=${`p:${id}`} version=${chatVersion} uploadTo=${id}
-            busy=${project.step === null ? null : t('home.working', { step: project.step })} empty=${t('space.empty', { id })} placeholder=${t('space.placeholder', { id })} /></div>
+            busy=${project.step === null ? null : workingText(project)} empty=${t('space.empty', { id })} placeholder=${t('space.placeholder', { id })} /></div>
           <aside class="stack" style="flex:1 1 260px;min-width:0">
             <section class="panel corners pad stack" style="gap:12px">
               <div class="cluster"><p class="lbl">${t('space.now')}</p>${live === undefined ? null : html`<span class="live" style="margin-left:auto" aria-hidden="true"><span></span><span></span><span></span><span></span></span>`}</div>

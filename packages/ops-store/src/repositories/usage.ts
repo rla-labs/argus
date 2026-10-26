@@ -51,10 +51,10 @@ export class UsageRepository {
     this.insertEventStmt = db.prepare(`
       INSERT INTO usage_events
         (ts, run_id, project_id, scope, root_session, session_id, provider, model,
-         input_tokens, cached_tokens, output_tokens, cost_micros)
+         input_tokens, cached_tokens, output_tokens, cost_micros, notional_micros, delegated)
       VALUES
         (@ts, @run_id, @project_id, @scope, @root_session, @session_id, @provider, @model,
-         @input_tokens, @cached_tokens, @output_tokens, @cost_micros)
+         @input_tokens, @cached_tokens, @output_tokens, @cost_micros, @notional_micros, @delegated)
     `)
     // Incremental rollup. Adding in SQL keeps the arithmetic integral, so no
     // float ever touches a stored total.
@@ -182,6 +182,8 @@ export class UsageRepository {
           cached_tokens: event.cached_tokens,
           output_tokens: event.output_tokens,
           cost_micros: event.cost_micros,
+          notional_micros: event.notional_micros ?? 0,
+          delegated: event.delegated ?? null,
         })
       }
       for (const { day, delta } of deltas.values()) {
@@ -197,6 +199,29 @@ export class UsageRepository {
     })
     run()
     return events.length
+  }
+
+  /**
+   * The times of a project's delegated turns since a moment: what `delegate.day_turns`
+   * counts, re-read after a restart.
+   *
+   * @param projectId the project.
+   * @param fromTs the earliest time, inclusive.
+   * @returns the event times, oldest first.
+   */
+  delegatedSince(projectId: string, fromTs: number): number[] {
+    return (this.db.prepare('SELECT ts FROM usage_events WHERE project_id = ? AND ts >= ? AND delegated IS NOT NULL ORDER BY ts').all(projectId, fromTs) as { ts: number }[]).map((row) => row.ts)
+  }
+
+  /**
+   * What delegated agents on a subscription would have cost at list prices, by scope,
+   * with each event's time, since a moment.
+   *
+   * @param fromTs the earliest time, inclusive.
+   * @returns one row per event that has a notional cost.
+   */
+  notionalSince(fromTs: number): { scope: Scope; ts: number; notional_micros: number }[] {
+    return this.db.prepare('SELECT scope, ts, notional_micros FROM usage_events WHERE ts >= ? AND notional_micros > 0').all(fromTs) as { scope: Scope; ts: number; notional_micros: number }[]
   }
 
   /**

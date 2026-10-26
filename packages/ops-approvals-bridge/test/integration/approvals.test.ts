@@ -1480,6 +1480,16 @@ describe('a delegated agent’s calls (Claude Code, through the host channel)', 
     expect(await ask({ tool: 'Bash', as: 'bash', arguments: 'ls' })).toMatchObject({ decision: 'deny' })
   }, 30_000)
 
+  it('withdraws its open question when the run ends, and refuses the call as nobody answered in time for it', async () => {
+    const { booted, adapter, ask } = await delegated({})
+    const pending = ask({ tool: 'Bash', as: 'bash', arguments: { command: 'make deploy' } }, 'run-gone')
+    await waitFor(() => consoleOf(booted).pendingCount > 0, { timeoutMs: 10_000, label: 'a question' })
+    booted.ctx.emit('ops/agent-idle', { owner: { kind: 'project', projectId: 'site' }, sessionId: 's', runId: 'run-gone' })
+    expect(await pending).toMatchObject({ decision: 'deny', reason: expect.stringContaining('the run ended before an answer') })
+    expect(adapter.closed.map((entry) => entry.note)).toContain('The run ended before an answer; nothing was done.')
+    expect(booted.store.approvals.byRun('run-gone').map((row) => row.status)).toEqual(['unavailable'])
+  }, 30_000)
+
   it('answers ask on the host channel through ops-projects', async () => {
     const { booted } = await delegated({})
     // The handler the bridge registered: a second registration is refused.

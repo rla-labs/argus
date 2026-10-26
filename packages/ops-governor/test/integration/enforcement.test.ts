@@ -1469,6 +1469,26 @@ describe('the steps of an agent an extension runs for a project', () => {
     expect(step('x', 'run-unknown')).toEqual({ continue: true })
   }, 30_000)
 
+  it('records its turns at no cost, with what they would have cost, and stops it past the day’s turns', async () => {
+    const booted = await bootGovernor({ projects: { site: { delegate: { day_turns: 2 } } } })
+    governedRun(booted, 'run-use')
+    const stops: unknown[] = []
+    booted.ctx.on('ops/delegated-stop', (payload) => void stops.push(payload))
+    const usage = () => booted.governor.delegatedUsage({ projectId: 'site', server: 'cc', runId: 'run-use', message: { model: 'claude-sonnet-x', input_tokens: 100, cached_tokens: 50, output_tokens: 20, notional_micros: 4_000 } })
+    expect(usage()).toEqual({ continue: true })
+    const second = usage()
+    expect(second.continue).toBe(false)
+    expect(second.reason).toContain('2 turns for today (delegate.day_turns)')
+    expect(stops).toEqual([expect.objectContaining({ reason: 'day_limit', server: 'cc' })])
+    expect(booted.meter.spending('project:site').dayMicros).toBe(0)
+    expect(booted.meter.notional('project:site', Date.now()).dayMicros).toBe(8_000)
+    expect(booted.meter.runTotals('run-use')).toMatchObject({ inputTokens: 200, outputTokens: 40 })
+    // Its steps show in the run's status.
+    booted.governor.delegatedStep({ projectId: 'site', server: 'cc', runId: 'run-use', message: { tool: 'Edit', arguments: {}, ok: true, result: 'ok' } })
+    expect(booted.governor.status().running.find((run) => run.runId === 'run-use')?.delegated).toEqual({ steps: 1, server: 'cc', tool: 'Edit', ok: true })
+    expect(() => booted.projects.hostHandle('usage', () => ({}))).toThrow(/already answered/)
+  }, 30_000)
+
   it('stops it while the run is stopping, and answers step on the host channel', async () => {
     const booted = await bootGovernor({ projects: { site: {} } })
     const track = governedRun(booted, 'run-stop')

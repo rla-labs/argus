@@ -418,6 +418,10 @@ function Budget({ values, set, field }: SectionProps): VNode {
     <${Row} title=${t('ps.maxSteps')} help=${t('ps.maxStepsHelp')}>${number('limits.max_steps_total')}<//>
     <${Row} title=${t('ps.loopCheck')} help=${t('ps.loopCheckHelp')}>${number('limits.loop_check_steps')}<//>
     <${Row} title=${t('ps.onLoop')}><${Seg} label=${t('ps.onLoop')} value=${String(values['limits.on_loop'])} onChange=${(next: string) => set('limits.on_loop', next)} options=${['stop', 'notify', 'ask'].map((value) => ({ value, label: t(`ps.loop.${value}`) }))} /><//>
+    <div class="pad" style="padding-bottom:4px"><h3>${t('ps.delegate')}</h3><p class="help">${t('ps.delegateHelp')}</p></div>
+    <${Row} title=${t('ps.delegateTurns')}>${number('delegate.max_turns')}<//>
+    <${Row} title=${t('ps.delegateMinutes')}>${number('delegate.max_minutes')}<//>
+    <${Row} title=${t('ps.delegateDay')}>${number('delegate.day_turns')}<//>
   </section>`
 }
 

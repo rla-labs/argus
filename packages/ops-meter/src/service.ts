@@ -46,6 +46,10 @@ export interface RecordInput {
   readonly ts: number
   /** A fixed cost (a web search's price), charged instead of pricing the usage. */
   readonly costMicros?: MicroUsd
+  /** What it would have cost at list prices: an agent on a subscription, which costs `costMicros` 0. */
+  readonly notionalMicros?: MicroUsd
+  /** The extension server whose agent made it (Claude Code's): one turn of `delegate.day_turns`. */
+  readonly delegated?: string
 }
 
 /** A snapshot of one scope's spending. */
@@ -304,6 +308,8 @@ export class OpsMeter {
       )
     }
 
+    // Read before this turn is buffered, so the first turn of a day is not counted twice.
+    const turns = input.delegated !== undefined && input.owner.kind === 'project' ? this.turnsOf(input.owner.projectId, input.ts) : undefined
     this.buffer({
       ts: input.ts,
       run_id: input.runId ?? null,
@@ -317,7 +323,10 @@ export class OpsMeter {
       cached_tokens: counts.cachedTokens,
       output_tokens: counts.outputTokens,
       cost_micros: costMicros,
+      notional_micros: Number(input.notionalMicros ?? 0),
+      delegated: input.delegated ?? null,
     })
+    if (turns !== undefined) turns.count += 1
 
     this.ctx.emit('ops/usage', {
       owner: input.owner,
@@ -330,6 +339,56 @@ export class OpsMeter {
     })
 
     return costMicros
+  }
+
+  /** A project's delegated turns today, read from the store once a day (or after a restart). */
+  private readonly delegatedTurnsByProject = new Map<string, { day: string; count: number }>()
+
+  private turnsOf(projectId: string, ts: number): { day: string; count: number } {
+    const day = this.options.calendar.dayOf(ts)
+    const known = this.delegatedTurnsByProject.get(projectId)
+    if (known !== undefined && known.day === day) return known
+    // ponytail: the last 26 hours, filtered by the calendar's day; a store query by day if a day ever holds very many turns.
+    const stored = this.options.store.usage.delegatedSince(projectId, ts - 26 * 3_600_000).filter((at) => this.options.calendar.dayOf(at) === day).length
+    const buffered = this.pending.filter((event) => event.project_id === projectId && event.delegated != null && this.options.calendar.dayOf(event.ts) === day).length
+    const entry = { day, count: stored + buffered }
+    this.delegatedTurnsByProject.set(projectId, entry)
+    return entry
+  }
+
+  /**
+   * How many turns the agents extensions run for a project took today
+   * (`delegate.day_turns`); right after a restart too.
+   *
+   * @param projectId the project.
+   * @param now the time.
+   * @returns the count.
+   */
+  delegatedTurns(projectId: string, now: number): number {
+    return this.turnsOf(projectId, now).count
+  }
+
+  /**
+   * What agents on a subscription would have cost a scope at list prices, today and this
+   * month: shown beside what was spent, never counted against a budget.
+   *
+   * @param scope the scope.
+   * @param now the time.
+   * @returns micro-USD, today and this month.
+   */
+  notional(scope: Scope, now: number): { dayMicros: number; monthMicros: number } {
+    const day = this.options.calendar.dayOf(now)
+    const month = this.options.calendar.monthOf(now)
+    const events = [...this.options.store.usage.notionalSince(now - 32 * 86_400_000), ...this.pending.filter((event) => (event.notional_micros ?? 0) > 0).map((event) => ({ scope: event.scope, ts: event.ts, notional_micros: event.notional_micros ?? 0 }))]
+    let dayMicros = 0
+    let monthMicros = 0
+    for (const event of events) {
+      if (scope !== 'global' && event.scope !== scope) continue
+      if (this.options.calendar.monthOf(event.ts) !== month) continue
+      monthMicros += event.notional_micros
+      if (this.options.calendar.dayOf(event.ts) === day) dayMicros += event.notional_micros
+    }
+    return { dayMicros, monthMicros }
   }
 
   /** Add an event to the buffer, flushing when the threshold is reached. */

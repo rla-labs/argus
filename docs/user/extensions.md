@@ -227,6 +227,11 @@ object per line; each request has an `id`, which its answer carries back:
   `result` (its text, cut to a few KB). Argus watches the steps for loops and answers
   `{"continue": true}`, or `{"continue": false, "reason": "…"}`: stop the agent now (a
   loop, an exhausted budget, the run stopping) and tell the project's agent the reason.
+- `usage` reports one turn of the agent: `model`, `input_tokens`, `cached_tokens`,
+  `output_tokens`, and `notional_micros`, what it would have cost at the API's list prices
+  (an integer, micro-USD). Argus records it against the run and the project at cost 0
+  (a subscription; budgets untouched) with the notional cost beside, and counts it against
+  the project's `delegate.day_turns`: past it, the answer is `{"continue": false, …}`.
 - `stop` from Argus (`{"type":"stop","reason":"cancelled"}` or `"the run ended"`) means
   the same: stop the agent and everything it started.
 - A message is at most 64 KB; at most 50 a second; one connection at a time.

@@ -101,6 +101,8 @@ const OVERVIEW_EVENTS = [
   'ops/run-started',
   'ops/run-stopped',
   'ops/checkpoint-waiting',
+  'ops/delegated-step',
+  'ops/delegated-stop',
   'ops/agent-running',
   'ops/agent-idle',
   'ops/approval-requested',

@@ -244,6 +244,8 @@ export interface ProjectRow extends ProjectView {
   readonly lastRun: { readonly at: number; readonly status: string; readonly text: string | null; readonly stopReason: string | null; readonly steps: number } | null
   /** The step the run in progress is at; `null` when nothing runs. */
   readonly step: number | null
+  /** An agent an extension runs for it (Claude Code), while the run goes: its steps and the last one. */
+  readonly delegated: { readonly server: string; readonly steps: number; readonly tool: string; readonly ok: boolean } | null
   /** The next scheduled run; `null` when none is enabled. */
   readonly next: { readonly at: number; readonly what: string } | null
   /** Approvals and loop checks waiting for an answer. */
@@ -321,6 +323,7 @@ export function projectList(sources: DataSources): ProjectRow[] {
               steps: last.steps,
             },
       step: status.running.find((run) => run.owner.kind === 'project' && run.owner.projectId === project.id)?.steps ?? null,
+      delegated: status.running.find((run) => run.owner.kind === 'project' && run.owner.projectId === project.id)?.delegated ?? null,
       next: next === undefined ? null : { at: next.next, what: next.what },
       pending: all.approvals.filter((approval) => approval.projectId === project.id).length + all.checkpoints.filter((checkpoint) => checkpoint.who === project.id).length,
     }
@@ -447,6 +450,8 @@ export interface ScopeSpend {
   readonly monthMicros: number
   readonly dayLimitMicros: number | null
   readonly monthLimitMicros: number | null
+  /** What agents on a subscription would have cost at list prices this month: shown, never charged. */
+  readonly notionalMonthMicros: number
 }
 
 /** The Runs & costs page. */
@@ -480,6 +485,7 @@ export function runsAndCosts(sources: DataSources): RunsAndCosts {
         monthMicros: Number(spending.monthMicros),
         dayLimitMicros: budgetOf(status, scope, 'day').limit,
         monthLimitMicros: budgetOf(status, scope, 'month').limit,
+        notionalMonthMicros: sources.meter.notional(scope, sources.now()).monthMicros,
       }
     }),
     runs: sources.store.runs.recent(RUNS_SHOWN).map((row) => runView(sources, row)),

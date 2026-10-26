@@ -940,7 +940,7 @@ A template may list extensions too.
 delegate:
   max_turns: 50     # turns one call may take
   max_minutes: 30   # minutes one call may take
-  day_turns: 300    # turns all calls may take in a day (from 0.8.0)
+  day_turns: 300    # turns all calls may take in a day, across the project
 ```
 
 An extension such as `claude-code` runs another agent for the project when the project's
@@ -949,7 +949,9 @@ delegate.max_turns 80`); the project's agent cannot raise them. Each of that age
 calls is decided like the project agent's own (its `tools`, `web_hosts`,
 `approvals.auto_allow`, the same questions); its steps are watched for loops with
 `limits.loop_repeat_threshold`, and a loop stops it, not the run: the project's agent is
-told why. A cancel, a stop or the run's end stops it too.
+told why. A cancel, a stop or the run's end stops it too, and a question it still waits
+for is withdrawn. It runs on your own subscription: its turns cost nothing against the
+budgets, and the Costs page shows beside them what they would have cost at API prices.
 
 ### `INSTRUCTIONS.md` — what the project is told
 

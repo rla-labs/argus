@@ -83,6 +83,9 @@ export interface PendingInfo {
 }
 
 /** One running agent, as `status()` reports it. */
+/** Why the governor told an agent an extension runs to stop. */
+export type DelegatedStopReason = 'run_stopping' | 'budget_stopped' | 'loop_detected' | 'day_limit'
+
 export interface RunInfo {
   readonly runId: string
   readonly owner: Owner
@@ -92,6 +95,8 @@ export interface RunInfo {
   readonly startedAt: number
   /** Set while the run waits for a person, after the loop checker found a loop (`on_loop: ask`). */
   readonly checkpoint?: { readonly steps: number; readonly reason: string; readonly since: number }
+  /** Set once an agent an extension runs for it (Claude Code) took a step: how many, and the last. */
+  readonly delegated?: { readonly steps: number; readonly server: string; readonly tool: string; readonly ok: boolean }
 }
 
 /**
@@ -235,6 +240,8 @@ interface RunTrack {
   delegatedSteps?: string[]
   /** How many steps those agents took in this run. */
   delegatedCount?: number
+  /** Their last step, for the run's activity. */
+  delegatedLast?: { readonly server: string; readonly tool: string; readonly ok: boolean }
   /** Whether the downgrade was already audited for this run. */
   downgradeAudited: boolean
   /** The request this run serves, when it came from the queue. */
@@ -1461,12 +1468,13 @@ export class OpsGovernor {
     const history = (track.delegatedSteps ??= [])
     history.push(stepKey(toolCallKey(`${call.server}:${tool}`, message['arguments'] ?? {}), result, !ok))
     track.delegatedCount = (track.delegatedCount ?? 0) + 1
+    track.delegatedLast = { server: call.server, tool, ok }
     const limits = this.stepLimitsOf(track.owner)
     const keep = limits.loopRepeatThreshold * MAX_LOOP_CYCLE
     if (history.length > keep) history.splice(0, history.length - keep)
     this.ctx.emit('ops/delegated-step', { projectId: call.projectId, runId: call.runId, server: call.server, tool, ok, steps: track.delegatedCount })
 
-    const stop = (reason: 'run_stopping' | 'budget_stopped' | 'loop_detected', detail: string): { continue: false; reason: string } => {
+    const stop = (reason: DelegatedStopReason, detail: string): { continue: false; reason: string } => {
       this.ctx.emit('ops/delegated-stop', { projectId: call.projectId, runId: call.runId, server: call.server, reason, detail })
       return { continue: false, reason: detail }
     }
@@ -1482,6 +1490,45 @@ export class OpsGovernor {
           ? `"${loop.tools[0]}" gave the same result ${limits.loopRepeatThreshold} times in a row, with the same arguments`
           : `a cycle of ${loop.period} calls (${loop.tools.join(', ')}) repeated ${limits.loopRepeatThreshold} times with the same results`,
       )
+    }
+    return { continue: true }
+  }
+
+  /**
+   * One turn of an agent an extension runs for a project (`usage` on the server's host
+   * channel): recorded against the run and the project at cost 0 (a subscription), its
+   * list-price cost beside it, and counted against the project's `delegate.day_turns`.
+   *
+   * @param call the message, with the project and run from the socket.
+   * @returns whether the delegated agent goes on: not past the day's turns.
+   */
+  delegatedUsage(call: { readonly projectId: string; readonly server: string; readonly runId: string; readonly message: Readonly<Record<string, unknown>> }): { continue: boolean; reason?: string } {
+    const { message } = call
+    const count = (key: string): number => {
+      const value = message[key]
+      return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+    }
+    const track = [...this.running.values()].find((entry) => entry.runId === call.runId)
+    const now = this.options.now()
+    const model = typeof message['model'] === 'string' && message['model'].length > 0 ? message['model'].slice(0, 80) : 'unknown'
+    this.options.meter.record({
+      sessionId: track?.sessionId ?? call.runId,
+      rootSessionId: track?.sessionId ?? call.runId,
+      owner: { kind: 'project', projectId: call.projectId },
+      model: { provider: call.server, model },
+      usage: { inputTokens: count('input_tokens'), outputTokens: count('output_tokens'), cacheReadTokens: count('cached_tokens') } as TokenUsage,
+      runId: call.runId,
+      ts: now,
+      costMicros: 0 as MicroUsd,
+      notionalMicros: count('notional_micros') as MicroUsd,
+      delegated: call.server,
+    })
+    const limit = this.options.projects.configOf(call.projectId)?.delegate.day_turns
+    const turns = this.options.meter.delegatedTurns(call.projectId, now)
+    if (limit !== undefined && turns >= limit) {
+      const detail = `the project's agents run by extensions took their ${limit} turns for today (delegate.day_turns)`
+      this.ctx.emit('ops/delegated-stop', { projectId: call.projectId, runId: call.runId, server: call.server, reason: 'day_limit', detail })
+      return { continue: false, reason: detail }
     }
     return { continue: true }
   }
@@ -1640,6 +1687,7 @@ export class OpsGovernor {
         steps: track.steps,
         startedAt: track.startedAt,
         ...(track.waiting === undefined ? {} : { checkpoint: track.waiting }),
+        ...(track.delegatedLast === undefined ? {} : { delegated: { steps: track.delegatedCount ?? 0, ...track.delegatedLast } }),
       })),
       pending: pending.map((request) => ({
         requestId: request.id,

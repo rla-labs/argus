@@ -13,7 +13,7 @@ settings, and a chat. It is built for **one person on a private network**.
 | **Inbox** | Everything waiting for a decision, from every project, oldest first: approvals (Approve, Deny, "All of this kind, this run", and for the admin "Always allow" where the rule can be named), mails waiting in an outbox (shown whole, as they will go), possible loops (Continue, Stop) and alerts. An answer here closes the question on Telegram too. |
 | **Sessions** | Conversations with no project, on the default model ([`/session`](commands.md#session-id-text--close-id)). Each remembers only while it is open and closes a day after its last message, with its folder. |
 | **Schedules** | Every schedule, from every project, with the next 24 hours on a line. |
-| **Costs** | Today and this month against the budgets, the last 14 days, this month by project (with its budget), and the recent runs. |
+| **Costs** | Today and this month against the budgets, the last 14 days, this month by project (with its budget, and, for an agent on a subscription such as Claude Code, "≈ $… at API prices": what it would have cost, never charged), and the recent runs. |
 | **Settings** | Your account; and for the admin everything that is Argus's: web access, models and providers, keys and secrets, web search, extensions, templates, budgets, channels, users, security, language, system health, and every `ops.yaml` key under **Advanced**. |
 
 **A project's settings**, in sections and plain words: General (what it is for, the
@@ -23,7 +23,7 @@ save), Extensions, Connections (MCP servers added by URL or command and signed i
 **Connect**; git remotes and their tokens; mail: the account and who it may write to, the trusted
 addresses with what each used in the last 24 hours, the daily limits, pause and resume,
 the outbox, and the mailbox it reads),
-Budget and limits, Memory and history (forget a section, go back to a point), the
+Budget and limits (with the limits of an agent an extension runs for it: turns and minutes a call, turns a day), Memory and history (forget a section, go back to a point), the
 danger zone, and Advanced (every key of its file, marked when it no longer follows its
 template). A change waits in a bar until **Save**.
 

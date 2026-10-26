@@ -77,6 +77,7 @@ export function apply(ctx: Context): void {
   registerAskProject(ctx, governor)
   // The steps of agents extensions run for a project (Claude Code), on their host channel.
   ctx.effect(() => ctx.opsProjects.hostHandle('step', (call) => governor.delegatedStep(call)))
+  ctx.effect(() => ctx.opsProjects.hostHandle('usage', (call) => governor.delegatedUsage(call)))
   ctx.effect(() => () => {
     governor.dispose()
   })

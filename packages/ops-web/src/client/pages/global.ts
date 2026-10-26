@@ -57,6 +57,7 @@ interface ScopeSpend {
   readonly monthMicros: number
   readonly dayLimitMicros: number | null
   readonly monthLimitMicros: number | null
+  readonly notionalMonthMicros: number
 }
 
 interface RunView {
@@ -101,7 +102,7 @@ export function CostsPage({ version, overview }: PageProps & { overview: Overvie
       ${[...projects, ...others].map((scope) => html`<div class="ri" key=${scope.scope}>
         <b style="width:160px;overflow:hidden;text-overflow:ellipsis">${name(scope.scope)}</b>
         <div style="flex:1 1 200px"><${Bar} pct=${pct(scope.monthMicros, scope.monthLimitMicros)} /></div>
-        <span class="mono" style="width:170px;text-align:right">${spentText(scope.monthMicros, scope.monthLimitMicros)}</span>
+        <span class="mono" style="width:170px;text-align:right">${spentText(scope.monthMicros, scope.monthLimitMicros)}${scope.notionalMonthMicros > 0 ? html`<div class="faint" style="font-size:12px" title=${t('costs.notionalHelp')}>${t('costs.notional', { amount: money(scope.notionalMonthMicros) })}</div>` : null}</span>
         ${scope.scope.startsWith('project:') ? html`<a class="btn sm" href=${href({ name: 'project', id: scope.scope.slice('project:'.length), tab: 'settings', sec: 'budget' })}>${t('glob.budget')}</a>` : html`<span style="width:76px"></span>`}
       </div>`)}
     </section>

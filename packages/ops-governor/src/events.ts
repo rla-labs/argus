@@ -56,14 +56,15 @@ declare module '@deepseek-ai/cordis' {
 
     /**
      * The governor told such an agent to stop: the run is stopping, the budget is
-     * exhausted, or its steps loop. The project's own agent goes on and is told why.
+     * exhausted, its steps loop, or the project's agents run by extensions took their
+     * turns for the day. The project's own agent goes on and is told why.
      * @mode emit
      */
     'ops/delegated-stop'(payload: {
       readonly projectId: string
       readonly runId: string
       readonly server: string
-      readonly reason: 'run_stopping' | 'budget_stopped' | 'loop_detected'
+      readonly reason: 'run_stopping' | 'budget_stopped' | 'loop_detected' | 'day_limit'
       readonly detail: string
     }): void
 

@@ -717,7 +717,11 @@ export class OpsChannel {
     )
     try {
       const { answer, from } = await Promise.race([...copies, elsewhere])
-      if (answer !== 'timeout') {
+      const withdrawn = this.withdrawn.get(id)
+      if (withdrawn !== undefined) {
+        // Nobody needs the answer any more: every copy says so instead of offering buttons.
+        for (const target of targets) this.registry.get(target.channel)?.closeQuestion?.(asked, withdrawn).catch(() => undefined)
+      } else if (answer !== 'timeout') {
         // The other copies still show live buttons: say who answered, and where.
         const label = buttons.find((button) => button.value === answer.value)?.label ?? answer.value
         const who = this.lastAnswer?.questionId === id ? ` by ${this.displayName(this.lastAnswer)} on ${this.lastAnswer.address.channel}` : ''
@@ -731,7 +735,28 @@ export class OpsChannel {
     } finally {
       this.outstanding.delete(id)
       this.answerers.delete(id)
+      this.withdrawn.delete(id)
     }
+  }
+
+  /** Questions withdrawn while they waited, with what their copies now say. */
+  private readonly withdrawn = new Map<string, string>()
+
+  /**
+   * Withdraw a pending question nobody needs answered any more (the run it was for
+   * ended): {@link ask} returns `timeout`, and every copy shows the note instead of
+   * its buttons.
+   *
+   * @param questionId the id passed to {@link ask}.
+   * @param note what the copies say instead.
+   * @returns whether a question was waiting.
+   */
+  withdraw(questionId: string, note: string): boolean {
+    const resolve = this.answerers.get(questionId)
+    if (resolve === undefined) return false
+    this.withdrawn.set(questionId, note)
+    resolve('timeout')
+    return true
   }
 
   /**

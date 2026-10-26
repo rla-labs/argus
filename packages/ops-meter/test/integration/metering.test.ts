@@ -415,6 +415,52 @@ describe('restart', () => {
   }, 60_000)
 })
 
+describe('an agent an extension runs, on a subscription', () => {
+  /** One turn of `cc` for `site`, as the governor records a `usage` message. */
+  function turn(booted: Booted, notional: number, ts = Date.now()) {
+    return booted.meter.record({
+      sessionId: 's',
+      rootSessionId: 's',
+      owner: { kind: 'project', projectId: 'site' },
+      model: { provider: 'cc', model: 'claude-sonnet-x' },
+      usage: { inputTokens: 100, outputTokens: 20 } as TokenUsage,
+      runId: 'run-cc',
+      ts,
+      costMicros: 0 as never,
+      notionalMicros: notional as never,
+      delegated: 'cc',
+    })
+  }
+
+  it('costs nothing against the budget, keeps what it would have cost, and counts its turns, across a restart', async () => {
+    const first = await bootMeter({ projects: { site: {} } })
+    // An unpriced provider is fine: the cost is fixed at 0.
+    expect(turn(first, 12_000)).toBe(0)
+    expect(turn(first, 3_000)).toBe(0)
+    expect(first.meter.spending('project:site').dayMicros).toBe(0)
+    expect(first.meter.delegatedTurns('site', Date.now())).toBe(2)
+    expect(first.meter.delegatedTurns('other', Date.now())).toBe(0)
+    expect(first.meter.notional('project:site', Date.now())).toEqual({ dayMicros: 15_000, monthMicros: 15_000 })
+    expect(first.meter.notional('global', Date.now()).monthMicros).toBe(15_000)
+    expect(first.meter.notional('project:other', Date.now()).monthMicros).toBe(0)
+    // Yesterday's turn is not today's.
+    turn(first, 1, Date.now() - 86_400_000)
+    expect(first.meter.delegatedTurns('site', Date.now())).toBe(2)
+    await first.meter.flush()
+    const row = first.store.usage.recent(1)[0]
+    expect(row).toMatchObject({ provider: 'cc', cost_micros: 0, delegated: 'cc' })
+    const dataDir = first.dataDir
+    await first.meter.stop()
+    await first.boot.dispose()
+
+    const second = await bootMeter({ dataDir, projects: { site: {} } })
+    expect(second.meter.delegatedTurns('site', Date.now())).toBe(2)
+    turn(second, 1_000)
+    expect(second.meter.delegatedTurns('site', Date.now())).toBe(3)
+    expect(second.meter.notional('project:site', Date.now()).dayMicros).toBe(16_000)
+  }, 60_000)
+})
+
 describe('unpriced models', () => {
   it('refuses an unpriced model at configuration time under the block policy', async () => {
     const booted = await bootMeter({

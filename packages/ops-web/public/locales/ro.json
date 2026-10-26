@@ -241,6 +241,7 @@
   "home.workingCount": "{count} lucrează acum",
   "home.waitingCount": "{count} te așteaptă",
   "home.working": "Lucrează · pasul {step}",
+  "home.delegated": "{server}: {steps} pași, ultimul {tool} {mark}",
   "home.never": "Nimic încă: trimite-i un prim mesaj",
   "home.done": "gata",
   "home.invalid": "Nu pornește: setările lui nu sunt valide",
@@ -511,6 +512,11 @@
   "ps.hard.reject": "Termină, refuză sarcini noi",
   "ps.maxSteps": "Pași pe rulare",
   "ps.maxStepsHelp": "O rulare care îi atinge se oprește.",
+  "ps.delegate": "Agenți rulați de extensii",
+  "ps.delegateHelp": "Limitele unui agent pe care o extensie îl rulează pentru acest proiect (Claude Code). Agentul proiectului nu le poate mări.",
+  "ps.delegateTurns": "Ture pe apel",
+  "ps.delegateMinutes": "Minute pe apel",
+  "ps.delegateDay": "Ture pe zi",
   "ps.loopCheck": "Verifică o buclă la fiecare (pași)",
   "ps.loopCheckHelp": "0: fără verificare.",
   "ps.onLoop": "Când pare blocat",
@@ -725,6 +731,8 @@
   "glob.days": "Ultimele {count} zile",
   "glob.byProject": "Luna aceasta, pe proiecte",
   "glob.budget": "Buget",
+  "costs.notional": "≈ {amount} la prețuri API",
+  "costs.notionalHelp": "Cât ar fi costat agenții pe abonament (Claude Code) la prețurile de listă ale API-ului. Nu se plătește și nu intră în buget.",
   "lang.en": "English",
   "lang.ro": "Română"
 }

@@ -303,6 +303,20 @@ describe('a person on several channels', () => {
     expect(second.closed).toEqual([])
   })
 
+  it('a question withdrawn while it waits ends as a timeout, and every copy says why instead of offering buttons', async () => {
+    const { booted, second, admin } = await twoChannels()
+    const asked = booted.channel.ask({ channel: 'user', chatId: admin }, 'Run it?', [{ value: 'yes', label: 'Yes' }], 60_000, 'approval:q2')
+    await settle()
+    expect(booted.channel.withdraw('approval:q2', 'The run ended before an answer; nothing was done.')).toBe(true)
+    expect(await asked).toBe('timeout')
+    await settle()
+    expect(booted.adapter.closed).toEqual([{ id: 'approval:q2', note: 'The run ended before an answer; nothing was done.' }])
+    expect(second.closed).toEqual([{ id: 'approval:q2', note: 'The run ended before an answer; nothing was done.' }])
+    // Nothing waits any more: a second withdraw, or one for an unknown question, does nothing.
+    expect(booted.channel.withdraw('approval:q2', 'x')).toBe(false)
+    expect(booted.channel.withdraw('approval:nope', 'x')).toBe(false)
+  })
+
   it("a run's output stays in the chat it was asked from; its stop notice reaches the person", async () => {
     const { booted, second } = await twoChannels()
     booted.channel.rememberReplyTo('run-1', { channel: 'console', chatId: 'admin-chat' })

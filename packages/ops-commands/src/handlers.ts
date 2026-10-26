@@ -1654,7 +1654,7 @@ export function buildHandlers(deps: Deps): CommandHandler[] {
           'Writes the setting into the project’s file and reloads it, so the change is ' +
           'durable and checked by the same rules as at startup. A value that does not ' +
           'validate is not written. Keys are dotted: budget.day_usd, limits.max_steps_total, limits.loop_check_steps (0 is none), limits.on_loop (stop, notify, ask), ' +
-          'approvals.mode, approvals.auto_allow, description, fallback_model, preset, progress. ' +
+          'approvals.mode, approvals.auto_allow, delegate.max_turns, delegate.max_minutes, delegate.day_turns (an agent an extension runs), description, fallback_model, preset, progress. ' +
           '`model` takes provider/model. id and cwd cannot be changed. A list is written ' +
           '[like, this], whole: it replaces the template\'s. `template none` writes the ' +
           'template\'s settings into the file and stops following it; `template <name>` follows ' +

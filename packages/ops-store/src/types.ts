@@ -93,10 +93,14 @@ export interface UsageEventRow {
   readonly cached_tokens: number
   readonly output_tokens: number
   readonly cost_micros: number
+  /** What it would have cost at the API's list prices: an agent on a subscription (0.8.0). */
+  readonly notional_micros: number
+  /** The extension server whose agent made it (`claude-code`), or null for Argus's own. */
+  readonly delegated: string | null
 }
 
 /** A usage event as it is appended, before the store assigns an id. */
-export type UsageEventInput = Omit<UsageEventRow, 'id'>
+export type UsageEventInput = Omit<UsageEventRow, 'id' | 'notional_micros' | 'delegated'> & { readonly notional_micros?: number; readonly delegated?: string | null }
 
 /** One scope's totals for one day. */
 export interface UsageDailyRow {

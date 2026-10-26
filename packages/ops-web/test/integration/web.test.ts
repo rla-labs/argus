@@ -672,6 +672,12 @@ describe('the web interface', () => {
     expect((runs['scopes'] as Array<{ scope: string }>).map((row) => row.scope)).toEqual(['global', 'adhoc', 'orchestrator', 'project:alpha'])
     expect((runs['runs'] as unknown[]).length).toBeGreaterThan(0)
     expect((runs['log'] as Array<{ action: string }>).length).toBeGreaterThan(0)
+    expect((runs['scopes'] as Array<{ scope: string; notionalMonthMicros: number }>).find((row) => row.scope === 'project:alpha')?.notionalMonthMicros).toBe(0)
+    // A turn of an agent on a subscription: no cost, its list-price cost shown beside.
+    ;(booted.boot.ctx as unknown as { opsMeter: { record(input: unknown): unknown } }).opsMeter.record({ sessionId: 's', rootSessionId: 's', owner: { kind: 'project', projectId: 'alpha' }, model: { provider: 'cc', model: 'm' }, usage: { inputTokens: 1, outputTokens: 1 }, runId: 'run-cc', ts: Date.now(), costMicros: 0, notionalMicros: 2_500_000, delegated: 'cc' })
+    const alphaRow = ((await json('/api/runs'))['scopes'] as Array<{ scope: string; monthMicros: number; notionalMonthMicros: number }>).find((row) => row.scope === 'project:alpha')
+    expect(alphaRow).toMatchObject({ notionalMonthMicros: 2_500_000 })
+    expect((await json('/api/projects'))['projects']).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'alpha', delegated: null })]))
     expect(await json('/api/schedules')).toEqual({ schedules: [], triggers: [] })
     expect((await run('/cron add alpha "0 9 * * 1-5" check the build')).error).toBe(false)
     expect((await json('/api/schedules'))['schedules']).toEqual([expect.objectContaining({ cron: '0 9 * * 1-5', projectId: 'alpha', prompt: 'check the build', enabled: true })])

@@ -28,6 +28,7 @@ export interface ProjectCard {
   readonly monthLimitMicros: number | null
   readonly lastRun: { readonly at: number; readonly status: string; readonly text: string | null; readonly stopReason: string | null; readonly steps: number } | null
   readonly step: number | null
+  readonly delegated: { readonly server: string; readonly steps: number; readonly tool: string; readonly ok: boolean } | null
   readonly next: { readonly at: number; readonly what: string } | null
   readonly pending: number
 }
@@ -55,10 +56,17 @@ export function spentText(micros: number, limit: number | null): string {
   return limit === null ? money(micros) : `${money(micros)} / ${money(limit)}`
 }
 
+/** A run in progress: its step, and what an agent an extension runs for it is doing. */
+export function workingText(project: Pick<ProjectCard, 'step' | 'delegated'>): string {
+  const working = t('home.working', { step: project.step ?? 0 })
+  const delegated = project.delegated
+  return delegated === null ? working : `${working} · ${t('home.delegated', { server: delegated.server, steps: delegated.steps, tool: delegated.tool, mark: delegated.ok ? '✓' : '✗' })}`
+}
+
 /** The line under a card's description: what it is doing or did last. */
 function activity(project: ProjectCard): string {
   if (project.invalid !== null) return t('home.invalid')
-  if (project.step !== null) return t('home.working', { step: project.step })
+  if (project.step !== null) return workingText(project)
   if (project.lastRun === null) return t('home.never')
   const how = project.lastRun.stopReason ?? (project.lastRun.status === 'completed' ? t('home.done') : project.lastRun.status)
   return `${when(project.lastRun.at)} · ${project.lastRun.text ?? how}`

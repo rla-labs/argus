@@ -102,6 +102,10 @@ export class OpsApprovalsBridge {
   private readonly details = new Map<string, string>()
   /** `runId|action` already reported as blocked in a scheduled run; dropped with the run. */
   private readonly blocked = new Set<string>()
+  /** A delegated agent's open questions (question id → run), withdrawn when the run ends. */
+  private readonly delegatedQuestions = new Map<string, string>()
+  /** Questions withdrawn that way: their `timeout` is the run's end, not a person's silence. */
+  private readonly withdrawnQuestions = new Set<string>()
   /** Tool names in no group, each warned about once. */
   private readonly unclassified = new Set<string>()
   /** The decision for each request, for diagnostics. */
@@ -523,6 +527,7 @@ export class OpsApprovalsBridge {
     const questionId = `approval:${id}`
     const buttons = this.options.config.allow_run_grant && !strict ? approvalButtons() : approvalButtons().slice(0, 2)
     let answer
+    if (request.via !== undefined) this.delegatedQuestions.set(questionId, base.runId)
     try {
       answer = await this.options.channel.ask(
         address,
@@ -535,6 +540,11 @@ export class OpsApprovalsBridge {
       const detail = error instanceof Error ? error.message : String(error)
       this.ctx.logger('ops-approvals').warn('asking failed for %s: %s', base.toolName, detail)
       return toOutcome(this.finish(id, base, 'error', 'denied', `the question could not be sent: ${detail}`))
+    } finally {
+      this.delegatedQuestions.delete(questionId)
+    }
+    if (this.withdrawnQuestions.delete(questionId)) {
+      return toOutcome(this.finish(id, base, 'unavailable', 'unavailable', 'the run ended before an answer'))
     }
 
     if (answer === 'timeout' && unattended) {
@@ -877,8 +887,13 @@ export class OpsApprovalsBridge {
     return [...this.grants.values()]
   }
 
-  /** Forget the grants of a finished run. */
+  /** Forget the grants of a finished run, and withdraw what its delegated agent still asks. */
   forgetRun(runId: string): void {
+    for (const [questionId, run] of this.delegatedQuestions) {
+      if (run !== runId) continue
+      this.withdrawnQuestions.add(questionId)
+      if (!this.options.channel.withdraw(questionId, 'The run ended before an answer; nothing was done.')) this.withdrawnQuestions.delete(questionId)
+    }
     for (const key of this.grants.keys()) {
       if (key.startsWith(`${runId}|`)) this.grants.delete(key)
     }

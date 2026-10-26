@@ -241,6 +241,7 @@
   "home.workingCount": "{count} working now",
   "home.waitingCount": "{count} waiting for you",
   "home.working": "Working · step {step}",
+  "home.delegated": "{server}: {steps} steps, last {tool} {mark}",
   "home.never": "Nothing yet: send it a first message",
   "home.done": "done",
   "home.invalid": "Not running: its settings do not validate",
@@ -511,6 +512,11 @@
   "ps.hard.reject": "Finish, refuse new work",
   "ps.maxSteps": "Steps a run may take",
   "ps.maxStepsHelp": "A run that reaches it stops.",
+  "ps.delegate": "Agents run by extensions",
+  "ps.delegateHelp": "Limits for an agent an extension runs for this project (Claude Code). The project's agent cannot raise them.",
+  "ps.delegateTurns": "Turns per call",
+  "ps.delegateMinutes": "Minutes per call",
+  "ps.delegateDay": "Turns per day",
   "ps.loopCheck": "Check for a loop every (steps)",
   "ps.loopCheckHelp": "0: no check.",
   "ps.onLoop": "When it looks stuck",
@@ -725,6 +731,8 @@
   "glob.days": "The last {count} days",
   "glob.byProject": "This month, by project",
   "glob.budget": "Budget",
+  "costs.notional": "≈ {amount} at API prices",
+  "costs.notionalHelp": "What agents on a subscription (Claude Code) would have cost at the API's list prices. Not charged, not counted against the budget.",
   "lang.en": "English",
   "lang.ro": "Română"
 }
