@@ -125,7 +125,7 @@ describe('an extension enabled in a project', () => {
 
     const { projects } = await bootProjects({
       dataDir,
-      projects: { site: { extensions: ['cc'] }, other: {} },
+      projects: { site: { extensions: ['cc'], delegate: { max_turns: 7 } }, other: {} },
       entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }],
     })
     const calls: { projectId: string; runId: string; claimed: unknown }[] = []
@@ -143,9 +143,9 @@ describe('an extension enabled in a project', () => {
     expect(endpoint).toBeDefined()
     expect(projects.hostEndpointOf('other', 'cc')).toBeUndefined()
 
-    // Outside a run: hello works, the rest is refused.
+    // Outside a run: hello works, with the limits from the project's file; the rest is refused.
     const idle = await talk()
-    expect(idle.answers[0]).toMatchObject({ ok: true, project: 'site', server: 'cc', host: ['approvals'] })
+    expect(idle.answers[0]).toMatchObject({ ok: true, project: 'site', server: 'cc', host: ['approvals'], limits: { max_turns: 7, max_minutes: 30 }, approval_timeout_s: 1800 })
     expect(idle.answers[1]).toMatchObject({ ok: false, error: { code: 'HOST_NO_RUN' } })
     // Its socket and its folder are out of its reach.
     expect(idle.removed).toMatch(/refused/)
@@ -158,6 +158,14 @@ describe('an extension enabled in a project', () => {
     expect(busy.answers[1]).toEqual({ id: 2, ok: true, decision: 'allow' })
     expect(calls).toEqual([{ projectId: 'site', runId: 'run-7', claimed: 'other' }])
     ;(projects as unknown as { live: Map<string, { runId?: string }> }).live.get('site')!.runId = undefined
+
+    // A cancel tells the project's delegated agents to stop.
+    const told: string[] = []
+    const host = (projects as unknown as { host: { stop(projectId: string, reason: string): number } }).host
+    const stop = host.stop.bind(host)
+    host.stop = (projectId, reason) => (told.push(`${projectId}: ${reason}`), stop(projectId, reason))
+    projects.cancel({ kind: 'project', projectId: 'site' })
+    expect(told).toEqual(['site: cancelled'])
 
     remove()
     await projects.disposeAll()

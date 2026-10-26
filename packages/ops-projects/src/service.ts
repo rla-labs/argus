@@ -219,7 +219,17 @@ export class OpsProjects {
     )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
     this.oauthProxy = new OAuthProxy(options.oauthFetch)
-    this.host = new HostChannel(join(this.stateRoot, 'h'), (projectId) => this.live.get(projectId)?.runId, (message) => ctx.logger('ops-projects').warn(message))
+    this.host = new HostChannel(
+      join(this.stateRoot, 'h'),
+      (projectId) => this.live.get(projectId)?.runId,
+      (message) => ctx.logger('ops-projects').warn(message),
+      // What the server enforces itself, read when it says hello: a call's turns and minutes,
+      // and how long a question may wait, so its own timeouts sit above it.
+      (projectId) => {
+        const config = this.configs.get(projectId)
+        return config === undefined ? {} : { limits: { max_turns: config.delegate.max_turns, max_minutes: config.delegate.max_minutes }, approval_timeout_s: config.approvals.timeout_minutes * 60 }
+      },
+    )
     this.oauth = new McpOAuth({
       secrets: () => ctx.get('credentials' as never) as unknown as OAuthSecrets | undefined,
       ref: (name) => credentialRef(name),
@@ -1337,6 +1347,7 @@ export class OpsProjects {
     const entry = this.entryBySession.get(root)
     if (entry === undefined) return false
     entry.handle.agent.cancel({ kind: 'user' }, { keepInbox: true })
+    if (entry.owner.kind === 'project') this.host.stop(entry.owner.projectId, 'cancelled')
     return true
   }
 
@@ -1353,6 +1364,7 @@ export class OpsProjects {
     const entry = this.live.get(this.keyOf(target))
     if (entry === undefined) return false
     entry.handle.agent.cancel({ kind: 'user' }, { keepInbox: true })
+    if (target.kind === 'project') this.host.stop(target.projectId, 'cancelled')
     return true
   }
 
@@ -1525,6 +1537,8 @@ export class OpsProjects {
     entry.runEvents = []
     entry.producing = false
     this.ownership.clearRun(rootSession)
+    // A delegated agent still working for the run stops with it.
+    if (owner.kind === 'project') this.host.stop(owner.projectId, 'the run ended')
 
     // What the run did, for /log. A trail is a convenience: failing to write it must
     // not lose the run's output.

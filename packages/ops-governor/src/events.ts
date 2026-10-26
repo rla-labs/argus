@@ -40,6 +40,34 @@ declare module '@deepseek-ai/cordis' {
     }): void
 
     /**
+     * An agent an extension runs for a project (Claude Code) took a step: `step` on its
+     * server's host channel. For the run's activity.
+     * @param payload.steps how many it took in this run so far.
+     * @mode emit
+     */
+    'ops/delegated-step'(payload: {
+      readonly projectId: string
+      readonly runId: string
+      readonly server: string
+      readonly tool: string
+      readonly ok: boolean
+      readonly steps: number
+    }): void
+
+    /**
+     * The governor told such an agent to stop: the run is stopping, the budget is
+     * exhausted, or its steps loop. The project's own agent goes on and is told why.
+     * @mode emit
+     */
+    'ops/delegated-stop'(payload: {
+      readonly projectId: string
+      readonly runId: string
+      readonly server: string
+      readonly reason: 'run_stopping' | 'budget_stopped' | 'loop_detected'
+      readonly detail: string
+    }): void
+
+    /**
      * A run waits for a person's Continue or Stop: the loop checker found a loop, and its
      * project's `on_loop` is `ask`.
      * @mode emit

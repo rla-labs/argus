@@ -249,6 +249,17 @@ describe('parseProjectConfig', () => {
   })
 })
 
+describe('the delegate block', () => {
+  it('limits an agent an extension runs: 50 turns and 30 minutes a call, 300 turns a day, by default', () => {
+    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300 })
+    expect(parse({ delegate: { max_turns: 80 } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300 })
+  })
+
+  it('refuses a limit that is not a whole number of at least one', () => {
+    for (const value of [0, -1, 2.5, 'many']) expect(parseFails({ delegate: { max_turns: value } })).toBeInstanceOf(ProjectConfigError)
+  })
+})
+
 describe('the tools block', () => {
   it('defaults to today\'s behaviour with delegation hidden', () => {
     expect(parse().tools).toEqual({ read: 'allow', write: 'ask', shell: 'ask', web: 'ask', agents: 'off', git: 'ask', mail: 'ask', mail_read: 'allow', other: 'ask', web_hosts: [], exceptions: {} })

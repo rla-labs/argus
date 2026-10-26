@@ -934,6 +934,23 @@ its MCP servers (run confined to the project's folder), its skills and its instr
 whose files changed, is left out, and `argus doctor` says so; the project still runs.
 A template may list extensions too.
 
+### `delegate` — an agent an extension runs for the project
+
+```yaml
+delegate:
+  max_turns: 50     # turns one call may take
+  max_minutes: 30   # minutes one call may take
+  day_turns: 300    # turns all calls may take in a day (from 0.8.0)
+```
+
+An extension such as `claude-code` runs another agent for the project when the project's
+agent hands it a task. These are its limits, set by the admin (`/set <project>
+delegate.max_turns 80`); the project's agent cannot raise them. Each of that agent's tool
+calls is decided like the project agent's own (its `tools`, `web_hosts`,
+`approvals.auto_allow`, the same questions); its steps are watched for loops with
+`limits.loop_repeat_threshold`, and a loop stops it, not the run: the project's agent is
+told why. A cancel, a stop or the run's end stops it too.
+
 ### `INSTRUCTIONS.md` — what the project is told
 
 What the project is for and how it should work, in your words: its role, the rules it

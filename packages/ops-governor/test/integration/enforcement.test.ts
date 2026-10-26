@@ -1413,3 +1413,67 @@ describe('ask_project', () => {
     expect(outputs.sort()).toEqual(['alpha', 'beta'])
   }, 40_000)
 })
+
+describe('the steps of an agent an extension runs for a project', () => {
+  /** A governed run of `site`, as the governor keeps one, without starting an agent. */
+  function governedRun(booted: Booted, runId: string): { pendingStop: unknown } {
+    const track = {
+      runId,
+      owner: { kind: 'project', projectId: 'site' },
+      sessionId: `session-${runId}`,
+      provider: 'fake',
+      model: { provider: 'fake', model: 'fake-model' },
+      startedAt: Date.now(),
+      steps: 0,
+      recentToolCalls: [],
+      pendingCalls: new Map(),
+      seenSteps: new Set(),
+      sinceNew: 0,
+      lastTree: undefined,
+      stallCheck: undefined,
+      stalled: undefined,
+      lastToolCall: undefined,
+      pendingStop: undefined,
+      downgradeAudited: false,
+      requestId: undefined,
+    }
+    ;(booted.governor as unknown as { running: Map<string, unknown> }).running.set(track.sessionId, track)
+    return track
+  }
+
+  it('stops it when its steps loop, says why, and lets steps with new results go on; outside a governed run it goes on', async () => {
+    const booted = await bootGovernor({ projects: { site: { limits: { loop_repeat_threshold: 3 } } } })
+    governedRun(booted, 'run-del')
+    const steps: unknown[] = []
+    const stops: unknown[] = []
+    booted.ctx.on('ops/delegated-step', (payload) => void steps.push(payload))
+    booted.ctx.on('ops/delegated-stop', (payload) => void stops.push(payload))
+    const step = (result: string, runId = 'run-del') => booted.governor.delegatedStep({ projectId: 'site', server: 'cc', runId, message: { tool: 'Bash', arguments: { command: 'npm test' }, ok: false, result } })
+
+    // The same test, failing differently each time: progress.
+    expect(step('1 failing')).toEqual({ continue: true })
+    expect(step('2 failing')).toEqual({ continue: true })
+    expect(step('3 failing')).toEqual({ continue: true })
+    // The same result three times in a row: a loop.
+    expect(step('3 failing')).toEqual({ continue: true })
+    const looped = step('3 failing')
+    expect(looped.continue).toBe(false)
+    expect(looped.reason).toContain('"cc:Bash" gave the same result 3 times')
+    expect(stops).toEqual([expect.objectContaining({ projectId: 'site', runId: 'run-del', server: 'cc', reason: 'loop_detected' })])
+    expect(steps).toHaveLength(5)
+    expect(steps[4]).toMatchObject({ tool: 'Bash', ok: false, steps: 5 })
+    // Its history starts again: one more step is not a loop.
+    expect(step('3 failing')).toEqual({ continue: true })
+    // They do not count toward the run's own steps.
+    expect((booted.governor as unknown as { running: Map<string, { steps: number }> }).running.get('session-run-del')?.steps).toBe(0)
+    expect(step('x', 'run-unknown')).toEqual({ continue: true })
+  }, 30_000)
+
+  it('stops it while the run is stopping, and answers step on the host channel', async () => {
+    const booted = await bootGovernor({ projects: { site: {} } })
+    const track = governedRun(booted, 'run-stop')
+    track.pendingStop = { reason: 'max_steps_total', detail: 'the run reached its ceiling of 10 steps' }
+    expect(booted.governor.delegatedStep({ projectId: 'site', server: 'cc', runId: 'run-stop', message: { tool: 'Read', arguments: {}, ok: true, result: 'x' } })).toEqual({ continue: false, reason: 'the run is stopping: the run reached its ceiling of 10 steps' })
+    expect(() => booted.projects.hostHandle('step', () => ({}))).toThrow(/already answered/)
+  }, 30_000)
+})

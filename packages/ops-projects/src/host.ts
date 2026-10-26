@@ -87,11 +87,13 @@ export class HostChannel {
    * @param root where the sockets' folders go (`state/h`).
    * @param runOf the project's run in progress, or undefined.
    * @param warn where a refused connection or a broken handler is logged.
+   * @param greeting what `hello` answers besides who the server is: its limits.
    */
   constructor(
     private readonly root: string,
     private readonly runOf: (projectId: string) => string | undefined,
     private readonly warn: (message: string) => void = () => {},
+    private readonly greeting: (projectId: string, server: string) => Record<string, unknown> = () => ({}),
   ) {}
 
   /**
@@ -252,7 +254,7 @@ export class HostChannel {
             return
           }
           greeted = true
-          answer({ ...(id === undefined ? {} : { id }), ok: true, project: entry.projectId, server: entry.server, host: entry.host })
+          answer({ ...this.greeting(entry.projectId, entry.server), ...(id === undefined ? {} : { id }), ok: true, project: entry.projectId, server: entry.server, host: entry.host })
           continue
         }
         void this.dispatch(entry, id, message).then(answer)
@@ -264,7 +266,7 @@ export class HostChannel {
     const head = id === undefined ? {} : { id }
     const refused = (code: string, text: string): Record<string, unknown> => ({ ...head, ok: false, error: { code, message: text } })
     const type = message['type']
-    if (type === 'hello') return { ...head, ok: true, project: entry.projectId, server: entry.server, host: entry.host }
+    if (type === 'hello') return { ...this.greeting(entry.projectId, entry.server), ...head, ok: true, project: entry.projectId, server: entry.server, host: entry.host }
     const needs = typeof type === 'string' ? NEEDS[type] : undefined
     if (needs === undefined) return refused('HOST_MESSAGE_REFUSED', `unknown message type ${String(type)}`)
     if (!entry.host.includes(needs)) return refused('HOST_MESSAGE_REFUSED', `${String(type)} needs host: [${needs}], which ${entry.server} did not declare`)

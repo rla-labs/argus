@@ -31,6 +31,7 @@ import {
   decideAdmission,
   evaluateBudget,
   decideStep,
+  detectLoop,
   planStalled,
   planThresholds,
   toolCallKey,
@@ -230,6 +231,10 @@ interface RunTrack {
   waiting?: { readonly steps: number; readonly reason: string; readonly since: number }
   /** Set when a step was rejected, so the terminal status is known at idle. */
   pendingStop: { reason: StopReason; detail: string } | undefined
+  /** The step keys of agents extensions run for it (Claude Code), a loop history of their own. */
+  delegatedSteps?: string[]
+  /** How many steps those agents took in this run. */
+  delegatedCount?: number
   /** Whether the downgrade was already audited for this run. */
   downgradeAudited: boolean
   /** The request this run serves, when it came from the queue. */
@@ -1434,6 +1439,51 @@ export class OpsGovernor {
     if (track.recentToolCalls.length > keep) {
       track.recentToolCalls.splice(0, track.recentToolCalls.length - keep)
     }
+  }
+
+  /**
+   * One step of an agent an extension runs for a project (`step` on the server's host
+   * channel): recorded in a loop history of the run's own, checked by the same detector
+   * as the project agent's steps, and told whether to go on. It does not count toward
+   * the run's `max_steps_total` (the delegated agent has its own limits); a run that is
+   * stopping, a hard budget and a loop stop it.
+   *
+   * @param call the message, with the project and run from the socket.
+   * @returns whether the delegated agent goes on, and why not.
+   */
+  delegatedStep(call: { readonly projectId: string; readonly server: string; readonly runId: string; readonly message: Readonly<Record<string, unknown>> }): { continue: boolean; reason?: string } {
+    const track = [...this.running.values()].find((entry) => entry.runId === call.runId)
+    if (track === undefined) return { continue: true }
+    const { message } = call
+    const tool = typeof message['tool'] === 'string' ? message['tool'].slice(0, 64) : 'unknown'
+    const ok = message['ok'] !== false
+    const result = typeof message['result'] === 'string' ? message['result'] : ''
+    const history = (track.delegatedSteps ??= [])
+    history.push(stepKey(toolCallKey(`${call.server}:${tool}`, message['arguments'] ?? {}), result, !ok))
+    track.delegatedCount = (track.delegatedCount ?? 0) + 1
+    const limits = this.stepLimitsOf(track.owner)
+    const keep = limits.loopRepeatThreshold * MAX_LOOP_CYCLE
+    if (history.length > keep) history.splice(0, history.length - keep)
+    this.ctx.emit('ops/delegated-step', { projectId: call.projectId, runId: call.runId, server: call.server, tool, ok, steps: track.delegatedCount })
+
+    const stop = (reason: 'run_stopping' | 'budget_stopped' | 'loop_detected', detail: string): { continue: false; reason: string } => {
+      this.ctx.emit('ops/delegated-stop', { projectId: call.projectId, runId: call.runId, server: call.server, reason, detail })
+      return { continue: false, reason: detail }
+    }
+    if (track.pendingStop !== undefined) return stop('run_stopping', `the run is stopping: ${track.pendingStop.detail}`)
+    if (this.worstBudgetLevel(track.owner) === 'hard') return stop('budget_stopped', `the ${this.worstBudgetScope(track.owner) ?? 'applicable'} budget is exhausted`)
+    const loop = detectLoop(history, limits.loopRepeatThreshold)
+    if (loop !== undefined) {
+      // Cleared, so the agent that runs it again starts with a clean history.
+      history.length = 0
+      return stop(
+        'loop_detected',
+        loop.period === 1
+          ? `"${loop.tools[0]}" gave the same result ${limits.loopRepeatThreshold} times in a row, with the same arguments`
+          : `a cycle of ${loop.period} calls (${loop.tools.join(', ')}) repeated ${limits.loopRepeatThreshold} times with the same results`,
+      )
+    }
+    return { continue: true }
   }
 
   // ── model downgrade ──────────────────────────────────────────────────────

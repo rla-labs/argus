@@ -219,6 +219,16 @@ object per line; each request has an `id`, which its answer carries back:
 
   The answer may take as long as the project's approvals timeout; anything but
   `"decision":"allow"` (a refusal, an error, no answer) means the call does not run.
+- `hello`'s answer also carries what the server enforces itself, from the project's
+  [`delegate`](configuration.md#delegate--an-agent-an-extension-runs-for-the-project)
+  block: `limits: {max_turns, max_minutes}`, and `approval_timeout_s`, so its own
+  timeouts sit above a question's.
+- `step` reports one step the agent took, after it ran: `tool`, `arguments`, `ok`,
+  `result` (its text, cut to a few KB). Argus watches the steps for loops and answers
+  `{"continue": true}`, or `{"continue": false, "reason": "…"}`: stop the agent now (a
+  loop, an exhausted budget, the run stopping) and tell the project's agent the reason.
+- `stop` from Argus (`{"type":"stop","reason":"cancelled"}` or `"the run ended"`) means
+  the same: stop the agent and everything it started.
 - A message is at most 64 KB; at most 50 a second; one connection at a time.
 - A refused message answers `ok: false` with a code: `HOST_MESSAGE_REFUSED`,
   `HOST_NO_RUN`, or the one of the service that refused it.

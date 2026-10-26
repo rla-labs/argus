@@ -67,6 +67,19 @@ export interface ProjectApprovals {
   readonly timeout_minutes: number
 }
 
+/**
+ * Limits on an agent an extension runs for the project (Claude Code). The admin sets them;
+ * the project's agent never sees them as arguments.
+ */
+export interface ProjectDelegate {
+  /** Turns one call may take. */
+  readonly max_turns: number
+  /** Minutes one call may take. */
+  readonly max_minutes: number
+  /** Turns all calls may take in a day. */
+  readonly day_turns: number
+}
+
 /** A project's memory settings. */
 export interface ProjectMemory {
   /** Inject the global `USER.md` into this project's agents. */
@@ -86,6 +99,7 @@ export interface ProjectConfig {
   readonly limits: ProjectLimits
   readonly budget: ProjectBudget
   readonly approvals: ProjectApprovals
+  readonly delegate: ProjectDelegate
   readonly memory: ProjectMemory
   /** Which tools the agent sees, and which run unasked. */
   readonly tools: ToolPolicy
@@ -272,6 +286,13 @@ export const projectConfigSchema = z.object({
       mode: z.union([z.const('auto'), z.const('ask'), z.const('deny')]).default('ask'),
       auto_allow: z.array(z.string()).default([]),
       timeout_minutes: z.number().default(30),
+    })
+    .default({}),
+  delegate: z
+    .object({
+      max_turns: z.natural().min(1).default(50),
+      max_minutes: z.natural().min(1).default(30),
+      day_turns: z.natural().min(1).default(300),
     })
     .default({}),
   memory: z
@@ -638,6 +659,7 @@ export function parseProjectConfig(
     limits: validated['limits'] as ProjectLimits,
     budget: validated['budget'] as ProjectBudget,
     approvals: validated['approvals'] as ProjectApprovals,
+    delegate: validated['delegate'] as ProjectDelegate,
     memory: validated['memory'] as ProjectMemory,
     tools: { ...(validated['tools'] as Omit<ToolPolicy, 'exceptions'>), exceptions: exceptions as ToolPolicy['exceptions'] },
     mcp: Object.fromEntries(

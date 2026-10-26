@@ -181,6 +181,18 @@ describe('the host channel', () => {
     expect(existsSync(again.dir)).toBe(false)
   })
 
+  it('answers hello with what the greeting adds: the limits the server enforces', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'h-'))
+    roots.push(root)
+    const host = new HostChannel(root, () => undefined, () => {}, (projectId, server) => ({ limits: { max_turns: 7 }, for: `${projectId}/${server}`, project: 'forged' }))
+    channels.push(host)
+    const endpoint = await host.start('site', 'cc', [])
+    const c = await client(endpoint.socket)
+    c.send({ id: 1, type: 'hello', token: endpoint.token })
+    // The greeting cannot change who the server is.
+    expect(await c.next()).toEqual({ id: 1, ok: true, project: 'site', server: 'cc', host: [], limits: { max_turns: 7 }, for: 'site/cc' })
+  })
+
   it('lets one handler answer each type, until it is removed', () => {
     const { host } = channel()
     const remove = host.handle('ask', () => ({}))
