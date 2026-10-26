@@ -160,6 +160,17 @@ describe('the host channel', () => {
     expect(await first.next()).toMatchObject({ id: 1, ok: true })
   })
 
+  it('takes a new connection as soon as the previous one hung up', async () => {
+    const { host } = channel()
+    const endpoint = await host.start('site', 'cc', [])
+    for (let round = 0; round < 20; round++) {
+      const c = await client(endpoint.socket)
+      c.send({ id: round, type: 'hello', token: endpoint.token })
+      expect(await c.next()).toMatchObject({ id: round, ok: true })
+      c.socket.end()
+    }
+  })
+
   it('tells a project’s connected servers to stop, and closing removes the folder; a restart gets a new place and secret', async () => {
     const { host } = channel()
     const site = await host.start('site', 'cc', [])

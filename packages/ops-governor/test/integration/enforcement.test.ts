@@ -252,6 +252,20 @@ describe('scenario 1: limited concurrency with a queue', () => {
 
 // ── scenario 2: stop mid-turn at the budget ────────────────────────────────
 
+describe('a run whose model request fails', () => {
+  it('ends as an error, with why, and the person is told instead of getting an empty message', async () => {
+    const booted = await bootGovernor({ projects: { alpha: {} }, script: [{ fail: 'transport' }], repeatLast: true })
+    const outputs: Array<{ runId: string; content: readonly unknown[] }> = []
+    booted.ctx.on('ops/run-output', (payload) => void outputs.push(payload as never))
+    submit(booted, 'alpha', 'hello')
+    await waitFor(() => booted.store.runs.recent(5).some((run) => run.status !== 'running'), { timeoutMs: 30_000, label: 'the run ended' })
+    const run = booted.store.runs.recent(5)[0]!
+    expect(run.status).toBe('error')
+    expect(run.stop_reason).toContain('transport')
+    expect(JSON.stringify(outputs.find((output) => output.runId === run.id)?.content)).toContain('The run failed: ')
+  }, 40_000)
+})
+
 describe('scenario 2: stopping mid-turn at the budget', () => {
   it('rejects the next step and closes the run as budget_stopped', async () => {
     const booted = await bootGovernor({

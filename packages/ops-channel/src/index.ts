@@ -269,7 +269,7 @@ export function apply(ctx: Context): void {
   // ── progress ─────────────────────────────────────────────────────────────
   // Driven from the meter's usage event rather than a timer: a progress update is
   // only interesting when something actually happened.
-  ctx.on('ops/usage', ({ owner, runId, deltaMicros }) => {
+  ctx.on('ops/usage', ({ owner, runId }) => {
     if (runId === undefined || askedByProject(ctx, runId)) return
     const status = ctx.opsGovernor.status()
     const run = status.running.find((entry) => entry.runId === runId)
@@ -285,7 +285,8 @@ export function apply(ctx: Context): void {
         steps: run.steps,
         elapsedMs: now - run.startedAt,
         maxSteps: ctx.opsGovernor.stepLimitsOf(owner).maxStepsTotal,
-        costMicros: (spend.costMicros + deltaMicros) as never,
+        // The run's total already holds this request: the meter adds it before the event.
+        costMicros: spend.costMicros as never,
       }),
     ))
   })

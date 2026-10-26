@@ -92,6 +92,11 @@ export interface ProviderRoute {
   readonly baseUrl?: string
   /** The wire protocol from `ops.yaml`, for a declared provider. */
   readonly api?: string
+  /**
+   * Models `ops.yaml` added to a catalog route whose models speak more than one protocol:
+   * nothing says which one an added model speaks, so it cannot be used.
+   */
+  readonly undescribed?: ReadonlySet<string>
 }
 
 /** How long `argus doctor` waits for a provider. */
@@ -260,6 +265,12 @@ export class OpsProviders {
     if (route.error !== undefined) return { code: 'PROVIDER_UNKNOWN', message: `providers.${ref.provider} in ops.yaml: ${route.error}` }
     if (route.keyEnv !== null && !this.keys.has(route.keyEnv)) {
       return { code: 'PROVIDER_KEY_MISSING', message: `${name} needs an API key: send /key ${ref.provider} <key>` }
+    }
+    if (route.undescribed?.has(ref.model) === true) {
+      return {
+        code: 'MODEL_UNKNOWN',
+        message: `${ref.provider}'s catalog mixes wire protocols, so Argus cannot tell which one "${ref.model}" (added in providers.${ref.provider}.models) speaks; use a model from its catalog (/models), or declare an endpoint of your own under providers.<name> with base_url and api`,
+      }
     }
     if (!route.models.has(ref.model)) {
       return {
@@ -529,6 +540,16 @@ function catalog(): Map<string, string[]> {
   return result
 }
 
+/** The wire protocols each catalog provider's models speak. */
+function catalogApis(): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>()
+  for (const provider of getBuiltinProviders()) {
+    if (SIGN_IN_PROVIDERS.has(provider)) continue
+    result.set(provider, new Set(getBuiltinModels(provider as BuiltinProvider).map((model) => String(model.api))))
+  }
+  return result
+}
+
 /**
  * The routes, and the pi-ai adapter's `providers` configuration for them.
  *
@@ -539,6 +560,7 @@ function catalog(): Map<string, string[]> {
 export function buildRoutes(
   declared: Readonly<Record<string, DeclaredProvider>>,
   shipped: ReadonlyMap<string, readonly string[]> = catalog(),
+  apis: ReadonlyMap<string, ReadonlySet<string>> = catalogApis(),
 ): { routes: Map<string, ProviderRoute>; profiles: Record<string, Record<string, unknown>> } {
   const routes = new Map<string, ProviderRoute>()
   const profiles: Record<string, Record<string, unknown>> = {}
@@ -546,8 +568,11 @@ export function buildRoutes(
   for (const [provider, models] of shipped) {
     const extra = declared[provider]
     const keyEnv = extra?.key === 'none' ? null : apiKeyEnvOf(provider)
-    const all = [...new Set([...models, ...(extra?.models ?? [])])]
-    routes.set(provider, { provider, declared: false, keyEnv, models: new Set(all), ...(extra?.base_url === undefined ? {} : { baseUrl: extra.base_url }) })
+    // A model added to a catalog whose models speak several protocols has none to inherit.
+    const mixed = (apis.get(provider)?.size ?? 0) > 1
+    const undescribed = mixed ? (extra?.models ?? []).filter((id) => !models.includes(id)) : []
+    const all = [...new Set([...models, ...(extra?.models ?? [])])].filter((id) => !undescribed.includes(id))
+    routes.set(provider, { provider, declared: false, keyEnv, models: new Set([...all, ...undescribed]), ...(undescribed.length === 0 ? {} : { undescribed: new Set(undescribed) }), ...(extra?.base_url === undefined ? {} : { baseUrl: extra.base_url }) })
     profiles[provider] = {
       ...(keyEnv === null ? { headers: { Authorization: 'Bearer none' } } : { apiKeyEnv: keyEnv }),
       ...(extra?.base_url === undefined ? {} : { baseURL: extra.base_url }),

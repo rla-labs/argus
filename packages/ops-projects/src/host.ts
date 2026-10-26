@@ -28,6 +28,8 @@ import type { HostCapability } from '@argus-agent/types'
 export const HOST_MESSAGE_MAX_BYTES = 64 * 1024
 /** Messages one connection may send in a second; past it, each is refused. */
 export const HOST_MESSAGES_PER_SECOND = 50
+/** How long a new connection waits for the previous one to end before it is refused. */
+const HANDOVER_MS = 1_000
 /** A socket path the kernel accepts (`sun_path` is 108 bytes, with its terminator). */
 const SOCKET_PATH_MAX = 107
 
@@ -190,9 +192,25 @@ export class HostChannel {
   }
 
   private accept(entry: Open, connection: Socket): void {
-    // One connection at a time: a second one is refused, the first keeps going.
-    if (entry.connection !== undefined) {
-      connection.end(`${JSON.stringify({ ok: false, error: { code: 'HOST_MESSAGE_REFUSED', message: 'this channel already has a connection' } })}\n`)
+    // One connection at a time: a second one is refused while the first keeps going. A
+    // server that hangs up and reconnects at once may be seen before its hang-up is: the
+    // new one waits a moment for the old one to end.
+    const previous = entry.connection
+    if (previous !== undefined && !previous.destroyed && !previous.readableEnded) {
+      const timer = setTimeout(() => {
+        previous.off('end', retry)
+        previous.off('close', retry)
+        connection.end(`${JSON.stringify({ ok: false, error: { code: 'HOST_MESSAGE_REFUSED', message: 'this channel already has a connection' } })}\n`)
+      }, HANDOVER_MS)
+      const retry = (): void => {
+        clearTimeout(timer)
+        previous.off('end', retry)
+        previous.off('close', retry)
+        if (entry.connection === previous) entry.connection = undefined
+        if (!connection.destroyed) this.accept(entry, connection)
+      }
+      previous.once('end', retry)
+      previous.once('close', retry)
       return
     }
     entry.connection = connection
@@ -205,9 +223,13 @@ export class HostChannel {
     }
     const refuse = (id: unknown, code: string, message: string): void => answer({ ...(id === undefined ? {} : { id }), ok: false, error: { code, message } })
     connection.setEncoding('utf8')
-    connection.on('close', () => {
+    // The place is free as soon as the server hangs up ('end'), not only once the socket
+    // is torn down ('close'): a server that reconnects at once is not refused.
+    const release = (): void => {
       if (entry.connection === connection) entry.connection = undefined
-    })
+    }
+    connection.on('end', release)
+    connection.on('close', release)
     connection.on('error', () => {})
     connection.on('data', (chunk: string) => {
       buffer += chunk

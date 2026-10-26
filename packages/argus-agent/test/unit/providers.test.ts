@@ -8,8 +8,14 @@ const shipped = new Map([
   ['openrouter', ['deepseek/deepseek-v4-flash']],
 ])
 
+/** zai's models all speak one protocol; OpenRouter's, two (as in pi-ai's catalog). */
+const apis = new Map([
+  ['zai', new Set(['openai-completions'])],
+  ['openrouter', new Set(['openai-completions', 'anthropic-messages'])],
+])
+
 function providers(declared: Parameters<typeof buildRoutes>[0], env: Record<string, string> = {}) {
-  const { routes, profiles } = buildRoutes(declared, shipped)
+  const { routes, profiles } = buildRoutes(declared, shipped, apis)
   return { service: new OpsProviders(routes, envKeys((name) => env[name])), profiles }
 }
 
@@ -34,10 +40,16 @@ describe('provider routes', () => {
     expect(service.check({ provider: 'deepinfra', model: 'deepseek-ai/DeepSeek-V4-Flash' })).toBeUndefined()
   })
 
-  it('adds declared models to a catalog provider without dropping its catalog', () => {
+  it('adds declared models to a catalog provider whose models speak one protocol, keeping its catalog', () => {
+    const { profiles, service } = providers({ zai: { models: ['glm-6'] } }, { ZAI_API_KEY: 'k' })
+    expect(profiles['zai']?.['models']).toEqual([{ id: 'glm-5.3-flash' }, { id: 'glm-6' }])
+    expect(service.check({ provider: 'zai', model: 'glm-6' })).toBeUndefined()
+  })
+
+  it('refuses a model added to a catalog whose models speak several protocols: none says which it speaks', () => {
     const { profiles, service } = providers({ openrouter: { models: ['new/model'] } }, { OPENROUTER_API_KEY: 'k' })
-    expect(profiles['openrouter']?.['models']).toEqual([{ id: 'deepseek/deepseek-v4-flash' }, { id: 'new/model' }])
-    expect(service.check({ provider: 'openrouter', model: 'new/model' })).toBeUndefined()
+    expect(profiles['openrouter']?.['models']).toEqual([{ id: 'deepseek/deepseek-v4-flash' }])
+    expect(service.check({ provider: 'openrouter', model: 'new/model' })).toMatchObject({ code: 'MODEL_UNKNOWN', message: expect.stringContaining('mixes wire protocols') })
     expect(service.check({ provider: 'openrouter', model: 'deepseek/deepseek-v4-flash' })).toBeUndefined()
   })
 

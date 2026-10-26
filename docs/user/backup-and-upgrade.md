@@ -419,6 +419,20 @@ docker exec argus-agent node -e '
 '
 ```
 
+### Upgrading to 0.8.0
+
+Nothing to do by hand. What changes for you:
+
+- **One database migration** (0008): two columns in `usage_events`, for what an agent on a
+  subscription would have cost and which extension's agent it was. It runs at the first
+  start and is in the backup `argus upgrade` takes first.
+- **A failed model request now says so** in the chat and marks the run `error`, where it
+  used to leave an empty message.
+- **A model you added to OpenRouter's list** (`providers.openrouter.models`) is refused
+  with the reason; it never worked. Use a model from its catalog, or a provider of your own.
+- To use Claude Code: `/ext install https://github.com/rla-labs/argus-extensions#claude-code`,
+  then [Extensions](extensions.md).
+
 ### Upgrading to 0.7.4
 
 Nothing to do by hand. What changes for you:

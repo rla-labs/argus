@@ -1673,8 +1673,10 @@ export class OpsGovernor {
     if (track === undefined) return
 
     const now = this.options.now()
-    const status = track.pendingStop === undefined ? 'completed' : stopStatusOf(track.pendingStop.reason)
-    this.options.store.runs.finish(track.runId, status, now, track.pendingStop?.reason)
+    // A run whose last turn failed (the model request) is an error, with why.
+    const failed = this.options.projects.takeRunError(track.runId)
+    const status = track.pendingStop !== undefined ? stopStatusOf(track.pendingStop.reason) : failed !== undefined ? 'error' : 'completed'
+    this.options.store.runs.finish(track.runId, status, now, track.pendingStop?.reason ?? failed)
     if (track.requestId !== undefined) this.options.store.inbound.markDone(track.requestId)
     this.running.delete(root)
 

@@ -3,6 +3,35 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.8.0 (in progress)
+
+- **Claude Code under Argus.** The `claude-code` extension: a project's agent hands a
+  multi-step coding task to Claude Code (`run`), on your Claude subscription or Anthropic
+  API key (`delegate.backend`), with Argus deciding every tool call it makes by the
+  project's own rules, the same questions and buttons, watching its steps for loops,
+  counting its turns, and stopping it on Stop, a limit or a loop
+  ([Extensions](extensions.md), [Configuration](configuration.md#delegate--an-agent-an-extension-runs-for-the-project)).
+- **Its secret never reaches it.** It talks to Anthropic through a route in Argus that adds
+  the subscription's token or the API key: neither is in its environment, where its own
+  commands could read it. Its network goes only through Argus's egress proxy (`network:
+  proxy`, a Landlock rule and no UDP), and a project's own `.claude` settings cannot turn
+  Argus's approvals off.
+- **Costs:** on a subscription its turns cost nothing in Argus, and Costs shows what they
+  would have cost at API prices; on the API they are charged against the project's budget.
+  Its model is the project's choice (`delegate.model`, Sonnet by default), its limits too
+  (turns and minutes a call, turns a day).
+- **For extension authors:** an extension server may ask Argus for approvals, report its
+  steps and usage on a host channel (`host:`), be held to the egress proxy (`network:
+  proxy`) and reach Anthropic through Argus (`route: anthropic`).
+- **Fixed:** a run whose model request failed reached the chat as an empty message and was
+  recorded as completed; the chat now says what failed, and the run is an error.
+- **Fixed:** the cost on a run's progress line counted its last request twice.
+- **Fixed:** a model added to a catalog provider whose models speak several protocols
+  (OpenRouter) was accepted and failed at every request; it is now refused when set, with
+  what to do instead.
+- **`argus doctor`** says when the data directory is on ecryptfs (an encrypted home),
+  where confined commands cannot open the folders they create.
+
 ## 0.7.4
 
 - **A project reads its mailbox.** `/mail set <project> imaps://…` gives it `mail_list`,

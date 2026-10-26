@@ -168,6 +168,7 @@ operator. Ask the admin, or see [who may run what](commands.md#who-may-run-what)
 | Check | Fix |
 |---|---|
 | `argus doctor` → `the command sandbox` | `err`: the kernel has no Landlock. Use a kernel 5.13 or newer with it enabled; until then agents cannot run commands |
+| `argus doctor` → `the projects folder` | `err`: the data directory is on ecryptfs (an encrypted home). Under Landlock a command cannot open a folder it creates there (`ls: cannot open directory`). Move the data directory to another filesystem; a LUKS-encrypted disk is fine |
 | The path in the error | A command reads and writes only its project's folder and its own temp folder. A file the project needs goes **into** its folder (send it in the chat, or `/get` it from another project) |
 | A tool wants `~/.something` | `HOME` is a private folder per project, emptied with the container's `/tmp`; put lasting settings in the project's folder |
 

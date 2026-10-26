@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto'
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { hiddenTools, taskToolPolicy, TOOL_GROUPS, type DoctorFinding, type McpServer, type ModelCheck, type ModelProblem, type ModelRef, type ServiceHealth } from '@argus-agent/types'
@@ -653,6 +653,10 @@ export class OpsProjects {
     })
     for (const { name, problem } of this.extensions?.verify() ?? []) {
       risky.push({ ok: false, check: `extension ${name}`, detail: `${problem}; it is not used`, fix: `reinstall it: /ext update ${name}, or /ext remove ${name}` })
+    }
+    // Under Landlock, a confined command on ecryptfs cannot open a folder it just made.
+    if (filesystemOf(this.projectsRoot) === 'ecryptfs') {
+      risky.push({ ok: false, check: 'the projects folder', detail: `${this.projectsRoot} is on ecryptfs (an encrypted home): a confined command cannot open a folder it creates there, so agents and extension installs fail`, fix: 'put the data directory on another filesystem (ext4, xfs, btrfs; a LUKS-encrypted disk is fine)' })
     }
     for (const id of this.configuredIds()) {
       const missing = this.configOf(id)?.extensionsMissing ?? []
@@ -1574,7 +1578,15 @@ export class OpsProjects {
     const events = entry.runEvents
     const answer = runAnswer(events)
     // ponytail: the joined answer is text only, so an image in those messages is dropped; keep blocks if agents send images.
-    const content = answer === undefined ? (finalAssistantOutput(events) ?? []) : [{ type: 'text', text: answer }]
+    let content: readonly unknown[] = answer === undefined ? (finalAssistantOutput(events) ?? []) : [{ type: 'text', text: answer }]
+    // A turn that ended in an error (the model request failed) said nothing: the person
+    // is told what failed, instead of an empty message, and the run is marked failed.
+    const failure = turnError(events)
+    if (failure !== undefined) {
+      this.runErrors.set(runId, failure)
+      const said = (content as ReadonlyArray<{ type?: string; text?: string }>).some((block) => block.type === 'text' && (block.text ?? '').trim() !== '')
+      if (!said) content = [{ type: 'text', text: `The run failed: ${failure}` }]
+    }
     const owner = entry.owner
     const rootSession = entry.handle.agent.id as string
     entry.runId = undefined
@@ -1605,6 +1617,21 @@ export class OpsProjects {
   }
 
   // ── teardown ─────────────────────────────────────────────────────────────
+
+  /** Runs whose last turn ended in an error, until the governor closes them. */
+  private readonly runErrors = new Map<string, string>()
+
+  /**
+   * Why a run's last turn ended in an error, read once by whoever closes the run.
+   *
+   * @param runId the run.
+   * @returns the error's text, or undefined when the run did not fail.
+   */
+  takeRunError(runId: string): string | undefined {
+    const error = this.runErrors.get(runId)
+    this.runErrors.delete(runId)
+    return error
+  }
 
   /** Dispose every live agent. */
   async disposeAll(): Promise<void> {
@@ -1723,3 +1750,48 @@ function changedKeys(before: ProjectConfig | undefined, after: ProjectConfig): s
 
 /** nodemailer, for a real account. */
 const nodemailerTransport: MailTransport = (account) => createTransport(transportOptions(account) as never) as unknown as ReturnType<MailTransport>
+
+/**
+ * The error a run's last turn ended with, if it did: dsh records it on `turn/end`
+ * (`reason.kind: error`), and says nothing else.
+ *
+ * @param events the run's session events.
+ * @returns the error's message, or undefined.
+ */
+function turnError(events: readonly SessionEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index] as unknown as { type: string; data?: { reason?: { kind?: string; error?: { message?: unknown } } } }
+    if (event.type !== 'turn/end') continue
+    if (event.data?.reason?.kind !== 'error') return undefined
+    const message = event.data.reason.error?.message
+    return typeof message === 'string' && message.trim() !== '' ? message.trim().slice(0, 500) : 'the model request failed'
+  }
+  return undefined
+}
+
+/**
+ * The filesystem a path is on, from the mount that holds it (`/proc/self/mountinfo`).
+ *
+ * @param path an absolute path.
+ * @returns its type (`ext4`, `ecryptfs`…), or undefined when it cannot be read.
+ */
+export function filesystemOf(path: string, mountinfo?: string): string | undefined {
+  let text = mountinfo
+  if (text === undefined) {
+    try {
+      text = readFileSync('/proc/self/mountinfo', 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+  let best: { point: string; type: string } | undefined
+  for (const line of (text ?? '').split('\n')) {
+    const [left, right] = line.split(' - ')
+    const point = left?.split(' ')[4]?.replace(/\\040/g, ' ')
+    const type = right?.split(' ')[0]
+    if (point === undefined || type === undefined) continue
+    const holds = path === point || path.startsWith(point.endsWith('/') ? point : `${point}/`)
+    if (holds && (best === undefined || point.length > best.point.length)) best = { point, type }
+  }
+  return best?.type
+}
