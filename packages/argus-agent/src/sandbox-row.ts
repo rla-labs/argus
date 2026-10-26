@@ -17,10 +17,12 @@
  *
  * @module @argus-agent/argus-agent/sandbox-row
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { SandboxProvider, SandboxUnavailableError, canonicalPath, type ConfinedArgv, type SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { LAUNCHER_BIN, LAUNCHER_FAILURE_EXIT, grantArgs, launcherPath, probe, type LandlockEnforcement } from '@deepseek-ai/node-addon-system/landlock-run'
@@ -92,6 +94,9 @@ export default class ArgusSandbox extends SandboxProvider {
 
   private readonly launcher = launcherPath()
   private verdict: LandlockEnforcement | undefined
+  /** `argus-netlock`, built into `lib/bin` (from `src`, the built one beside it). */
+  private readonly netlock = [join(dirname(fileURLToPath(import.meta.url)), 'bin', 'argus-netlock'), join(dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'bin', 'argus-netlock')].find((path) => existsSync(path))
+  private netlockVerdict: boolean | undefined
   private readonly node = dirname(dirname(process.execPath))
 
   constructor(ctx: Context) {
@@ -102,6 +107,25 @@ export default class ArgusSandbox extends SandboxProvider {
   private enforcement(): LandlockEnforcement {
     this.verdict ??= probe(this.launcher, { timeoutMs: 5_000 })
     return this.verdict
+  }
+
+  /**
+   * Whether a command's network can be held to one port (`network: proxy`): the helper
+   * is built and this kernel's Landlock governs TCP. Probed once.
+   *
+   * @returns whether {@link confineReading} can take a `proxyPort`.
+   */
+  canLockNetwork(): boolean {
+    if (this.netlockVerdict === undefined) {
+      try {
+        if (this.netlock === undefined) throw new Error('not built')
+        execFileSync(this.netlock, ['--probe'], { stdio: 'ignore', timeout: 5_000 })
+        this.netlockVerdict = this.enforcement() !== 'unusable'
+      } catch {
+        this.netlockVerdict = false
+      }
+    }
+    return this.netlockVerdict
   }
 
   async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
@@ -120,12 +144,16 @@ export default class ArgusSandbox extends SandboxProvider {
    *   command of that workspace shares: an MCP server keeps its logins and caches there,
    *   where the agent's shell cannot read them. Created `0700`; the XDG folders point
    *   into it.
+   * @param options.proxyPort its TCP connections only to this port (the egress proxy's),
+   *   no UDP or raw sockets: `argus-netlock`, stacked under the filesystem rules.
    * @returns the wrapped command.
-   * @throws {SandboxUnavailableError} without Landlock.
+   * @throws {SandboxUnavailableError} without Landlock, or a `proxyPort` it cannot enforce.
    */
-  async confineReading(argv: readonly string[], policy: SandboxPolicy, reads: readonly string[], home?: string): Promise<ConfinedArgv> {
+  async confineReading(argv: readonly string[], policy: SandboxPolicy, reads: readonly string[], home?: string, options: { readonly proxyPort?: number } = {}): Promise<ConfinedArgv> {
     const enforcement = this.enforcement()
     if (enforcement === 'unusable') throw new SandboxUnavailableError(policy.mode, 'Landlock is not available on this kernel')
+    if (options.proxyPort !== undefined && !this.canLockNetwork()) throw new SandboxUnavailableError(policy.mode, 'the network cannot be held to the egress proxy here (argus doctor)')
+    const netlock = options.proxyPort === undefined || this.netlock === undefined ? [] : [this.netlock, '--port', String(options.proxyPort), '--']
     const resolved = { ...policy, workspaceRoot: canonicalPath(policy.workspaceRoot) }
     // Per workspace, never inside it: a project's caches and temp files are its own,
     // and another project's command cannot read them.
@@ -137,7 +165,7 @@ export default class ArgusSandbox extends SandboxProvider {
     const path = extras === undefined || extras.path.length === 0 ? [] : [`ARGUS_EXTENSION_PATH=${extras.path.join(':')}`, 'sh', '-c', 'export PATH="$ARGUS_EXTENSION_PATH:$PATH"; exec "$@"', 'argus']
     const env = Object.entries(extras?.env ?? {}).map(([key, value]) => `${key}=${value}`)
     return {
-      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, [...reads, ...(extras?.reads ?? [])])), '--', 'env', ...env, `HOME=${own}`, `TMPDIR=${own}`, ...xdg, ...path, ...argv],
+      argv: [this.launcher, ...grantArgs(grantsFor(resolved, own, this.node, [...reads, ...(extras?.reads ?? []), ...(netlock.length === 0 ? [] : [dirname(netlock[0] as string)])])), '--', ...netlock, 'env', ...env, `HOME=${own}`, `TMPDIR=${own}`, ...xdg, ...path, ...argv],
       enforcement,
       denialSignatures: DENIAL_SIGNATURES,
       runnerFailureRules: RUNNER_FAILURE_RULES,
@@ -151,11 +179,20 @@ export default class ArgusSandbox extends SandboxProvider {
    */
   doctor(): DoctorFinding[] {
     const check = 'the command sandbox'
+    const network: DoctorFinding = this.canLockNetwork()
+      ? { ok: true, check: 'network: proxy', detail: 'an extension server with network: proxy reaches only the egress proxy (TCP), no UDP' }
+      : {
+          ok: true,
+          warn: true,
+          check: 'network: proxy',
+          detail: this.netlock === undefined ? 'argus-netlock was not built (no C compiler): an extension server with network: proxy runs with the network' : "this kernel's Landlock cannot govern TCP (6.7 or newer needed): an extension server with network: proxy runs with the network",
+          fix: this.netlock === undefined ? 'install a C compiler (apt-get install gcc), then argus upgrade' : 'use a kernel 6.7 or newer',
+        }
     switch (this.enforcement()) {
       case 'full':
-        return [{ ok: true, check, detail: 'Landlock: a project reads and writes only its own folder' }]
+        return [{ ok: true, check, detail: 'Landlock: a project reads and writes only its own folder' }, network]
       case 'partial':
-        return [{ ok: true, check, detail: 'Landlock (older kernel): partly enforced', warn: true }]
+        return [{ ok: true, check, detail: 'Landlock (older kernel): partly enforced', warn: true }, network]
       default:
         return [{ ok: false, check, detail: 'Landlock is not available: agents cannot run commands', fix: 'use a kernel 5.13 or newer with Landlock enabled (lsm=…,landlock)' }]
     }

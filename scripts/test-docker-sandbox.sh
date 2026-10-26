@@ -110,6 +110,20 @@ const server = await sandbox.confineReading(['node', '-e', "const fs = require('
 const served = spawnSync(server.argv[0], server.argv.slice(1), { cwd: alpha, encoding: 'utf8' })
 check("an extension's server reads its install, writes the project, cannot read the database", served.stdout.includes('refused') && readFileSync(`${alpha}/from-server.txt`, 'utf8') === 'ok')
 
+// network: proxy: an extension server's TCP only to the egress proxy's port, no UDP.
+check('argus-netlock is built into the image and this kernel enforces it', sandbox.canLockNetwork())
+const { createServer } = await import('node:net')
+const listen = () => new Promise((resolve) => { const s = createServer((c) => c.end()); s.listen(0, '127.0.0.1', () => resolve(s)) })
+const proxyServer = await listen()
+const otherServer = await listen()
+const [proxyPort, otherPort] = [proxyServer.address().port, otherServer.address().port]
+const netProbe = "const n=require('net'),d=require('dgram');const t=(p)=>new Promise((r)=>{const s=n.connect(Number(p),'127.0.0.1');s.on('connect',()=>{s.destroy();r('ok')});s.on('error',(e)=>r(e.code))});(async()=>{const u=d.createSocket('udp4');const udp=await new Promise((r)=>{u.on('error',(e)=>r(e.code));u.bind(0,()=>r('bound'))});console.log([await t(process.argv[1]),await t(process.argv[2]),udp].join(' '));process.exit(0)})()"
+const locked = await sandbox.confineReading(['node', '-e', netProbe, String(proxyPort), String(otherPort)], { mode: 'workspace-write', workspaceRoot: alpha }, [], undefined, { proxyPort })
+const reached = await new Promise((resolve) => { const { spawn } = require('node:child_process'); const child = spawn(locked.argv[0], locked.argv.slice(1), { cwd: alpha }); let out = ''; child.stdout.on('data', (d) => (out += d)); child.on('close', () => resolve(out.trim())) })
+check(`network: proxy reaches the proxy only, no UDP (${reached})`, reached === 'ok EACCES EACCES')
+proxyServer.close()
+otherServer.close()
+
 console.log()
 console.log(failed ? 'docker sandbox test: FAILED' : 'docker sandbox test: PASSED')
 process.exit(failed)

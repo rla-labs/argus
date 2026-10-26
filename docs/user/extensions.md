@@ -188,6 +188,12 @@ mcp:
 The admin sees it at install ("may ask for approvals of what it does, reports its steps,
 reports its usage") and in an update's changes. A project's file cannot set either key.
 
+`network: proxy` holds the server, and everything it starts, to Argus's egress proxy:
+`HTTPS_PROXY` and `HTTP_PROXY` point at it, TCP connections reach only its port, and there
+is no UDP. A program that ignores the proxy variables cannot connect at all, and neither
+can one that talks to a server on its own machine (a test's dev server). See
+[Security](security.md#extensions) for what it holds and where it cannot be enforced.
+
 Such a server gets, in its environment, `ARGUS_HOST_SOCKET` (a Unix socket in a folder of
 its own, which it can read but not change) and `ARGUS_HOST_TOKEN`. It speaks one JSON
 object per line; each request has an `id`, which its answer carries back:

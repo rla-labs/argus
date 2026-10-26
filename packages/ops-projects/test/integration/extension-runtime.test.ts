@@ -6,6 +6,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,6 +20,7 @@ import { bootProjects, writeProject } from '../helpers.js'
 
 const probe = fileURLToPath(new URL('../fixtures/probe-mcp.mjs', import.meta.url))
 const hostProbe = fileURLToPath(new URL('../fixtures/host-probe-mcp.mjs', import.meta.url))
+const netProbe = fileURLToPath(new URL('../fixtures/net-probe-mcp.mjs', import.meta.url))
 const MANIFEST = [
   'name: notes',
   'version: 1.0.0',
@@ -170,6 +172,27 @@ describe('an extension enabled in a project', () => {
     remove()
     await projects.disposeAll()
     expect(existsSync(endpoint!.dir)).toBe(false)
+  }, 60_000)
+
+  it.skipIf(!landlock || !sandbox.canLockNetwork())('holds a server with network: proxy to the egress proxy, which it is pointed at', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-net-'))
+    const repo = mkdtempSync(join(tmpdir(), 'ext-net-'))
+    writeFileSync(join(repo, 'extension.yaml'), 'name: net\nversion: 1.0.0\nsummary: Network probe\nmcp:\n  net: {command: node, args: ["${EXTENSION_DIR}/net-probe-mcp.mjs"], access: allow, network: proxy}\n')
+    copyFileSync(netProbe, join(repo, 'net-probe-mcp.mjs'))
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env })
+    const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+    await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+    const { projects } = await bootProjects({ dataDir, projects: { site: { extensions: ['net'] } }, entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }] })
+    const other = createServer((socket) => socket.end())
+    await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', resolve))
+    const agent = await projects.ensureAgent('site')
+    const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): { execute(args: unknown, exec: unknown): Promise<unknown> } | undefined } } }).ctx
+    const out = JSON.stringify(await ctx.tools.get('mcp__net__net', scopeOf(ctx as never))?.execute({ other: (other.address() as { port: number }).port }, { signal: new AbortController().signal }))
+    other.close()
+    expect(out).toMatch(/\\"proxy\\":\\"http:\/\/127\.0\.0\.1:\d+\\"/)
+    expect(out).toContain('\\"proxyReach\\":\\"ok\\"')
+    expect(out).toContain('\\"otherReach\\":\\"EACCES\\"')
   }, 60_000)
 
   it('leaves its server out when there is no sandbox, and the project still runs', async () => {

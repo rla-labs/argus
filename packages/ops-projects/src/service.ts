@@ -963,10 +963,16 @@ export class OpsProjects {
         // the agent.
         const host = server.command !== null && server.extension !== undefined && server.extension.host.length > 0 ? await this.host.start(config.id, name, server.extension.host) : undefined
         if (host !== undefined) agentCtx.effect(() => () => this.host.close(config.id, name))
-        const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args], host === undefined ? [] : [host.dir])
+        // `network: proxy`: its connections only to the egress proxy, which it is pointed at.
+        const proxy = server.command !== null && server.extension?.network === 'proxy' ? await this.egress.url() : undefined
+        const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args], host === undefined ? [] : [host.dir], proxy === undefined ? undefined : Number(new URL(proxy).port))
         let options
         if (server.command !== null) {
-          const env = { ...(await this.expand(server.env)), ...(host === undefined ? {} : { ARGUS_HOST_SOCKET: host.socket, ARGUS_HOST_TOKEN: host.token }) }
+          const env = {
+            ...(await this.expand(server.env)),
+            ...(host === undefined ? {} : { ARGUS_HOST_SOCKET: host.socket, ARGUS_HOST_TOKEN: host.token }),
+            ...(proxy === undefined ? {} : { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '', no_proxy: '' }),
+          }
           options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env, cwd: config.cwd }
         } else if (server.oauth !== null) {
           // Through the loopback proxy, which adds a fresh token: dsh never holds one.
@@ -994,13 +1000,19 @@ export class OpsProjects {
    * @param server the server.
    * @param argv the server's command.
    * @param reads more folders it reads: its host channel's.
+   * @param proxyPort `network: proxy`: its TCP connections only to this port. Where that
+   *   cannot be enforced, it runs with the network, warned about (`argus doctor` says why).
    * @returns the wrapped command.
    * @throws {Error} without the sandbox: the server is then left out.
    */
-  private async confineServer(config: ProjectConfig, name: string, server: McpServer, argv: readonly string[], reads: readonly string[] = []): Promise<readonly string[]> {
-    const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[], home?: string): Promise<{ argv: readonly string[] }> } | undefined
+  private async confineServer(config: ProjectConfig, name: string, server: McpServer, argv: readonly string[], reads: readonly string[] = [], proxyPort?: number): Promise<readonly string[]> {
+    const sandbox = this.ctx.get('sandbox' as never) as unknown as
+      | { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[], home?: string, options?: { proxyPort?: number }): Promise<{ argv: readonly string[] }>; canLockNetwork?(): boolean }
+      | undefined
     if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available, and a local MCP server runs only confined')
-    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, [...(server.extension === undefined ? [] : [server.extension.dir]), ...reads], this.mcpHomeOf(config.id, name))).argv
+    const locked = proxyPort !== undefined && sandbox.canLockNetwork?.() === true
+    if (proxyPort !== undefined && !locked) this.ctx.logger('ops-projects').warn('project %s: %s declares network: proxy, which cannot be enforced here; it runs with the network (argus doctor)', config.id, name)
+    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, [...(server.extension === undefined ? [] : [server.extension.dir]), ...reads], this.mcpHomeOf(config.id, name), locked ? { proxyPort } : {})).argv
   }
 
   /**
