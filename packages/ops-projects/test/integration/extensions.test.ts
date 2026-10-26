@@ -152,6 +152,16 @@ describe('extensions', () => {
     expect(parseManifest({ name: 'fine', version: '1', summary: 's', mcp: { s: { command: 'node', env: { A: '${MY_KEY}', B: '${EXTENSION_DIR}/x', C: '${ARGUS_EGRESS_PROXY}' } } }, requires: { secrets: ['MY_KEY'] } }).mcp['s']?.env).toEqual({ A: '${MY_KEY}', B: '${EXTENSION_DIR}/x', C: '${ARGUS_EGRESS_PROXY}' })
   })
 
+  it('reads a server’s host channel and network, and refuses anything else there', () => {
+    const server = (spec: Record<string, unknown>) => parseManifest({ name: 'cc', version: '1', summary: 's', mcp: { cc: { command: 'node', ...spec } } }).mcp['cc']
+    expect(server({})).toMatchObject({ host: [], network: 'open' })
+    expect(server({ host: ['approvals', 'steps', 'usage'], network: 'proxy' })).toMatchObject({ host: ['approvals', 'steps', 'usage'], network: 'proxy' })
+    expect(() => server({ host: ['approvals', 'shell'] })).toThrow(/mcp\.cc\.host: a list of approvals, steps, usage, each once/)
+    expect(() => server({ host: ['steps', 'steps'] })).toThrow(/each once/)
+    expect(() => server({ host: 'approvals' })).toThrow(/mcp\.cc\.host/)
+    expect(() => server({ network: 'closed' })).toThrow(/mcp\.cc\.network: open or proxy/)
+  })
+
   it('installs only programs that are its own executable files, linked from .argus-bin', async () => {
     const plain = store()
     const notExecutable = repository(`${MANIFEST}\nbin: [tool.sh]\n`)

@@ -162,7 +162,7 @@ instructions: |                 # added to a project's instructions while it is 
 | `version` | Any short version string; shown and recorded |
 | `install` | Shell lines, run in order in the extension's folder; one that fails stops the install. Ten minutes in all. |
 | `skills` | Paths inside the repository; each must hold a `SKILL.md` once `install` has run. A skill is read through its parent folder, so keep an extension's skills side by side (`skills/<name>/`). |
-| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `tools`, `timeout_s`. The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. In `env`, `${NAME}` may name only a secret in `requires.secrets`, or `${ARGUS_EGRESS_PROXY}` (the [egress proxy](configuration.md#mcp--external-tools-through-mcp-servers)'s address). |
+| `mcp` | Local servers only (`command`), with `args`, `env`, `access`, `tools`, `timeout_s`, and optionally `host` and `network` ([below](#the-host-channel)). The server runs in the project's folder; `${EXTENSION_DIR}` in `command`, `args` and `env` is the extension's own folder. In `env`, `${NAME}` may name only a secret in `requires.secrets`, or `${ARGUS_EGRESS_PROXY}` (the [egress proxy](configuration.md#mcp--external-tools-through-mcp-servers)'s address). |
 | `requires.secrets` | `NAMES_LIKE_THIS` |
 | `bin` | Paths inside the repository, each an executable file once `install` has run (not a link); their names must differ. A project gets them, and only them, on its shell's `PATH`. |
 | `env` | `NAMES_LIKE_THIS` to strings; `${EXTENSION_DIR}` is the extension's folder. Not a secret (a name with KEY, TOKEN, SECRET, PASSWORD… is refused; secrets go in `requires.secrets`), and not `PATH`, `HOME`, `TMPDIR` or `LD_*`. |
@@ -170,3 +170,41 @@ instructions: |                 # added to a project's instructions while it is 
 | `instructions` | Up to 8 KB |
 
 A key that is not in this list is refused, with the others named.
+
+### The host channel
+
+A server that runs another agent (Claude Code, for example) can ask Argus about what that
+agent does, as Argus asks about what a project's own agent does. It declares it:
+
+```yaml
+mcp:
+  cc:
+    command: node
+    args: ["${EXTENSION_DIR}/server.js"]
+    host: [approvals, steps, usage]   # what it may do through Argus; the install shows it
+    network: proxy                    # open (the default) or proxy: only through Argus's proxy
+```
+
+The admin sees it at install ("may ask for approvals of what it does, reports its steps,
+reports its usage") and in an update's changes. A project's file cannot set either key.
+
+Such a server gets, in its environment, `ARGUS_HOST_SOCKET` (a Unix socket in a folder of
+its own, which it can read but not change) and `ARGUS_HOST_TOKEN`. It speaks one JSON
+object per line; each request has an `id`, which its answer carries back:
+
+```text
+→ {"id":1,"type":"hello","token":"<ARGUS_HOST_TOKEN>"}
+← {"id":1,"ok":true,"project":"site","server":"cc","host":["approvals","steps","usage"]}
+→ {"id":2,"type":"ask", …}
+← {"id":2,"ok":false,"error":{"code":"HOST_NO_RUN","message":"site has no run in progress"}}
+← {"type":"stop","reason":"cancelled"}      (from Argus, at any time: stop what you are doing)
+```
+
+- The first message must be `hello` with the token, or the connection is closed.
+- The project and the run come from the socket, never from a message.
+- `ask`, `step` and `usage` need `approvals`, `steps` and `usage` in `host`, and a run
+  in progress in the project; what they carry is described with the releases that
+  answer them (0.8.0).
+- A message is at most 64 KB; at most 50 a second; one connection at a time.
+- A refused message answers `ok: false` with a code: `HOST_MESSAGE_REFUSED`,
+  `HOST_NO_RUN`, or the one of the service that refused it.

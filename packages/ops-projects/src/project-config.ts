@@ -649,7 +649,8 @@ export function parseProjectConfig(
           url: nonEmpty(server['url']),
           // The schema fills an empty object in for a server with none: what the file says decides.
           oauth: !isMapping(document['mcp']) || !isMapping(document['mcp'][name]) || !isMapping(document['mcp'][name]['oauth']) ? null : { client: nonEmpty((server['oauth'] as Record<string, unknown>)['client']), scopes: (server['oauth'] as Record<string, unknown>)['scopes'] as string[] },
-          ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir } } : {}),
+          // Its host channel and network come from the extension's manifest, never from this file.
+          ...(brought.has(name) ? { extension: { name: brought.get(name)!.name, dir: brought.get(name)!.dir, host: brought.get(name)!.manifest.mcp[name]?.host ?? [], network: brought.get(name)!.manifest.mcp[name]?.network ?? 'open' } } : {}),
         } as McpServer,
       ]),
     ),

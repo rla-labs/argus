@@ -3130,9 +3130,20 @@ function toolRules(tools: Readonly<Record<string, string>>): string {
   return rules.length === 0 ? '' : `; ${rules.join(', ')}`
 }
 
+/** What a server may do through Argus besides its tools: `; may ask for approvals, reports its steps`. */
+function hostText(server: ExtensionManifest['mcp'][string]): string {
+  const parts = [
+    ...(server.host.includes('approvals') ? ['may ask for approvals of what it does'] : []),
+    ...(server.host.includes('steps') ? ['reports its steps'] : []),
+    ...(server.host.includes('usage') ? ['reports its usage'] : []),
+    ...(server.network === 'proxy' ? ['network only through Argus\'s proxy'] : []),
+  ]
+  return parts.length === 0 ? '' : `; ${parts.join(', ')}`
+}
+
 /** What an extension may do, one part each: its tools, skills, secrets, network. */
 function describeParts(manifest: ExtensionManifest): string[] {
-  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${commandLine(server)}, access ${server.access}${toolRules(server.tools)})`)
+  const servers = Object.entries(manifest.mcp).map(([name, server]) => `${name} (${commandLine(server)}, access ${server.access}${toolRules(server.tools)}${hostText(server)})`)
   return [
     ...(servers.length > 0 ? [`tools: ${servers.join(', ')}`] : []),
     ...(manifest.skills.length > 0 ? [`skills: ${manifest.skills.join(', ')}`] : []),
@@ -3158,7 +3169,7 @@ function describeStaged(staged: StagedExtension): string {
     : `Update ${manifest.name} ${installed.version} (${installed.commit.slice(0, 7)}) to ${manifest.version} (${staged.commit.slice(0, 7)})?`
   const lines = [head, manifest.summary, '']
   const servers = Object.entries(manifest.mcp)
-  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}${toolRules(server.tools)}`).join('\n')}`)
+  lines.push(servers.length === 0 ? 'Tools: none' : `Tools (MCP servers, run confined to the project's folder):\n${servers.map(([name, server]) => `  ${name}: ${commandLine(server)}, access ${server.access}${toolRules(server.tools)}${hostText(server)}`).join('\n')}`)
   lines.push(`Skills: ${manifest.skills.length === 0 ? 'none' : manifest.skills.join(', ')}`)
   if (manifest.bin.length > 0) lines.push(`Programs a project's shell can run (confined, with the usual approvals): ${manifest.bin.map((path) => `${path.split('/').pop()} (${path})`).join(', ')}`)
   if (Object.keys(manifest.env).length > 0) lines.push(`Sets for a project's commands: ${Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`).join(', ')}`)

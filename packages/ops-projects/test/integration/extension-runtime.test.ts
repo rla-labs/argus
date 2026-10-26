@@ -18,6 +18,7 @@ import { userMessage } from '@argus-agent/testkit'
 import { bootProjects, writeProject } from '../helpers.js'
 
 const probe = fileURLToPath(new URL('../fixtures/probe-mcp.mjs', import.meta.url))
+const hostProbe = fileURLToPath(new URL('../fixtures/host-probe-mcp.mjs', import.meta.url))
 const MANIFEST = [
   'name: notes',
   'version: 1.0.0',
@@ -51,12 +52,12 @@ describe('an extension enabled in a project', () => {
     const notes: UsableExtension = {
       name: 'notes',
       dir: '/data/extensions/notes/1.0.0-abc',
-      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', tools: { 'write_*': 'ask', erase: 'deny' }, timeout_s: 60 } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.', bin: [], env: {}, rules: [] },
+      manifest: { name: 'notes', version: '1', summary: 's', install: [], skills: ['skills/a'], mcp: { probe: { command: 'node', args: ['${EXTENSION_DIR}/p.mjs'], env: {}, access: 'allow', tools: { 'write_*': 'ask', erase: 'deny' }, timeout_s: 60, host: [], network: 'open' } }, requires: { secrets: ['PROBE_KEY'], network: false }, instructions: 'Be neat.', bin: [], env: {}, rules: [] },
     }
     const parse = (own: Record<string, unknown>) =>
       parseProjectConfig({ id: 'site', cwd: '/data/projects/site', provider: 'p', model: 'm', ...own }, { sourcePath: 's', projectsRoot: '/data/projects', extensions: new Map([['notes', notes]]) })
     const config = parse({ extensions: ['notes', 'gone'] })
-    expect(config.mcp['probe']).toMatchObject({ command: 'node', args: ['/data/extensions/notes/1.0.0-abc/p.mjs'], env: { PROBE_KEY: '${PROBE_KEY}' }, access: 'allow', extension: { name: 'notes', dir: notes.dir } })
+    expect(config.mcp['probe']).toMatchObject({ command: 'node', args: ['/data/extensions/notes/1.0.0-abc/p.mjs'], env: { PROBE_KEY: '${PROBE_KEY}' }, access: 'allow', extension: { name: 'notes', dir: notes.dir, host: [], network: 'open' } })
     expect(config.extensions).toEqual([{ name: 'notes', dir: notes.dir, skills: [`${notes.dir}/skills/a`], instructions: 'Be neat.', binDir: null, env: {} }])
     expect(config.extensionsMissing).toEqual(['gone'])
     expect(parse({ extensions: ['notes'], mcp: { probe: { access: 'ask' } } }).mcp['probe']?.access).toBe('ask')
@@ -110,6 +111,57 @@ describe('an extension enabled in a project', () => {
     expect(await section('site')).toContain('Keep notes in notes/.')
     expect(await section('other')).toBeUndefined()
     expect(existsSync(join(dataDir, 'projects', 'other', 'made-by-extension.txt'))).toBe(false)
+  }, 60_000)
+
+  it.skipIf(!landlock)('gives a server that declares host: its own channel: the secret first, identity from the socket, the socket out of its reach', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-host-'))
+    const repo = mkdtempSync(join(tmpdir(), 'ext-cc-'))
+    writeFileSync(join(repo, 'extension.yaml'), 'name: cc\nversion: 1.0.0\nsummary: A delegate\nmcp:\n  cc: {command: node, args: ["${EXTENSION_DIR}/host-probe-mcp.mjs"], access: allow, host: [approvals]}\n')
+    copyFileSync(hostProbe, join(repo, 'host-probe-mcp.mjs'))
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env })
+    const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+    await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+
+    const { projects } = await bootProjects({
+      dataDir,
+      projects: { site: { extensions: ['cc'] }, other: {} },
+      entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }],
+    })
+    const calls: { projectId: string; runId: string; claimed: unknown }[] = []
+    const remove = projects.hostHandle('ask', (call) => {
+      calls.push({ projectId: call.projectId, runId: call.runId, claimed: call.message['project'] })
+      return { decision: 'allow' }
+    })
+    const agent = await projects.ensureAgent('site')
+    const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): { execute(args: unknown, exec: unknown): Promise<unknown> } | undefined } } }).ctx
+    const talk = async () => {
+      const out = JSON.stringify(await ctx.tools.get('mcp__cc__talk', scopeOf(ctx as never))?.execute({}, { signal: new AbortController().signal }))
+      return JSON.parse(JSON.parse(`"${/"text":"((?:[^"\\]|\\.)*)"/.exec(out)?.[1] ?? ''}"`)) as { answers: Record<string, unknown>[]; removed: string; planted: string }
+    }
+    const endpoint = projects.hostEndpointOf('site', 'cc')
+    expect(endpoint).toBeDefined()
+    expect(projects.hostEndpointOf('other', 'cc')).toBeUndefined()
+
+    // Outside a run: hello works, the rest is refused.
+    const idle = await talk()
+    expect(idle.answers[0]).toMatchObject({ ok: true, project: 'site', server: 'cc', host: ['approvals'] })
+    expect(idle.answers[1]).toMatchObject({ ok: false, error: { code: 'HOST_NO_RUN' } })
+    // Its socket and its folder are out of its reach.
+    expect(idle.removed).toMatch(/refused/)
+    expect(idle.planted).toMatch(/refused/)
+    expect(existsSync(endpoint!.socket)).toBe(true)
+
+    // In a run: the project and run come from the socket, not from what it claims.
+    ;(projects as unknown as { live: Map<string, { runId?: string }> }).live.get('site')!.runId = 'run-7'
+    const busy = await talk()
+    expect(busy.answers[1]).toEqual({ id: 2, ok: true, decision: 'allow' })
+    expect(calls).toEqual([{ projectId: 'site', runId: 'run-7', claimed: 'other' }])
+    ;(projects as unknown as { live: Map<string, { runId?: string }> }).live.get('site')!.runId = undefined
+
+    remove()
+    await projects.disposeAll()
+    expect(existsSync(endpoint!.dir)).toBe(false)
   }, 60_000)
 
   it('leaves its server out when there is no sandbox, and the project still runs', async () => {

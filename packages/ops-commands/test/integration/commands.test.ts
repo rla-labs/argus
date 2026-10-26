@@ -1859,6 +1859,22 @@ describe('/ext', () => {
     expect(await run(booted, '/ext')).toContain('No extension is installed')
   }, 60_000)
 
+  it('says what a server may do through Argus at install, and an update that adds it', async () => {
+    const booted = await bootCommands({ projects: { alpha: {} } })
+    const repo = extensionRepo(manifest)
+    const asked = await booted.commands.runCommand(`/ext install ${repo.path}`, contextFor())
+    expect(asked.text).not.toContain('reports its')
+    await booted.commands.confirm(asked.confirm?.token as string, true, contextFor())
+    repo.commit(manifest.replace('1.0.0', '1.1.0').replace('access: ask}', 'access: ask, host: [approvals, steps, usage], network: proxy}'))
+    const update = await booted.commands.runCommand('/ext update notes', contextFor())
+    expect(update.text).toContain("notes: node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy")
+    expect(update.text).toContain('- tools: notes (node <extension>/server.js, access ask)')
+    expect(update.text).toContain("+ tools: notes (node <extension>/server.js, access ask; may ask for approvals of what it does, reports its steps, reports its usage, network only through Argus's proxy)")
+    await booted.commands.confirm(update.confirm?.token as string, false, contextFor())
+    const remove = await booted.commands.runCommand('/ext remove notes', contextFor())
+    await booted.commands.confirm(remove.confirm?.token as string, true, contextFor())
+  }, 60_000)
+
   it('shows the variables and rules it brings, and offers its rules at enable without applying them', async () => {
     const booted = await bootCommands({ projects: { alpha: {} } })
     const repo = extensionRepo('name: tools\nversion: 1.0.0\nsummary: Tools\nenv: {TOOLS_MODE: quiet}\nrules: ["hello *"]\n')

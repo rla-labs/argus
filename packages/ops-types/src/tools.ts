@@ -182,9 +182,22 @@ export interface McpServer {
   /** Per tool: a name or a glob (`*`, `?`) to its access; see {@link mcpToolAccess}. */
   readonly tools: Readonly<Record<string, Exclude<ToolAccess, 'off'>>>
   readonly timeout_s: number
-  /** Set when an enabled extension brings it: it then runs confined, reading that folder. */
-  readonly extension?: { readonly name: string; readonly dir: string }
+  /**
+   * Set when an enabled extension brings it: it then runs confined, reading that folder.
+   * `host` and `network` come from the extension's manifest only, never from a project's file.
+   */
+  readonly extension?: { readonly name: string; readonly dir: string; readonly host: readonly HostCapability[]; readonly network: ServerNetwork }
 }
+
+/**
+ * What an extension's server may do through Argus's host channel (`mcp.<server>.host`):
+ * ask for approvals of what it does, report its steps, report its usage.
+ */
+export const HOST_CAPABILITIES = ['approvals', 'steps', 'usage'] as const
+export type HostCapability = (typeof HOST_CAPABILITIES)[number]
+
+/** An extension server's network (`mcp.<server>.network`): any host, or only through Argus's egress proxy. */
+export type ServerNetwork = 'open' | 'proxy'
 
 /** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */
 export const MCP_SERVER_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/

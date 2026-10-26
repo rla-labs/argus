@@ -48,6 +48,7 @@ import { isMailSecretName, ProjectMailer, transportOptions, type MailSecrets, ty
 import { ProjectMailbox, type MailboxConnect } from './mailbox.js'
 import { imapConnect } from './imap.js'
 import { EgressProxy } from './egress.js'
+import { HostChannel, type HostHandler } from './host.js'
 import { McpOAuth, OAuthProxy, isOAuthSecretName, type OAuthClientSettings, type OAuthSecrets } from './oauth.js'
 
 /** What a delivery targets. */
@@ -142,6 +143,8 @@ export class OpsProjects {
   private readonly stateDir: string | undefined
   /** Where per-project state goes: `stateDir`, or `state/` next to the scratch folder. */
   private readonly stateRoot: string
+  /** The extension servers' host channels (`host:` in their manifest). */
+  private readonly host: HostChannel
   /** Grants for MCP servers that sign in with OAuth. */
   readonly oauth: McpOAuth
   /** The loopback proxy those servers are reached through, with a fresh token. */
@@ -216,6 +219,7 @@ export class OpsProjects {
     )
     this.snapshotSettings = options.snapshotSettings ?? (() => ({ enabled: false, keep_days: 14, max_file_mb: 20 }))
     this.oauthProxy = new OAuthProxy(options.oauthFetch)
+    this.host = new HostChannel(join(this.stateRoot, 'h'), (projectId) => this.live.get(projectId)?.runId, (message) => ctx.logger('ops-projects').warn(message))
     this.oauth = new McpOAuth({
       secrets: () => ctx.get('credentials' as never) as unknown as OAuthSecrets | undefined,
       ref: (name) => credentialRef(name),
@@ -944,10 +948,16 @@ export class OpsProjects {
         // A local server runs confined, or not at all: it reads the system and, for an
         // extension's, its install; it works in the project's folder; it keeps what it
         // stores in a home of its own, which the agent's shell cannot read.
-        const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args])
+        // A server that declared `host:` gets its channel: a socket in a folder of its own,
+        // read-only to it, and the secret its first message must present. Both go with
+        // the agent.
+        const host = server.command !== null && server.extension !== undefined && server.extension.host.length > 0 ? await this.host.start(config.id, name, server.extension.host) : undefined
+        if (host !== undefined) agentCtx.effect(() => () => this.host.close(config.id, name))
+        const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args], host === undefined ? [] : [host.dir])
         let options
         if (server.command !== null) {
-          options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env: await this.expand(server.env), cwd: config.cwd }
+          const env = { ...(await this.expand(server.env)), ...(host === undefined ? {} : { ARGUS_HOST_SOCKET: host.socket, ARGUS_HOST_TOKEN: host.token }) }
+          options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env, cwd: config.cwd }
         } else if (server.oauth !== null) {
           // Through the loopback proxy, which adds a fresh token: dsh never holds one.
           const status = await this.oauth.status(config.id, name)
@@ -973,13 +983,14 @@ export class OpsProjects {
    * @param name the server's name.
    * @param server the server.
    * @param argv the server's command.
+   * @param reads more folders it reads: its host channel's.
    * @returns the wrapped command.
    * @throws {Error} without the sandbox: the server is then left out.
    */
-  private async confineServer(config: ProjectConfig, name: string, server: McpServer, argv: readonly string[]): Promise<readonly string[]> {
+  private async confineServer(config: ProjectConfig, name: string, server: McpServer, argv: readonly string[], reads: readonly string[] = []): Promise<readonly string[]> {
     const sandbox = this.ctx.get('sandbox' as never) as unknown as { confineReading?(argv: readonly string[], policy: { mode: 'workspace-write'; workspaceRoot: string }, reads: readonly string[], home?: string): Promise<{ argv: readonly string[] }> } | undefined
     if (sandbox?.confineReading === undefined) throw new Error('the command sandbox is not available, and a local MCP server runs only confined')
-    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, server.extension === undefined ? [] : [server.extension.dir], this.mcpHomeOf(config.id, name))).argv
+    return (await sandbox.confineReading(argv, { mode: 'workspace-write', workspaceRoot: config.cwd }, [...(server.extension === undefined ? [] : [server.extension.dir]), ...reads], this.mcpHomeOf(config.id, name))).argv
   }
 
   /**
@@ -1547,6 +1558,36 @@ export class OpsProjects {
     this.entryBySession.clear()
     this.ownership.clear()
     await Promise.allSettled(handles.map((handle) => handle.dispose()))
+    this.host.closeAll()
+  }
+
+  /**
+   * Answer one type of host-channel message (`ask`, `step`, `usage`) from the extension
+   * servers that declared it. The plugin that owns the decision calls it, as an effect.
+   *
+   * @param type the message type.
+   * @param handler what answers it; it learns the project and run from the socket.
+   * @returns what removes it.
+   */
+  hostHandle(type: string, handler: HostHandler): () => void {
+    return this.host.handle(type, handler)
+  }
+
+  /**
+   * Tell a project's connected extension servers to stop what they are doing.
+   *
+   * @param projectId the project.
+   * @param reason why (cancel, a limit, a loop, the run's end).
+   * @returns how many were told.
+   */
+  hostStop(projectId: string, reason: string): number {
+    return this.host.stop(projectId, reason)
+  }
+
+  /** A server's open host channel, or undefined: for tests. */
+  hostEndpointOf(projectId: string, server: string): { readonly dir: string; readonly socket: string } | undefined {
+    const endpoint = this.host.endpointOf(projectId, server)
+    return endpoint === undefined ? undefined : { dir: endpoint.dir, socket: endpoint.socket }
   }
 
   private keyOf(target: AgentTarget): string {

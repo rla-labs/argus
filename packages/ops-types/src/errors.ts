@@ -35,6 +35,10 @@ export interface OpsErrorCodeMap {
   'EXTENSION_INSTALL_FAILED': true
   /** A git clone, pull or push could not be done: no remote, no token, a refused or failed push. */
   'GIT_FAILED': true
+  /** A message on an extension server's host channel came when its project has no run in progress. */
+  'HOST_NO_RUN': true
+  /** A message on a host channel was refused: too large, not JSON, too many, of an unknown type, or not declared in `host:`. */
+  'HOST_MESSAGE_REFUSED': true
   /** Another Argus Agent process already uses this data directory. */
   'INSTANCE_LOCKED': true
   /** A project exists but its status forbids the operation (`paused`, `archived`). */
@@ -230,6 +234,8 @@ const KNOWN_CODES: Record<string, true> = {
   APPROVAL_DENIED: true,
   INVALID_MODEL_REF: true,
   NOT_IMPLEMENTED: true,
+  HOST_NO_RUN: true,
+  HOST_MESSAGE_REFUSED: true,
   INTERNAL: true,
 }
 

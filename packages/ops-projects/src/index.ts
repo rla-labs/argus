@@ -39,6 +39,7 @@ export * from './mail.js'
 export * from './mailbox.js'
 export * from './oauth.js'
 export { EgressProxy, isPublicAddress } from './egress.js'
+export { HostChannel, HostRefusal, HOST_MESSAGE_MAX_BYTES, HOST_MESSAGES_PER_SECOND, type HostCall, type HostEndpoint, type HostHandler } from './host.js'
 
 /** Stable Cordis plugin name. */
 export const name = 'ops-projects'
