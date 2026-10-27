@@ -251,8 +251,8 @@ describe('parseProjectConfig', () => {
 
 describe('the delegate block', () => {
   it('limits an agent an extension runs: 50 turns and 30 minutes a call, 300 turns a day, by default', () => {
-    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet', codex_model: null })
-    expect(parse({ delegate: { max_turns: 80, backend: 'api' } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'api', model: 'sonnet', codex_model: null })
+    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet', codex_model: null, codex_provider: 'openai' })
+    expect(parse({ delegate: { max_turns: 80, backend: 'api' } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'api', model: 'sonnet', codex_model: null, codex_provider: 'openai' })
     expect(parseFails({ delegate: { backend: 'free' } })).toBeInstanceOf(ProjectConfigError)
     expect(parse({ delegate: { model: 'opus' } }).delegate.model).toBe('opus')
     expect(parse({ delegate: { model: 'claude-sonnet-5-5' } }).delegate.model).toBe('claude-sonnet-5-5')

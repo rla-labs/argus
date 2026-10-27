@@ -91,6 +91,8 @@ export interface ProjectDelegate {
   readonly model: string
   /** The model Codex uses (an OpenAI model id), or null for Codex's own default. */
   readonly codex_model: string | null
+  /** Where Codex's requests go: OpenAI's API (`/key openai`) or OpenRouter's (`/key openrouter`). */
+  readonly codex_provider: 'openai' | 'openrouter'
 }
 
 /** A project's memory settings. */
@@ -180,8 +182,8 @@ function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
     issues.push({ path: 'delegate.model', message: 'a model alias (sonnet, opus, haiku) or a model id: letters, digits, . _ : -' })
   }
   const codexModel = isMapping(document['delegate']) ? document['delegate']['codex_model'] : undefined
-  if (codexModel !== undefined && codexModel !== null && (typeof codexModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(codexModel))) {
-    issues.push({ path: 'delegate.codex_model', message: 'an OpenAI model id: letters, digits, . _ : -' })
+  if (codexModel !== undefined && codexModel !== null && (typeof codexModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/.test(codexModel))) {
+    issues.push({ path: 'delegate.codex_model', message: 'a model id (on OpenRouter, provider/model): letters, digits, . _ : - /' })
   }
   for (const [index, rule] of listOf(document['approvals'], 'auto_allow').entries()) {
     if (typeof rule === 'string' && rule.split(/\s+/).slice(0, -1).some((token) => token.includes('*'))) {
@@ -317,6 +319,7 @@ export const projectConfigSchema = z.object({
       backend: z.union([z.const('subscription'), z.const('api')]).default('subscription'),
       model: z.string().default('sonnet'),
       codex_model: z.string(),
+      codex_provider: z.union([z.const('openai'), z.const('openrouter')]).default('openai'),
     })
     .default({}),
   memory: z

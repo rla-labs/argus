@@ -35,13 +35,13 @@ describe('usageReader', () => {
 })
 
 describe('an OpenAI route', () => {
-  async function openai(): Promise<{ url: string; seen: Array<{ headers: IncomingHttpHeaders; body: string }> }> {
-    const seen: Array<{ headers: IncomingHttpHeaders; body: string }> = []
+  async function openai(): Promise<{ url: string; seen: Array<{ url: string | undefined; headers: IncomingHttpHeaders; body: string }> }> {
+    const seen: Array<{ url: string | undefined; headers: IncomingHttpHeaders; body: string }> = []
     const server = createServer((req, res) => {
       let body = ''
       req.on('data', (chunk) => (body += chunk))
       req.on('end', () => {
-        seen.push({ headers: req.headers, body })
+        seen.push({ url: req.url, headers: req.headers, body })
         res.writeHead(200, { 'content-type': 'text/event-stream' }).end(`event: response.completed\ndata: ${JSON.stringify(COMPLETED)}\n\n`)
       })
     })
@@ -87,5 +87,14 @@ describe('an OpenAI route', () => {
     expect(JSON.parse(refused.body).error.message).toBe('Argus: the project budget is exhausted')
     expect(upstream.seen).toHaveLength(1)
     expect(counted).toHaveLength(1)
+  })
+
+  it('forwards under the upstream’s own path (OpenRouter’s /api)', async () => {
+    const upstream = await openai()
+    const proxy = new EgressProxy()
+    proxies.push(proxy)
+    const route = proxy.addRoute(`${upstream.url}/api`, async () => ({ kind: 'bearer', value: 'sk-or-real' }))
+    expect((await post(`${await proxy.url()}${route.path}/v1/responses`)).status).toBe(200)
+    expect(upstream.seen[0]?.url).toBe('/api/v1/responses')
   })
 })

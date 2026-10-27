@@ -245,7 +245,7 @@ describe('an extension enabled in a project', () => {
     expect(out).toContain('\\"openaiRouted\\":200')
     expect(out).toContain('\\"secrets\\":[]')
     expect(seen).toEqual(['Bearer sk-proj-held-by-argus'])
-    expect(counted).toEqual([{ projectId: 'site', server: 'oai', runId: undefined, model: 'gpt-x', inputTokens: 40, cachedTokens: 10, outputTokens: 5 }])
+    expect(counted).toEqual([{ projectId: 'site', server: 'oai', provider: 'openai', runId: undefined, model: 'gpt-x', inputTokens: 40, cachedTokens: 10, outputTokens: 5 }])
   }, 60_000)
 
   it('leaves its server out when there is no sandbox, and the project still runs', async () => {

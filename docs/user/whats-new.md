@@ -13,7 +13,8 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   adds the key (never in its environment) and reads, from each of OpenAI's answers, the
   model and the tokens: a cost against the project's budget, a turn of `delegate.day_turns`.
   Past the budget or the day's turns, the route refuses the next request.
-- Its model is `delegate.codex_model` (Codex's own default when empty).
+- Its model is `delegate.codex_model` (Codex's own default when empty);
+  `delegate.codex_provider: openrouter` sends its requests to OpenRouter, on `/key openrouter`.
 - **For extension authors:** `route: openai`.
 
 ## 0.8.0

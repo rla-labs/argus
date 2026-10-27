@@ -1517,19 +1517,19 @@ describe('the steps of an agent an extension runs for a project', () => {
   it('counts what an OpenAI route read as a cost, and refuses requests past the day’s turns or to an unpriced model', async () => {
     const booted = await bootGovernor({ projects: { site: { delegate: { day_turns: 2 } } } })
     governedRun(booted, 'run-route')
-    expect(booted.governor.routeAdmit({ projectId: 'site', server: 'codex', model: 'gpt-x' })).toBeUndefined()
+    expect(booted.governor.routeAdmit({ projectId: 'site', server: 'codex', provider: 'openai', model: 'gpt-x' })).toBeUndefined()
     // 200 × $2 + 1000 × $0.20 + 30 × $8 per million tokens: 840 micro-USD.
-    booted.governor.routeUsage({ projectId: 'site', server: 'codex', runId: 'run-route', model: 'gpt-x', inputTokens: 200, cachedTokens: 1000, outputTokens: 30 })
+    booted.governor.routeUsage({ projectId: 'site', server: 'codex', provider: 'openai', runId: 'run-route', model: 'gpt-x', inputTokens: 200, cachedTokens: 1000, outputTokens: 30 })
     expect(booted.meter.spending('project:site').dayMicros).toBe(840)
     expect(booted.meter.runTotals('run-route')).toMatchObject({ inputTokens: 200, outputTokens: 30 })
     expect(booted.meter.delegatedTurns('site', Date.now())).toBe(1)
-    booted.governor.routeUsage({ projectId: 'site', server: 'codex', runId: 'run-route', model: 'gpt-x', inputTokens: 1, cachedTokens: 0, outputTokens: 1 })
-    expect(booted.governor.routeAdmit({ projectId: 'site', server: 'codex', model: 'gpt-x' })).toContain('2 turns for today')
+    booted.governor.routeUsage({ projectId: 'site', server: 'codex', provider: 'openai', runId: 'run-route', model: 'gpt-x', inputTokens: 1, cachedTokens: 0, outputTokens: 1 })
+    expect(booted.governor.routeAdmit({ projectId: 'site', server: 'codex', provider: 'openai', model: 'gpt-x' })).toContain('2 turns for today')
   }, 30_000)
 
   it('refuses a route request to a model with no price when unpriced models are blocked', async () => {
     const booted = await bootGovernor({ projects: { site: {} } })
-    const refusal = booted.governor.routeAdmit({ projectId: 'site', server: 'codex', model: 'gpt-unknown' })
+    const refusal = booted.governor.routeAdmit({ projectId: 'site', server: 'codex', provider: 'openai', model: 'gpt-unknown' })
     if (booted.meter.unknownPolicy === 'block') expect(refusal).toContain('openai/gpt-unknown has no price')
     else expect(refusal).toBeUndefined()
   }, 30_000)

@@ -219,7 +219,8 @@ export class EgressProxy {
       response.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: 'permission_error', code: 'argus_refused', message: `Argus: ${refusal}` } }))
       return
     }
-    const url = new URL(match[2] as string, route.upstream)
+    // Under the upstream's own path (OpenRouter's is /api).
+    const url = new URL(`${route.upstream.pathname.replace(/\/$/, '')}${match[2] as string}`, route.upstream)
     const { host: _host, authorization: _authorization, 'x-api-key': _key, 'proxy-connection': _proxy, connection: _connection, 'content-length': _length, ...rest } = request.headers
     const headers: IncomingHttpHeaders = { ...rest, host: url.host, 'content-length': String(body.length) }
     if (credential.kind === 'api-key') {

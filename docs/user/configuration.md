@@ -943,7 +943,8 @@ delegate:
   day_turns: 300    # turns all calls may take in a day, across the project
   backend: subscription   # or api: what it runs on
   model: sonnet           # or opus, haiku, or a model id
-  codex_model: null       # Codex (0.8.1): an OpenAI model id; empty: Codex's own default
+  codex_model: null       # Codex (0.8.1): a model id; empty: Codex's own default
+  codex_provider: openai  # or openrouter: who answers Codex's requests
 ```
 
 An extension such as `claude-code` runs another agent for the project when the project's
@@ -961,8 +962,10 @@ the catalog's prices, against the project's budgets. Either way the secret stays
 Argus: the agent reaches Anthropic through a route that adds it. `model` is chosen here:
 through that route Claude Code cannot see the subscription's plan, and on its own it would
 stay on its default, Opus, which spends a plan fastest; Sonnet fits most code work. Codex runs on Argus's OpenAI API key
-(`/key openai`) only, at the catalog's prices against the budget, on `codex_model`; Argus
-counts each of its requests itself, on the way.
+(`/key openai`), or with `codex_provider: openrouter` on its OpenRouter key (`/key
+openrouter`, `codex_model` then an OpenRouter id such as `openai/gpt-5-mini`, and the
+model must speak OpenRouter's Responses API), at the catalog's prices against the budget;
+Argus counts each of its requests itself, on the way.
 
 ### `INSTRUCTIONS.md` — what the project is told
 

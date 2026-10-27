@@ -93,13 +93,22 @@ export interface TaskSession {
 /** The name an MCP server's `env` uses for the egress proxy's address. */
 export const EGRESS_PROXY_NAME = 'ARGUS_EGRESS_PROXY'
 
-/** Where an OpenAI route goes; `ARGUS_OPENAI_UPSTREAM` points it elsewhere (tests). */
-const OPENAI_UPSTREAM = (): string => process.env['ARGUS_OPENAI_UPSTREAM'] ?? 'https://api.openai.com'
+/** Who answers an OpenAI route: the project's `delegate.codex_provider`. */
+export type RouteProvider = 'openai' | 'openrouter'
+
+/**
+ * Where an OpenAI route goes (an OpenAI-compatible Responses API), and the key it adds;
+ * `ARGUS_OPENAI_UPSTREAM` / `ARGUS_OPENROUTER_UPSTREAM` point it elsewhere (tests).
+ */
+const ROUTE_PROVIDERS: Record<RouteProvider, { readonly upstream: () => string; readonly key: string; readonly command: string }> = {
+  openai: { upstream: () => process.env['ARGUS_OPENAI_UPSTREAM'] ?? 'https://api.openai.com', key: 'OPENAI_API_KEY', command: '/key openai' },
+  openrouter: { upstream: () => process.env['ARGUS_OPENROUTER_UPSTREAM'] ?? 'https://openrouter.ai/api', key: 'OPENROUTER_API_KEY', command: '/key openrouter' },
+}
 
 /** The governor's side of a route: admit a request, count what it used. */
 export interface RouteGovernor {
-  admit(call: { readonly projectId: string; readonly server: string; readonly model: string | undefined }): string | undefined
-  usage(call: { readonly projectId: string; readonly server: string; readonly runId: string | undefined; readonly model: string; readonly inputTokens: number; readonly cachedTokens: number; readonly outputTokens: number }): void
+  admit(call: { readonly projectId: string; readonly server: string; readonly provider: RouteProvider; readonly model: string | undefined }): string | undefined
+  usage(call: { readonly projectId: string; readonly server: string; readonly provider: RouteProvider; readonly runId: string | undefined; readonly model: string; readonly inputTokens: number; readonly cachedTokens: number; readonly outputTokens: number }): void
 }
 
 /** Where an Anthropic route goes; `ARGUS_ANTHROPIC_UPSTREAM` points it elsewhere (tests). */
@@ -992,13 +1001,15 @@ export class OpsProjects {
           agentCtx.effect(() => route.remove)
           routeUrl = `${await this.egress.url()}${route.path}`
         }
-        // `route: openai`: Argus's OpenAI key, and Argus counts every request itself, from
-        // the answer, and may refuse one (a budget, the day's turns): the governor decides.
+        // `route: openai`: Argus's key for OpenAI or OpenRouter (`delegate.codex_provider`), and
+        // Argus counts every request itself, from the answer, and may refuse one (a budget,
+        // the day's turns): the governor decides.
         let openaiUrl: string | undefined
         if (server.command !== null && server.extension?.route === 'openai') {
-          const route = this.egress.addRoute(OPENAI_UPSTREAM(), () => this.openaiCredential(), {
-            admit: (model) => this.routeGovernor?.admit({ projectId: config.id, server: name, model }),
-            usage: (usage) => this.routeGovernor?.usage({ projectId: config.id, server: name, runId: this.live.get(config.id)?.runId, ...usage }),
+          const provider = config.delegate.codex_provider
+          const route = this.egress.addRoute(ROUTE_PROVIDERS[provider].upstream(), () => this.routeKey(provider), {
+            admit: (model) => this.routeGovernor?.admit({ projectId: config.id, server: name, provider, model }),
+            usage: (usage) => this.routeGovernor?.usage({ projectId: config.id, server: name, provider, runId: this.live.get(config.id)?.runId, ...usage }),
           })
           agentCtx.effect(() => route.remove)
           openaiUrl = `${await this.egress.url()}${route.path}/v1`
@@ -1088,14 +1099,17 @@ export class OpsProjects {
   }
 
   /**
-   * The credential an OpenAI route adds: Argus's OpenAI API key (`/key openai`).
+   * The credential an OpenAI route adds: Argus's API key for its provider (`/key openai`,
+   * `/key openrouter`).
    *
+   * @param provider who answers the route.
    * @returns the credential, or what to do when it is missing.
    */
-  private async openaiCredential(): Promise<RouteCredential | string> {
+  private async routeKey(provider: RouteProvider): Promise<RouteCredential | string> {
+    const { key, command } = ROUTE_PROVIDERS[provider]
     const credentials = this.ctx.get('credentials' as never) as unknown as { resolve(ref: unknown): Promise<{ value: string } | undefined> } | undefined
-    const value = credentials === undefined ? process.env['OPENAI_API_KEY'] : (await credentials.resolve(credentialRef('OPENAI_API_KEY')))?.value
-    if (value === undefined || value.trim() === '') return 'Argus has no OpenAI API key: send /key openai <key>'
+    const value = credentials === undefined ? process.env[key] : (await credentials.resolve(credentialRef(key)))?.value
+    if (value === undefined || value.trim() === '') return `Argus has no ${provider} API key: send ${command} <key>`
     return { kind: 'bearer', value: value.trim() }
   }
 
