@@ -207,11 +207,11 @@ A **scalar**, not a map: `keep` or `reject`.
 has one, the peak-hour price when a provider discounts off-peak. `/new` and `/model`
 show the price they will use and where it came from.
 
-**A model on OpenRouter** is charged at its most expensive provider's price, renewed
-daily: OpenRouter bills the provider it routes a request to, which can cost many times
-the price it lists. A provider priced at more than 5× the listed price is taken for a
-listing error and left out (the log says which); with none left, the listed price is
-used. To pay less, or to charge exactly what you are billed, write the price here.
+**A model on OpenRouter** is charged at the highest price among its providers, each part
+apart, renewed daily: OpenRouter bills the provider it routes a request to, which can
+cost many times the price it lists. A provider whose input or output is more than 10× the
+median of its providers is taken for a listing error and left out (the log says which);
+the cached price comes only from providers that have a cache. To pay less, or to charge exactly what you are billed, write the price here.
 
 **A provider you declare yourself** (`providers:`) is priced too, from lists fetched
 daily, by the provider's name: for `deepinfra`, DeepInfra's own price list (what it

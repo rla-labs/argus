@@ -8,8 +8,8 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 - **OpenRouter prices fixed.** A model on OpenRouter is charged at its most expensive
   provider's price; one provider listed GLM 5.3 Flash at $6.04 per million input tokens
   (listed $0.15), and a run was charged $9.11 for about $0.30 of work. Now a provider
-  priced over 5× the listed price is left out, the ceiling is one real provider's price,
-  and every ceiling kept is renewed daily.
+  priced over 10× the median of its providers is left out, a provider without a cache does
+  not raise the cached price, and every price kept is renewed daily.
 
 ## 0.8.1
 

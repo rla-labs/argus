@@ -206,19 +206,20 @@ describe('OpenRouter provider ceilings', () => {
     data: { endpoints: prices.map(([prompt, completion, input_cache_read], index) => ({ provider_name: `P${index}`, pricing: { prompt, completion, ...(input_cache_read === undefined ? {} : { input_cache_read }) } })) },
   })
 
-  it('takes the most expensive provider’s whole price, not the highest of each part', () => {
-    const { ceiling } = parseOpenRouterCeiling(endpoints(['0.0000000082', '0.00000128'], ['0.00000021', '0.00000056'], ['0.00000044', '0.00000088']))
-    expect(ceiling).toMatchObject({ input: 0.44, output: 0.88 })
+  it('takes the highest price of each component across providers, the cached one only from providers with a cache', () => {
+    const { ceiling } = parseOpenRouterCeiling(endpoints(['0.0000000082', '0.00000128', '0.000000002'], ['0.00000021', '0.00000056', '0.00000001'], ['0.00000044', '0.00000088']))
+    expect(ceiling).toMatchObject({ input: 0.44, output: 1.28, cached: 0.01 })
     expect(parseOpenRouterCeiling(endpoints()).ceiling).toBeUndefined()
     expect(() => parseOpenRouterCeiling({})).toThrow(/endpoints/)
   })
 
-  it('leaves out a provider priced over 5× the listed price (GLM 5.3 Flash, 2026-10-27), and falls back to the listed price', () => {
-    const listed = { input: 0.15, output: 0.5, cached: 0.03, cacheWrite: 0.15 }
-    const glm = endpoints(['0.00000015', '0.0000005', '0.00000003'], ['0.000000225', '0.00000075', '0.000000045'], ['0.000006037', '0.0000024', '0.000001698'])
-    expect(parseOpenRouterCeiling(glm, listed)).toEqual({ ceiling: { input: 0.225, output: 0.75, cached: 0.045, cacheWrite: 0.225 }, ignored: ['P2 ($6.037 in, $2.4 out)'] })
-    expect(parseOpenRouterCeiling(endpoints(['0.000006037', '0.0000024']), listed)).toEqual({ ceiling: listed, ignored: ['P0 ($6.037 in, $2.4 out)'] })
-    expect(parseOpenRouterCeiling(glm).ceiling).toMatchObject({ input: 6.037 })
+  it('leaves out a provider priced over 10× the median provider (GLM 5.3 Flash, 2026-10-27), keeps a real expensive one', () => {
+    const glm = endpoints(['0.00000015', '0.0000005', '0.00000003'], ['0.00000012', '0.0000004', '0.00000002'], ['0.000000225', '0.00000075', '0.000000045'], ['0.000006037', '0.0000024', '0.000001698'])
+    expect(parseOpenRouterCeiling(glm)).toEqual({ ceiling: { input: 0.225, output: 0.75, cached: 0.045, cacheWrite: 0.225 }, ignored: ['P3 ($6.037 in, $2.4 out)'] })
+    expect(parseOpenRouterCeiling(endpoints(['0.000006037', '0.0000024']))).toMatchObject({ ignored: [] })
+    // DeepSeek V4 Flash: its dearest provider is 4.6× the median, and 70× the listed price: kept.
+    const deepseek = endpoints(['0.0000000082', '0.00000028'], ['0.00000013', '0.00000028'], ['0.00000014', '0.0000003'], ['0.0000006', '0.00000132'])
+    expect(parseOpenRouterCeiling(deepseek)).toMatchObject({ ceiling: { input: 0.6, output: 1.32 }, ignored: [] })
   })
 
   it('charges the ceiling over the listed price, fetches only what is missing, and keeps it over a restart', async () => {
@@ -226,7 +227,7 @@ describe('OpenRouter provider ceilings', () => {
     const fetchImpl = (async (url: string | URL) => {
       calls.push(String(url))
       const body = String(url).endsWith('/endpoints')
-        ? endpoints(['0.0000000082', '0.00000056'], ['0.00000044', '0.00000128'])
+        ? endpoints(['0.0000000082', '0.00000128'], ['0.00000044', '0.00000056'])
         : openRouterResponse()
       return new Response(JSON.stringify(body), { status: 200 })
     }) as typeof fetch
