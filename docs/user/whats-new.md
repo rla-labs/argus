@@ -3,6 +3,19 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.8.1 (in progress)
+
+- **Codex under Argus.** The `codex` extension: a project's agent hands a multi-step coding
+  task to OpenAI's Codex (`run`), on Argus's OpenAI API key (`/key openai`) only. Every
+  command and file change it makes is decided by the project's rules, with the same
+  questions; its steps are watched for loops; a cancel, its limits or a loop stop it.
+- **Argus counts Codex's requests itself.** It talks to OpenAI through a route in Argus that
+  adds the key (never in its environment) and reads, from each of OpenAI's answers, the
+  model and the tokens: a cost against the project's budget, a turn of `delegate.day_turns`.
+  Past the budget or the day's turns, the route refuses the next request.
+- Its model is `delegate.codex_model` (Codex's own default when empty).
+- **For extension authors:** `route: openai`.
+
 ## 0.8.0
 
 - **Claude Code under Argus.** The `claude-code` extension: a project's agent hands a
