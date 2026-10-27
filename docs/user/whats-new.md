@@ -3,6 +3,14 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
+## 0.8.2 (in progress)
+
+- **OpenRouter prices fixed.** A model on OpenRouter is charged at its most expensive
+  provider's price; one provider listed GLM 5.3 Flash at $6.04 per million input tokens
+  (listed $0.15), and a run was charged $9.11 for about $0.30 of work. Now a provider
+  priced over 5× the listed price is left out, the ceiling is one real provider's price,
+  and every ceiling kept is renewed daily.
+
 ## 0.8.1
 
 - **Codex under Argus.** The `codex` extension: a project's agent hands a multi-step coding

@@ -76,8 +76,12 @@ export function parseOpenRouter(document: unknown): Map<string, Price> {
   return prices
 }
 
+/** A provider priced above this many times OpenRouter's listed price is taken for a listing error. */
+export const CEILING_OUTLIER = 5
+
 /**
- * The HIGHEST price among a model's OpenRouter providers, per component.
+ * The price of a model's most expensive OpenRouter provider: one real provider's
+ * whole price (input plus output decides which), not a mix of the highest of each.
  *
  * OpenRouter routes each request to one of a model's providers, and bills that
  * provider's price — not the one `/models` lists, which can be fifty times lower
@@ -85,27 +89,31 @@ export function parseOpenRouter(document: unknown): Map<string, Price> {
  * $0.44 per million). dsh does not pass on the cost OpenRouter reports, so the
  * meter charges the ceiling: a budget can then stop early, never late.
  *
+ * A provider priced at more than {@link CEILING_OUTLIER} times the listed price,
+ * in any part, is left out: such a listing was an error (GLM 5.3 Flash,
+ * 2026-10-27: $6.04 input against $0.15 listed charged a run forty times over).
+ *
  * @param document the parsed `/api/v1/models/{id}/endpoints` response.
- * @returns the ceiling, or `undefined` when no provider has a fixed price.
+ * @param listed the model's price in OpenRouter's `/models` list, when known.
+ * @returns the ceiling (`undefined` when no provider has a fixed price), and the
+ *   providers left out.
  */
-export function parseOpenRouterCeiling(document: unknown): Price | undefined {
+export function parseOpenRouterCeiling(document: unknown, listed?: Price): { readonly ceiling: Price | undefined; readonly ignored: readonly string[] } {
   const endpoints = (document as { data?: { endpoints?: unknown } })?.data?.endpoints
   if (!Array.isArray(endpoints)) throw new Error('the OpenRouter response has no `endpoints` list')
+  const above = (price: number, base: number): boolean => base > 0 && price > base * CEILING_OUTLIER
   let ceiling: Price | undefined
-  for (const endpoint of endpoints as Array<{ pricing?: Record<string, unknown> }>) {
+  const ignored: string[] = []
+  for (const endpoint of endpoints as Array<{ provider_name?: unknown; pricing?: Record<string, unknown> }>) {
     const price = priceOf(endpoint.pricing)
     if (price === undefined) continue
-    ceiling =
-      ceiling === undefined
-        ? price
-        : {
-            input: Math.max(ceiling.input, price.input),
-            output: Math.max(ceiling.output, price.output),
-            cached: Math.max(ceiling.cached, price.cached),
-            cacheWrite: Math.max(ceiling.cacheWrite ?? 0, price.cacheWrite ?? 0),
-          }
+    if (listed !== undefined && (above(price.input, listed.input) || above(price.output, listed.output) || above(price.cached, listed.cached))) {
+      ignored.push(`${String(endpoint.provider_name ?? 'a provider')} ($${price.input} in, $${price.output} out)`)
+      continue
+    }
+    if (ceiling === undefined || price.input + price.output > ceiling.input + ceiling.output) ceiling = price
   }
-  return ceiling
+  return { ceiling: ceiling ?? (ignored.length > 0 ? listed : undefined), ignored }
 }
 
 /** One OpenRouter `pricing` object, per token as strings, to USD per million. */
@@ -411,13 +419,16 @@ export class PriceRefresher {
    */
   async refreshCeilings(all: boolean, only?: ModelRef): Promise<void> {
     const { store, prices, now, log } = this.options
-    const models = [...new Set((only === undefined ? this.options.watched() : [only]).filter((m) => m.provider === 'openrouter').map((m) => m.model))]
-      .filter((model) => !model.endsWith(':free') && (all || !prices.hasOpenRouterCeiling(model)))
-    if (models.length === 0) return
     const ceilings = new Map(Object.entries(store.runtimeState.get<Record<string, Price>>(KEYS.ceilings) ?? {}))
+    // The daily refresh renews every ceiling kept, not only those in use now: a model used
+    // again later must not be charged at a ceiling that has since changed.
+    const inUse = (only === undefined ? this.options.watched() : [only]).filter((m) => m.provider === 'openrouter').map((m) => m.model)
+    const models = [...new Set([...inUse, ...(all && only === undefined ? ceilings.keys() : [])])].filter((model) => !model.endsWith(':free') && (all || !prices.hasOpenRouterCeiling(model)))
+    if (models.length === 0) return
     for (const model of models) {
       try {
-        const ceiling = parseOpenRouterCeiling(await this.getJson(openRouterEndpointsUrl(model)))
+        const { ceiling, ignored } = parseOpenRouterCeiling(await this.getJson(openRouterEndpointsUrl(model)), prices.openRouterListed(model))
+        if (ignored.length > 0) log.warn(`OpenRouter provider prices for ${model}: left out, as more than ${CEILING_OUTLIER}× the listed price: ${ignored.join(', ')}`)
         if (ceiling !== undefined) ceilings.set(model, ceiling)
       } catch (error) {
         if (this.halt.signal.aborted) return

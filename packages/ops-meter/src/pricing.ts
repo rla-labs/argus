@@ -201,6 +201,15 @@ export class PriceTable {
     this.listsDate = fetchedAt
   }
 
+  /**
+   * An OpenRouter model's price in OpenRouter's own list.
+   * @param model the OpenRouter model id.
+   * @returns the price, or `undefined` when the list does not have it.
+   */
+  openRouterListed(model: string): Price | undefined {
+    return this.openRouter.get(model)
+  }
+
   /** Whether an OpenRouter model has a provider ceiling. */
   hasOpenRouterCeiling(model: string): boolean {
     return this.openRouterCeilings.has(model)

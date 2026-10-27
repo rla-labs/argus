@@ -202,15 +202,23 @@ describe('PriceRefresher.start', () => {
 })
 
 describe('OpenRouter provider ceilings', () => {
-  const endpoints = (...prices: Array<[string, string]>) => ({
-    data: { endpoints: prices.map(([prompt, completion]) => ({ pricing: { prompt, completion } })) },
+  const endpoints = (...prices: Array<[string, string, string?]>) => ({
+    data: { endpoints: prices.map(([prompt, completion, input_cache_read], index) => ({ provider_name: `P${index}`, pricing: { prompt, completion, ...(input_cache_read === undefined ? {} : { input_cache_read }) } })) },
   })
 
-  it('takes the highest price of each component across providers', () => {
-    const ceiling = parseOpenRouterCeiling(endpoints(['0.0000000082', '0.00000128'], ['0.00000021', '0.00000056']))
-    expect(ceiling).toMatchObject({ input: 0.21, output: 1.28 })
-    expect(parseOpenRouterCeiling(endpoints())).toBeUndefined()
+  it('takes the most expensive provider’s whole price, not the highest of each part', () => {
+    const { ceiling } = parseOpenRouterCeiling(endpoints(['0.0000000082', '0.00000128'], ['0.00000021', '0.00000056'], ['0.00000044', '0.00000088']))
+    expect(ceiling).toMatchObject({ input: 0.44, output: 0.88 })
+    expect(parseOpenRouterCeiling(endpoints()).ceiling).toBeUndefined()
     expect(() => parseOpenRouterCeiling({})).toThrow(/endpoints/)
+  })
+
+  it('leaves out a provider priced over 5× the listed price (GLM 5.3 Flash, 2026-10-27), and falls back to the listed price', () => {
+    const listed = { input: 0.15, output: 0.5, cached: 0.03, cacheWrite: 0.15 }
+    const glm = endpoints(['0.00000015', '0.0000005', '0.00000003'], ['0.000000225', '0.00000075', '0.000000045'], ['0.000006037', '0.0000024', '0.000001698'])
+    expect(parseOpenRouterCeiling(glm, listed)).toEqual({ ceiling: { input: 0.225, output: 0.75, cached: 0.045, cacheWrite: 0.225 }, ignored: ['P2 ($6.037 in, $2.4 out)'] })
+    expect(parseOpenRouterCeiling(endpoints(['0.000006037', '0.0000024']), listed)).toEqual({ ceiling: listed, ignored: ['P0 ($6.037 in, $2.4 out)'] })
+    expect(parseOpenRouterCeiling(glm).ceiling).toMatchObject({ input: 6.037 })
   })
 
   it('charges the ceiling over the listed price, fetches only what is missing, and keeps it over a restart', async () => {
@@ -218,7 +226,7 @@ describe('OpenRouter provider ceilings', () => {
     const fetchImpl = (async (url: string | URL) => {
       calls.push(String(url))
       const body = String(url).endsWith('/endpoints')
-        ? endpoints(['0.0000000082', '0.00000128'], ['0.00000044', '0.00000056'])
+        ? endpoints(['0.0000000082', '0.00000056'], ['0.00000044', '0.00000128'])
         : openRouterResponse()
       return new Response(JSON.stringify(body), { status: 200 })
     }) as typeof fetch
@@ -261,5 +269,13 @@ describe('OpenRouter provider ceilings', () => {
     await restarted.refresher.refreshCeilings(false, fresh)
     expect(calls).toEqual(['https://openrouter.ai/api/v1/models/vendor/model-2/endpoints'])
     expect(restarted.prices.resolve(fresh)).toMatchObject({ input: 0.44, output: 1.28 })
+
+    // The daily refresh renews every ceiling kept, model-2 too, though nothing uses it now.
+    calls.length = 0
+    await restarted.refresher.refreshCeilings(true)
+    expect(calls.filter((url) => url.endsWith('/endpoints')).sort()).toEqual([
+      'https://openrouter.ai/api/v1/models/vendor/model-1/endpoints',
+      'https://openrouter.ai/api/v1/models/vendor/model-2/endpoints',
+    ])
   })
 })
