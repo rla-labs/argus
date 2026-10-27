@@ -200,9 +200,9 @@ server.
 `route: openai` gives the server `ARGUS_OPENAI_BASE_URL` (ending in `/v1`): a route to
 OpenAI's API that adds Argus's OpenAI key (`/key openai`). Point the agent at it with any
 dummy key. Argus reads each answer's model and tokens itself and records them as a cost
-against the project's budget, and refuses a request (HTTP 429, `Argus: …`) once the budget
+against the project's budget, and refuses a request (`Argus: …`) once the budget
 is exhausted, the project's `delegate.day_turns` are used, or the model has no price while
-unpriced models are blocked: the server does not report usage for this route.
+unpriced models are blocked (HTTP 403, final: an agent does not retry it): the server does not report usage for this route.
 
 `network: proxy` holds the server, and everything it starts, to Argus's egress proxy:
 `HTTPS_PROXY` and `HTTP_PROXY` point at it, TCP connections reach only its port, and there

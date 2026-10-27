@@ -215,7 +215,8 @@ export class EgressProxy {
     const model = modelOf(body)
     const refusal = route.watch.admit?.(model)
     if (refusal !== undefined) {
-      response.writeHead(429, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', code: 'argus_refused', message: `Argus: ${refusal}` } }))
+      // 403, not 429: an agent retries a 429 and loses the reason; this one is final.
+      response.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: 'permission_error', code: 'argus_refused', message: `Argus: ${refusal}` } }))
       return
     }
     const url = new URL(match[2] as string, route.upstream)

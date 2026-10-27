@@ -83,7 +83,7 @@ describe('an OpenAI route', () => {
 
     refuse = 'the project budget is exhausted'
     const refused = await post(`${base}${route.path}/v1/responses`)
-    expect(refused.status).toBe(429)
+    expect(refused.status).toBe(403)
     expect(JSON.parse(refused.body).error.message).toBe('Argus: the project budget is exhausted')
     expect(upstream.seen).toHaveLength(1)
     expect(counted).toHaveLength(1)
