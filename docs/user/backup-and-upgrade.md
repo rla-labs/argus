@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.0
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.1
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -418,6 +418,16 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.8.1
+
+Nothing to do by hand: no database migration. What changes for you:
+
+- A route's refusal (a budget, the day's delegated turns) is now HTTP 403, final, where it
+  was 429, which an agent retried.
+- To use Codex: `/ext install https://github.com/rla-labs/argus-extensions#codex`, a key
+  (`/key openai`, or `/key openrouter` with `delegate.codex_provider: openrouter`), then
+  [Extensions](extensions.md).
 
 ### Upgrading to 0.8.0
 

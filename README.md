@@ -6,8 +6,8 @@ Argus is a self-hosted system for running AI agents over days and weeks. It enfo
 budget on every run, asks before risky actions and recovers after a crash. You run
 and watch it from a web interface or from Telegram.
 
-**Current release: [0.8.0](https://github.com/rla-labs/argus/releases/tag/v0.8.0)**
-(`ghcr.io/rla-labs/argus:0.8.0`). [What's new](docs/user/whats-new.md).
+**Current release: [0.8.1](https://github.com/rla-labs/argus/releases/tag/v0.8.1)**
+(`ghcr.io/rla-labs/argus:0.8.1`). [What's new](docs/user/whats-new.md).
 
 ## What it does
 
@@ -51,9 +51,10 @@ any other command. The first-party ones, in
 [argus-extensions](https://github.com/rla-labs/argus-extensions): **office** (Word,
 Excel and PowerPoint, with screenshots and PDF), **browser** (a headless Chromium, public
 internet only), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
-(merge, split, text, render), **images** (ImageMagick) and **claude-code** (a coding task
+(merge, split, text, render), **images** (ImageMagick), **claude-code** (a coding task
 handed to Claude Code on your subscription or API key, with Argus approving and watching
-every step it takes, and the key kept out of its reach).
+every step it takes, and the key kept out of its reach) and **codex** (the same for OpenAI's
+Codex, on an OpenAI or OpenRouter key, each request counted by Argus).
 
 ## Quick start
 
@@ -110,7 +111,7 @@ has run it in production yet, and dsh is still a release candidate (`0.2.0-rc.2`
 [what has been verified](docs/user/whats-new.md#what-has-been-verified), and what has
 not.
 
-**Next:** 0.8.1, Codex under Argus, as Claude Code is; 0.8.2, web pages read and scraped without a browser. After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
+**Next:** 0.8.2, web pages read and scraped without a browser. After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
 your use case helps the most.
 
 ## Development
