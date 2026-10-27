@@ -203,7 +203,7 @@ export type ServerNetwork = 'open' | 'proxy'
  * A model provider an extension server's agent reaches through Argus (`mcp.<server>.route`),
  * which adds the project's credential: the key never reaches the server or its agent.
  */
-export type ServerRoute = 'anthropic'
+export type ServerRoute = 'anthropic' | 'openai'
 
 /** A server name: what its tools are prefixed with. No underscore, so the prefix is unambiguous. */
 export const MCP_SERVER_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/

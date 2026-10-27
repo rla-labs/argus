@@ -78,6 +78,8 @@ export function apply(ctx: Context): void {
   // The steps of agents extensions run for a project (Claude Code), on their host channel.
   ctx.effect(() => ctx.opsProjects.hostHandle('step', (call) => governor.delegatedStep(call)))
   ctx.effect(() => ctx.opsProjects.hostHandle('usage', (call) => governor.delegatedUsage(call)))
+  // What extensions' agents ask of a provider through Argus's routes (Codex): admitted and counted here.
+  ctx.effect(() => ctx.opsProjects.setRouteGovernor({ admit: (call) => governor.routeAdmit(call), usage: (call) => governor.routeUsage(call) }))
   ctx.effect(() => () => {
     governor.dispose()
   })

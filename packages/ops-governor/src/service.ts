@@ -1544,6 +1544,52 @@ export class OpsGovernor {
     return { continue: true }
   }
 
+  /**
+   * Whether a request an extension's agent sends through an Argus route (Codex, to OpenAI)
+   * may go: not past the project's hard budget, nor its agents' turns for the day, nor to a
+   * model with no price while unpriced models are blocked.
+   *
+   * @param call the project, the server, the model asked for.
+   * @returns why not, or undefined.
+   */
+  routeAdmit(call: { readonly projectId: string; readonly server: string; readonly model: string | undefined }): string | undefined {
+    const owner: Owner = { kind: 'project', projectId: call.projectId }
+    if (this.worstBudgetLevel(owner) === 'hard') return `the ${this.worstBudgetScope(owner) ?? 'project'} budget is exhausted`
+    const limit = this.options.projects.configOf(call.projectId)?.delegate.day_turns
+    if (limit !== undefined && this.options.meter.delegatedTurns(call.projectId, this.options.now()) >= limit) {
+      return `the project's agents run by extensions took their ${limit} turns for today (delegate.day_turns)`
+    }
+    if (call.model !== undefined && !this.options.meter.isPriced({ provider: 'openai', model: call.model }) && this.options.meter.unknownPolicy === 'block') {
+      return `openai/${call.model} has no price; add it to pricing in ops.yaml`
+    }
+    return undefined
+  }
+
+  /**
+   * One request through an Argus route, as the provider's answer counted it: recorded
+   * against the run and the project at the catalog's price (`openai/<model>`), a turn of
+   * `delegate.day_turns`.
+   *
+   * @param call what the route read.
+   */
+  routeUsage(call: { readonly projectId: string; readonly server: string; readonly runId: string | undefined; readonly model: string; readonly inputTokens: number; readonly cachedTokens: number; readonly outputTokens: number }): void {
+    const track = call.runId === undefined ? undefined : [...this.running.values()].find((entry) => entry.runId === call.runId)
+    try {
+      this.options.meter.record({
+        sessionId: track?.sessionId ?? call.runId ?? call.projectId,
+        rootSessionId: track?.sessionId ?? call.runId ?? call.projectId,
+        owner: { kind: 'project', projectId: call.projectId },
+        model: { provider: 'openai', model: call.model },
+        usage: { inputTokens: call.inputTokens, outputTokens: call.outputTokens, cacheReadTokens: call.cachedTokens } as TokenUsage,
+        runId: call.runId,
+        ts: this.options.now(),
+        delegated: call.server,
+      })
+    } catch (error) {
+      this.ctx.logger('ops-governor').warn('project %s: a request of %s could not be recorded: %s', call.projectId, call.server, (error as Error).message)
+    }
+  }
+
   // ── model downgrade ──────────────────────────────────────────────────────
 
   /**

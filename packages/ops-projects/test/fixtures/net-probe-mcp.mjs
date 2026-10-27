@@ -29,8 +29,14 @@ for await (const line of createInterface({ input: process.stdin })) {
       req.on('error', (error) => resolve(error.code))
       req.end('{}')
     })
+    const openai = process.env.ARGUS_OPENAI_BASE_URL
+    const openaiRouted = openai === undefined ? 'none' : await new Promise((resolve) => {
+      const req = request(`${openai}/responses`, { method: 'POST', headers: { authorization: 'Bearer dummy', 'content-type': 'application/json' } }, (res) => { res.resume(); res.on('end', () => resolve(res.statusCode)) })
+      req.on('error', (error) => resolve(error.code))
+      req.end(JSON.stringify({ model: 'gpt-x', stream: true }))
+    })
     const secrets = Object.keys(process.env).filter((name) => /OAUTH|API_KEY|ARGUS_HOST_TOKEN/.test(name))
-    const out = { proxy, proxyReach: proxy === '' ? 'none' : await reach(new URL(proxy).port), otherReach: await reach(params.arguments.other), routed, secrets }
+    const out = { proxy, proxyReach: proxy === '' ? 'none' : await reach(new URL(proxy).port), otherReach: await reach(params.arguments.other), routed, openaiRouted, secrets }
     send({ id, result: { content: [{ type: 'text', text: JSON.stringify(out) }] } })
   } else if (method === 'ping') {
     send({ id, result: {} })

@@ -93,6 +93,15 @@ export interface TaskSession {
 /** The name an MCP server's `env` uses for the egress proxy's address. */
 export const EGRESS_PROXY_NAME = 'ARGUS_EGRESS_PROXY'
 
+/** Where an OpenAI route goes; `ARGUS_OPENAI_UPSTREAM` points it elsewhere (tests). */
+const OPENAI_UPSTREAM = (): string => process.env['ARGUS_OPENAI_UPSTREAM'] ?? 'https://api.openai.com'
+
+/** The governor's side of a route: admit a request, count what it used. */
+export interface RouteGovernor {
+  admit(call: { readonly projectId: string; readonly server: string; readonly model: string | undefined }): string | undefined
+  usage(call: { readonly projectId: string; readonly server: string; readonly runId: string | undefined; readonly model: string; readonly inputTokens: number; readonly cachedTokens: number; readonly outputTokens: number }): void
+}
+
 /** Where an Anthropic route goes; `ARGUS_ANTHROPIC_UPSTREAM` points it elsewhere (tests). */
 const ANTHROPIC_UPSTREAM = (): string => process.env['ARGUS_ANTHROPIC_UPSTREAM'] ?? 'https://api.anthropic.com'
 
@@ -228,9 +237,12 @@ export class OpsProjects {
       (message) => ctx.logger('ops-projects').warn(message),
       // What the server enforces itself, read when it says hello: a call's turns and minutes,
       // and how long a question may wait, so its own timeouts sit above it.
-      (projectId) => {
+      (projectId, server) => {
         const config = this.configs.get(projectId)
-        return config === undefined ? {} : { limits: { max_turns: config.delegate.max_turns, max_minutes: config.delegate.max_minutes }, model: config.delegate.model, approval_timeout_s: config.approvals.timeout_minutes * 60 }
+        if (config === undefined) return {}
+        // Claude Code takes delegate.model; Codex (an OpenAI route) delegate.codex_model, or its own default.
+        const model = config.mcp[server]?.extension?.route === 'openai' ? config.delegate.codex_model : config.delegate.model
+        return { limits: { max_turns: config.delegate.max_turns, max_minutes: config.delegate.max_minutes }, ...(model === null ? {} : { model }), approval_timeout_s: config.approvals.timeout_minutes * 60 }
       },
     )
     this.oauth = new McpOAuth({
@@ -980,6 +992,17 @@ export class OpsProjects {
           agentCtx.effect(() => route.remove)
           routeUrl = `${await this.egress.url()}${route.path}`
         }
+        // `route: openai`: Argus's OpenAI key, and Argus counts every request itself, from
+        // the answer, and may refuse one (a budget, the day's turns): the governor decides.
+        let openaiUrl: string | undefined
+        if (server.command !== null && server.extension?.route === 'openai') {
+          const route = this.egress.addRoute(OPENAI_UPSTREAM(), () => this.openaiCredential(), {
+            admit: (model) => this.routeGovernor?.admit({ projectId: config.id, server: name, model }),
+            usage: (usage) => this.routeGovernor?.usage({ projectId: config.id, server: name, runId: this.live.get(config.id)?.runId, ...usage }),
+          })
+          agentCtx.effect(() => route.remove)
+          openaiUrl = `${await this.egress.url()}${route.path}/v1`
+        }
         const argv = server.command === null ? [] : await this.confineServer(config, name, server, [server.command, ...server.args], host === undefined ? [] : [host.dir], proxy === undefined ? undefined : Number(new URL(proxy).port))
         let options
         if (server.command !== null) {
@@ -988,6 +1011,7 @@ export class OpsProjects {
             ...(host === undefined ? {} : { ARGUS_HOST_SOCKET: host.socket, ARGUS_HOST_TOKEN: host.token }),
             ...(proxy === undefined ? {} : { HTTPS_PROXY: proxy, HTTP_PROXY: proxy, https_proxy: proxy, http_proxy: proxy, NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost' }),
             ...(routeUrl === undefined ? {} : { ARGUS_ANTHROPIC_BASE_URL: routeUrl }),
+            ...(openaiUrl === undefined ? {} : { ARGUS_OPENAI_BASE_URL: openaiUrl }),
           }
           options = { ...common, transport: 'stdio' as const, command: argv[0] as string, args: argv.slice(1), env, cwd: config.cwd }
         } else if (server.oauth !== null) {
@@ -1061,6 +1085,35 @@ export class OpsProjects {
    */
   mcpHomeOf(projectId: string, server: string): string {
     return join(this.stateRoot, projectId, 'mcp', server)
+  }
+
+  /**
+   * The credential an OpenAI route adds: Argus's OpenAI API key (`/key openai`).
+   *
+   * @returns the credential, or what to do when it is missing.
+   */
+  private async openaiCredential(): Promise<RouteCredential | string> {
+    const credentials = this.ctx.get('credentials' as never) as unknown as { resolve(ref: unknown): Promise<{ value: string } | undefined> } | undefined
+    const value = credentials === undefined ? process.env['OPENAI_API_KEY'] : (await credentials.resolve(credentialRef('OPENAI_API_KEY')))?.value
+    if (value === undefined || value.trim() === '') return 'Argus has no OpenAI API key: send /key openai <key>'
+    return { kind: 'bearer', value: value.trim() }
+  }
+
+  /** Who decides and counts the requests on OpenAI routes: the governor, once it loads. */
+  private routeGovernor: RouteGovernor | undefined
+
+  /**
+   * Let the governor admit and count what extension agents ask of a model provider through
+   * Argus's routes. Registered as an effect of the governor.
+   *
+   * @param governor the decisions.
+   * @returns what removes it.
+   */
+  setRouteGovernor(governor: RouteGovernor): () => void {
+    this.routeGovernor = governor
+    return () => {
+      if (this.routeGovernor === governor) this.routeGovernor = undefined
+    }
   }
 
   /**

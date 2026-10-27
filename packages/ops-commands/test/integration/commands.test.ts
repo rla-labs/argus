@@ -893,7 +893,7 @@ describe('admin-only commands', () => {
     await run(booted, '/set alpha description The site: blog, fix #3', admin())
     expect(booted.projects.configOf('alpha')?.description).toBe('The site: blog, fix #3')
     expect(await run(booted, '/set alpha delegate.max_turns 80', admin())).toContain('alpha: delegate.max_turns = 80.')
-    expect(booted.projects.configOf('alpha')?.delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet' })
+    expect(booted.projects.configOf('alpha')?.delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet', codex_model: null })
     expect(await run(booted, '/set alpha delegate.backend api', admin())).toContain('alpha: delegate.backend = "api".')
     expect(await run(booted, '/set alpha delegate.backend free', admin())).toContain('does not validate')
     expect(await run(booted, '/set alpha delegate.max_minutes 0', admin())).toContain('does not validate')

@@ -89,6 +89,8 @@ export interface ProjectDelegate {
    * see the plan and would stay on its own default (Opus), which spends the plan fastest.
    */
   readonly model: string
+  /** The model Codex uses (an OpenAI model id), or null for Codex's own default. */
+  readonly codex_model: string | null
 }
 
 /** A project's memory settings. */
@@ -176,6 +178,10 @@ function ruleIssues(document: Record<string, unknown>): ProjectConfigIssue[] {
   const delegateModel = isMapping(document['delegate']) ? document['delegate']['model'] : undefined
   if (delegateModel !== undefined && (typeof delegateModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(delegateModel))) {
     issues.push({ path: 'delegate.model', message: 'a model alias (sonnet, opus, haiku) or a model id: letters, digits, . _ : -' })
+  }
+  const codexModel = isMapping(document['delegate']) ? document['delegate']['codex_model'] : undefined
+  if (codexModel !== undefined && codexModel !== null && (typeof codexModel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(codexModel))) {
+    issues.push({ path: 'delegate.codex_model', message: 'an OpenAI model id: letters, digits, . _ : -' })
   }
   for (const [index, rule] of listOf(document['approvals'], 'auto_allow').entries()) {
     if (typeof rule === 'string' && rule.split(/\s+/).slice(0, -1).some((token) => token.includes('*'))) {
@@ -310,6 +316,7 @@ export const projectConfigSchema = z.object({
       day_turns: z.natural().min(1).default(300),
       backend: z.union([z.const('subscription'), z.const('api')]).default('subscription'),
       model: z.string().default('sonnet'),
+      codex_model: z.string(),
     })
     .default({}),
   memory: z
@@ -676,7 +683,8 @@ export function parseProjectConfig(
     limits: validated['limits'] as ProjectLimits,
     budget: validated['budget'] as ProjectBudget,
     approvals: validated['approvals'] as ProjectApprovals,
-    delegate: validated['delegate'] as ProjectDelegate,
+    // An empty or absent codex_model is Codex's own default.
+    delegate: { ...(validated['delegate'] as ProjectDelegate), codex_model: nonEmpty((validated['delegate'] as Record<string, unknown>)['codex_model']) },
     memory: validated['memory'] as ProjectMemory,
     tools: { ...(validated['tools'] as Omit<ToolPolicy, 'exceptions'>), exceptions: exceptions as ToolPolicy['exceptions'] },
     mcp: Object.fromEntries(

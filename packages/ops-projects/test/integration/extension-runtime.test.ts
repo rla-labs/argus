@@ -214,6 +214,40 @@ describe('an extension enabled in a project', () => {
     expect(out).toContain('\\"otherReach\\":\\"EACCES\\"')
   }, 60_000)
 
+  it.skipIf(!landlock || !sandbox.canLockNetwork())('gives a server with route: openai Argus’s key through a route, and lets the governor count and refuse its requests', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-oai-'))
+    const repo = mkdtempSync(join(tmpdir(), 'ext-oai-'))
+    writeFileSync(join(repo, 'extension.yaml'), 'name: oai\nversion: 1.0.0\nsummary: OpenAI probe\nmcp:\n  oai: {command: node, args: ["${EXTENSION_DIR}/net-probe-mcp.mjs"], access: allow, network: proxy, route: openai}\n')
+    copyFileSync(netProbe, join(repo, 'net-probe-mcp.mjs'))
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' }
+    for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '-m', 'x']]) execFileSync('git', args, { cwd: repo, env })
+    const extensions = new Extensions(join(dataDir, 'extensions'), async (argv) => argv)
+    await extensions.install((await extensions.fetch(repo, null)).id, 'admin')
+    const seen: Array<string | undefined> = []
+    const openai = createHttpServer((req, res) => {
+      seen.push(req.headers['authorization'])
+      req.resume()
+      req.on('end', () => res.writeHead(200, { 'content-type': 'text/event-stream' }).end('event: response.completed\ndata: {"type":"response.completed","response":{"model":"gpt-x","usage":{"input_tokens":50,"input_tokens_details":{"cached_tokens":10},"output_tokens":5}}}\n\n'))
+    })
+    await new Promise<void>((resolve) => openai.listen(0, '127.0.0.1', resolve))
+    process.env['ARGUS_OPENAI_UPSTREAM'] = `http://127.0.0.1:${(openai.address() as { port: number }).port}`
+    process.env['OPENAI_API_KEY'] = 'sk-proj-held-by-argus'
+    const { projects } = await bootProjects({ dataDir, projects: { site: { extensions: ['oai'] } }, entries: [{ id: 'sandbox', name: '@argus-agent/argus-agent/sandbox-row' }] })
+    const counted: unknown[] = []
+    const remove = projects.setRouteGovernor({ admit: () => undefined, usage: (call) => void counted.push(call) })
+    const agent = await projects.ensureAgent('site')
+    const ctx = (agent as unknown as { ctx: { tools: { get(name: string, scope: unknown): { execute(args: unknown, exec: unknown): Promise<unknown> } | undefined } } }).ctx
+    const out = JSON.stringify(await ctx.tools.get('mcp__oai__net', scopeOf(ctx as never))?.execute({ other: 1 }, { signal: new AbortController().signal }))
+    remove()
+    openai.close()
+    delete process.env['ARGUS_OPENAI_UPSTREAM']
+    delete process.env['OPENAI_API_KEY']
+    expect(out).toContain('\\"openaiRouted\\":200')
+    expect(out).toContain('\\"secrets\\":[]')
+    expect(seen).toEqual(['Bearer sk-proj-held-by-argus'])
+    expect(counted).toEqual([{ projectId: 'site', server: 'oai', runId: undefined, model: 'gpt-x', inputTokens: 40, cachedTokens: 10, outputTokens: 5 }])
+  }, 60_000)
+
   it('leaves its server out when there is no sandbox, and the project still runs', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'ops-projects-ext-'))
     await installNotes(dataDir)

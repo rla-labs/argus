@@ -53,15 +53,38 @@ export type Resolve = (host: string) => Promise<readonly string[]>
 
 const systemResolve: Resolve = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address)
 
-/** The credential a route adds: an API key, or a subscription's OAuth token. */
-export type RouteCredential = { readonly kind: 'api-key' | 'oauth'; readonly value: string }
+/**
+ * The credential a route adds: Anthropic's API key (`x-api-key`), a Claude subscription's
+ * OAuth token (`Authorization`, with its beta), or a bearer key (OpenAI).
+ */
+export type RouteCredential = { readonly kind: 'api-key' | 'oauth' | 'bearer'; readonly value: string }
+
+/** What one request through a route used, read from the provider's answer. */
+export interface RouteUsage {
+  readonly model: string
+  readonly inputTokens: number
+  readonly cachedTokens: number
+  readonly outputTokens: number
+}
+
+/** What a route may do besides adding the credential: refuse a request, and count what it used. */
+export interface RouteWatch {
+  /** Before a request goes: why it must not (a budget, a limit), or undefined. */
+  readonly admit?: (model: string | undefined) => string | undefined
+  /** After its answer: the model and the tokens the provider says it used. */
+  readonly usage?: (usage: RouteUsage) => void
+}
 
 /** A route to a model provider, with the credential it adds. */
 interface Route {
   readonly upstream: URL
   /** The credential now, or why there is none (said to the agent). */
   readonly credential: () => Promise<RouteCredential | string>
+  readonly watch: RouteWatch
 }
+
+/** The largest request a route reads before forwarding it (a model request with its context). */
+const ROUTE_BODY_MAX = 32 * 1024 * 1024
 
 /** The beta Anthropic requires for a subscription's OAuth token. */
 const OAUTH_BETA = 'oauth-2025-04-20'
@@ -79,9 +102,9 @@ export class EgressProxy {
    * @param credential the credential when a request comes, or why there is none.
    * @returns its path on the proxy (`/r/<random>`), and what removes it.
    */
-  addRoute(upstream: string, credential: Route['credential']): { readonly path: string; readonly remove: () => void } {
+  addRoute(upstream: string, credential: Route['credential'], watch: RouteWatch = {}): { readonly path: string; readonly remove: () => void } {
     const id = randomBytes(18).toString('hex')
-    this.routes.set(id, { upstream: new URL(upstream), credential })
+    this.routes.set(id, { upstream: new URL(upstream), credential, watch })
     return { path: `/r/${id}`, remove: () => void this.routes.delete(id) }
   }
 
@@ -180,11 +203,28 @@ export class EgressProxy {
       credential = (error as Error).message
     }
     if (typeof credential === 'string') return refuse(401, `Argus: ${credential}`)
+    // The request is read whole: its model decides whether it may go (a price, a budget).
+    const chunks: Buffer[] = []
+    let size = 0
+    for await (const chunk of request) {
+      size += (chunk as Buffer).length
+      if (size > ROUTE_BODY_MAX) return refuse(413, 'Argus: the request is too large.')
+      chunks.push(chunk as Buffer)
+    }
+    const body = Buffer.concat(chunks)
+    const model = modelOf(body)
+    const refusal = route.watch.admit?.(model)
+    if (refusal !== undefined) {
+      response.writeHead(429, { 'content-type': 'application/json' }).end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', code: 'argus_refused', message: `Argus: ${refusal}` } }))
+      return
+    }
     const url = new URL(match[2] as string, route.upstream)
-    const { host: _host, authorization: _authorization, 'x-api-key': _key, 'proxy-connection': _proxy, connection: _connection, ...rest } = request.headers
-    const headers: IncomingHttpHeaders = { ...rest, host: url.host }
+    const { host: _host, authorization: _authorization, 'x-api-key': _key, 'proxy-connection': _proxy, connection: _connection, 'content-length': _length, ...rest } = request.headers
+    const headers: IncomingHttpHeaders = { ...rest, host: url.host, 'content-length': String(body.length) }
     if (credential.kind === 'api-key') {
       headers['x-api-key'] = credential.value
+    } else if (credential.kind === 'bearer') {
+      headers['authorization'] = `Bearer ${credential.value}`
     } else {
       headers['authorization'] = `Bearer ${credential.value}`
       const betas = String(headers['anthropic-beta'] ?? '').split(',').map((beta) => beta.trim()).filter((beta) => beta.length > 0)
@@ -193,10 +233,20 @@ export class EgressProxy {
     const send = url.protocol === 'https:' ? httpsRequest : httpRequest
     const upstream = send(url, { method: request.method ?? 'POST', headers }, (answer) => {
       response.writeHead(answer.statusCode ?? 502, answer.headers)
+      const counted = route.watch.usage
+      if (counted !== undefined && (answer.statusCode ?? 0) < 300) {
+        // Read as it passes: the answer goes on to the agent unchanged and unbuffered.
+        const reader = usageReader(String(answer.headers['content-type'] ?? ''), model)
+        answer.on('data', (chunk: Buffer) => reader.push(chunk))
+        answer.on('end', () => {
+          const usage = reader.done()
+          if (usage !== undefined) counted(usage)
+        })
+      }
       answer.pipe(response)
     })
     upstream.on('error', () => (response.headersSent ? response.destroy() : refuse(502, 'Argus: the provider could not be reached.')))
-    request.pipe(upstream)
+    upstream.end(body)
   }
 
   /** The address to connect to, or `undefined` when any answer is not allowed. */
@@ -230,5 +280,78 @@ export class EgressProxy {
     })
     upstream.on('error', () => response.destroy())
     request.pipe(upstream)
+  }
+}
+
+/** The model a request asks for, from its JSON body. */
+function modelOf(body: Buffer): string | undefined {
+  try {
+    const parsed = JSON.parse(body.toString('utf8')) as { model?: unknown }
+    return typeof parsed.model === 'string' ? parsed.model : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Reads the usage from a provider's answer as it passes: OpenAI's Responses stream
+ * (`response.completed`, its `response.usage` and `model`) or a JSON answer (`usage`).
+ * Only what usage needs is kept: the last complete event of a stream, or a bounded body.
+ *
+ * @param contentType the answer's content type.
+ * @param asked the model the request asked for, when the answer does not say.
+ * @returns what to feed the chunks to, and what reads the usage at the end.
+ */
+export function usageReader(contentType: string, asked: string | undefined): { push(chunk: Buffer): void; done(): RouteUsage | undefined } {
+  const toUsage = (value: unknown): RouteUsage | undefined => {
+    const holder = value as { model?: unknown; usage?: { input_tokens?: unknown; output_tokens?: unknown; input_tokens_details?: { cached_tokens?: unknown } } } | undefined
+    const usage = holder?.usage
+    if (usage === undefined || typeof usage.input_tokens !== 'number' || typeof usage.output_tokens !== 'number') return undefined
+    const cached = typeof usage.input_tokens_details?.cached_tokens === 'number' ? usage.input_tokens_details.cached_tokens : 0
+    // OpenAI counts the cached tokens inside input_tokens; Argus prices them apart.
+    return { model: typeof holder?.model === 'string' ? holder.model : (asked ?? 'unknown'), inputTokens: Math.max(0, usage.input_tokens - cached), cachedTokens: cached, outputTokens: usage.output_tokens }
+  }
+  if (contentType.includes('text/event-stream')) {
+    let pending = ''
+    let found: RouteUsage | undefined
+    const line = (text: string): void => {
+      if (!text.startsWith('data:') || !text.includes('"response.completed"')) return
+      try {
+        const event = JSON.parse(text.slice(5).trim()) as { type?: string; response?: unknown }
+        if (event.type === 'response.completed') found = toUsage(event.response) ?? found
+      } catch {
+        // Not an event this reader needs.
+      }
+    }
+    return {
+      push(chunk) {
+        pending += chunk.toString('utf8')
+        let at = pending.indexOf('\n')
+        while (at !== -1) {
+          line(pending.slice(0, at))
+          pending = pending.slice(at + 1)
+          at = pending.indexOf('\n')
+        }
+      },
+      done() {
+        line(pending)
+        return found
+      },
+    }
+  }
+  const parts: Buffer[] = []
+  let size = 0
+  return {
+    push(chunk) {
+      size += chunk.length
+      if (size <= ROUTE_BODY_MAX) parts.push(chunk)
+    },
+    done() {
+      try {
+        return toUsage(JSON.parse(Buffer.concat(parts).toString('utf8')))
+      } catch {
+        return undefined
+      }
+    },
   }
 }

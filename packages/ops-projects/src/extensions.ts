@@ -209,7 +209,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
       if (!Array.isArray(host) || host.some((item) => !(HOST_CAPABILITIES as readonly unknown[]).includes(item)) || new Set(host).size !== host.length) problems.push(`${where}.host: a list of ${HOST_CAPABILITIES.join(', ')}, each once`)
       if (network !== 'open' && network !== 'proxy') problems.push(`${where}.network: open or proxy`)
       const route = value['route'] ?? null
-      if (route !== null && route !== 'anthropic') problems.push(`${where}.route: anthropic`)
+      if (route !== null && route !== 'anthropic' && route !== 'openai') problems.push(`${where}.route: anthropic or openai`)
       if (typeof value['command'] !== 'string' || value['command'].length === 0) problems.push(`${where}.command: the program to run`)
       if (!isMapping(env) || Object.values(env).some((item) => typeof item !== 'string')) problems.push(`${where}.env: names to strings`)
       if (access !== 'deny' && access !== 'ask' && access !== 'allow') problems.push(`${where}.access: deny, ask or allow`)
@@ -223,7 +223,7 @@ export function parseManifest(raw: unknown): ExtensionManifest {
         timeout_s: Number(timeout),
         host: Array.isArray(host) ? (host as HostCapability[]) : [],
         network: network === 'proxy' ? 'proxy' : 'open',
-        route: route === 'anthropic' ? 'anthropic' : null,
+        route: route === 'anthropic' || route === 'openai' ? route : null,
       }
     }
   }

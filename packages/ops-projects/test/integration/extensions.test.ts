@@ -162,7 +162,8 @@ describe('extensions', () => {
     expect(() => server({ network: 'closed' })).toThrow(/mcp\.cc\.network: open or proxy/)
     expect(server({ route: 'anthropic' })).toMatchObject({ route: 'anthropic' })
     expect(server({})?.route).toBeNull()
-    expect(() => server({ route: 'openai' })).toThrow(/mcp\.cc\.route: anthropic/)
+    expect(server({ route: 'openai' })).toMatchObject({ route: 'openai' })
+    expect(() => server({ route: 'mistral' })).toThrow(/mcp\.cc\.route: anthropic or openai/)
   })
 
   it('installs only programs that are its own executable files, linked from .argus-bin', async () => {

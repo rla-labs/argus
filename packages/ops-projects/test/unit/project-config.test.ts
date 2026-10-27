@@ -251,12 +251,14 @@ describe('parseProjectConfig', () => {
 
 describe('the delegate block', () => {
   it('limits an agent an extension runs: 50 turns and 30 minutes a call, 300 turns a day, by default', () => {
-    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet' })
-    expect(parse({ delegate: { max_turns: 80, backend: 'api' } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'api', model: 'sonnet' })
+    expect(parse().delegate).toEqual({ max_turns: 50, max_minutes: 30, day_turns: 300, backend: 'subscription', model: 'sonnet', codex_model: null })
+    expect(parse({ delegate: { max_turns: 80, backend: 'api' } }).delegate).toEqual({ max_turns: 80, max_minutes: 30, day_turns: 300, backend: 'api', model: 'sonnet', codex_model: null })
     expect(parseFails({ delegate: { backend: 'free' } })).toBeInstanceOf(ProjectConfigError)
     expect(parse({ delegate: { model: 'opus' } }).delegate.model).toBe('opus')
     expect(parse({ delegate: { model: 'claude-sonnet-5-5' } }).delegate.model).toBe('claude-sonnet-5-5')
     for (const model of ['', 'sonnet; rm -rf /', '--dangerously-skip-permissions']) expect(parseFails({ delegate: { model } })).toBeInstanceOf(ProjectConfigError)
+    expect(parse({ delegate: { codex_model: 'gpt-x-2026' } }).delegate.codex_model).toBe('gpt-x-2026')
+    expect(parseFails({ delegate: { codex_model: '-m evil' } })).toBeInstanceOf(ProjectConfigError)
   })
 
   it('refuses a limit that is not a whole number of at least one', () => {

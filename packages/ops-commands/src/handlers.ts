@@ -3143,6 +3143,7 @@ function hostText(server: ExtensionManifest['mcp'][string]): string {
     ...(server.host.includes('usage') ? ['reports its usage'] : []),
     ...(server.network === 'proxy' ? ['network only through Argus\'s proxy'] : []),
     ...(server.route === 'anthropic' ? ['reaches Anthropic through Argus with the project\'s subscription or API key, which it never holds'] : []),
+    ...(server.route === 'openai' ? ['reaches OpenAI through Argus with Argus\'s API key, which it never holds; Argus counts and may refuse each request'] : []),
   ]
   return parts.length === 0 ? '' : `; ${parts.join(', ')}`
 }
