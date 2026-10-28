@@ -3,7 +3,7 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.8.2 (in progress)
+## 0.8.2
 
 - **`web`, an experimental extension.** A light headless browser
   ([Obscura](https://github.com/h4ckf0r0day/obscura), built from its source in our CI) that
@@ -16,6 +16,8 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
   (listed $0.15), and a run was charged $9.11 for about $0.30 of work. Now a provider
   priced over 10× the median of its providers is left out, a provider without a cache does
   not raise the cached price, and every price kept is renewed daily.
+- **Verified:** a live run with `web` on three news sites and a form (the form sent after
+  approval, code in the page refused); upgrades from 0.8.1, Docker and native.
 
 ## 0.8.1
 
