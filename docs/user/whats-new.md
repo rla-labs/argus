@@ -3,10 +3,11 @@
 What each release brought, newest first, and what has been verified. For the steps to
 upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
-## 0.8.3 (in progress)
+## 0.8.3
 
 - **Settings → Extensions lists Claude Code, Codex and web.** They were missing from the
   first-party extensions the page offers to install; `/ext install` worked all along.
+- **Verified:** upgrades from 0.8.2, Docker and native.
 
 ## 0.8.2
 
