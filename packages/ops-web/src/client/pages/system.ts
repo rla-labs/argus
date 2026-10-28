@@ -29,7 +29,7 @@ type Section = (typeof SECTIONS)[number]
 const ADMIN_ONLY: ReadonlySet<Section> = new Set(['access', 'models', 'secrets', 'search', 'extensions', 'templates', 'budgets', 'users', 'language', 'advanced'])
 
 /** The first-party extensions, from the official repository. */
-const FIRST_PARTY = ['office', 'browser', 'pdf', 'diagrams', 'media', 'images'] as const
+const FIRST_PARTY = ['office', 'browser', 'pdf', 'diagrams', 'media', 'images', 'claude-code', 'codex', 'web'] as const
 const OFFICIAL = 'https://github.com/rla-labs/argus-extensions'
 
 interface Ctx {
