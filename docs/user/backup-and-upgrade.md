@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.2
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.3
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -418,6 +418,11 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.8.3
+
+Nothing to do by hand: no database migration. Settings → Extensions now offers
+`claude-code`, `codex` and `web` to install.
 
 ### Upgrading to 0.8.2
 
