@@ -241,6 +241,12 @@ Chromium. Playwright says plainly that a browser is not a security boundary, so:
 | Reading a page runs unasked; acting on it asks; page code and uploads are refused | A page that carries instructions cannot make the agent click, type or run code without you seeing it. The rules are per tool (`/tools <project>`). |
 | `file://` is refused | The browser cannot open the project's or the system's files as pages. |
 
+The [`web` extension](extensions.md#the-first-party-ones) (Obscura) has the same rules,
+held more tightly: its server declares `network: proxy`, so its connections reach only the
+egress proxy's port, by the kernel, and Obscura also refuses private addresses itself, for
+a page, a redirect, or a request a page's script makes. Code in the page, cookies and saved
+sessions are refused.
+
 The agent's own shell is not behind the proxy: a `curl` there is the `shell`
 approval's job, as before.
 

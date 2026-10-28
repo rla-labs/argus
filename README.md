@@ -50,7 +50,8 @@ pinned, and enabled per project. A program runs in the project's shell, confined
 any other command. The first-party ones, in
 [argus-extensions](https://github.com/rla-labs/argus-extensions): **office** (Word,
 Excel and PowerPoint, with screenshots and PDF), **browser** (a headless Chromium, public
-internet only), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
+internet only), **web** (pages read as Markdown, links, forms, with a light browser held to
+Argus's proxy), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
 (merge, split, text, render), **images** (ImageMagick), **claude-code** (a coding task
 handed to Claude Code on your subscription or API key, with Argus approving and watching
 every step it takes, and the key kept out of its reach) and **codex** (the same for OpenAI's
@@ -111,7 +112,7 @@ has run it in production yet, and dsh is still a release candidate (`0.2.0-rc.2`
 [what has been verified](docs/user/whats-new.md#what-has-been-verified), and what has
 not.
 
-**Next:** 0.8.2, web pages read and scraped without a browser. After that, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
+**Next:** after 0.8.2, Slack or Discord, team roles, semantic memory, and metrics. An issue that describes
 your use case helps the most.
 
 ## Development
