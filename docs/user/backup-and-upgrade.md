@@ -384,7 +384,7 @@ the manual command. This is the case that needs a person.
 **Pin a tag in production. Never `latest`.**
 
 ```yaml
-ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.1
+ARGUS_AGENT_IMAGE=ghcr.io/rla-labs/argus:0.8.2
 ```
 
 With `latest`, an upgrade happens on the next `docker compose up` — a restart becomes a
@@ -418,6 +418,15 @@ docker exec argus-agent node -e '
   console.log(db.prepare("SELECT value FROM meta WHERE key = ?").get("schema_version"));
 '
 ```
+
+### Upgrading to 0.8.2
+
+Nothing to do by hand: no database migration. What changes for you:
+
+- **OpenRouter prices** are recalculated at the next daily refresh, within a day of the
+  upgrade, without a provider that lists a price over 10× the others. Runs already
+  recorded keep the cost they were charged.
+- The `web` extension is experimental; `browser` stays the browser.
 
 ### Upgrading to 0.8.1
 
