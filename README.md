@@ -50,8 +50,8 @@ pinned, and enabled per project. A program runs in the project's shell, confined
 any other command. The first-party ones, in
 [argus-extensions](https://github.com/rla-labs/argus-extensions): **office** (Word,
 Excel and PowerPoint, with screenshots and PDF), **browser** (a headless Chromium, public
-internet only), **web** (pages read as Markdown, links, forms, with a light browser held to
-Argus's proxy), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
+internet only), **web** (experimental: pages read as Markdown, links, forms, with a light
+browser held to Argus's proxy), **media** (ffmpeg), **diagrams** (Mermaid to SVG and PNG), **pdf**
 (merge, split, text, render), **images** (ImageMagick), **claude-code** (a coding task
 handed to Claude Code on your subscription or API key, with Argus approving and watching
 every step it takes, and the key kept out of its reach) and **codex** (the same for OpenAI's

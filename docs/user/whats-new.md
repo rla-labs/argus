@@ -5,12 +5,12 @@ upgrade, see [Backup, restore and upgrades](backup-and-upgrade.md).
 
 ## 0.8.2 (in progress)
 
-- **Web pages read without Chromium.** The `web` extension: a light headless browser
+- **`web`, an experimental extension.** A light headless browser
   ([Obscura](https://github.com/h4ckf0r0day/obscura), built from its source in our CI) that
-  runs pages' JavaScript and gives the agent the page as Markdown, its links, lists
-  extracted with CSS selectors, forms and clicks. It reaches the public internet only, held
-  to Argus's egress proxy by the kernel. Where it cannot render a page, the agent uses
-  `browser`, which stays as the full Chromium.
+  runs pages' JavaScript and gives the agent the page as Markdown, its links, forms and
+  clicks, held to Argus's egress proxy by the kernel. It is slow on heavy pages (20–40 s)
+  and renders some pages wrong, so it is not developed further: `browser` (Chromium) stays
+  the browser, and `web_fetch` reads plain pages.
 - **OpenRouter prices fixed.** A model on OpenRouter is charged at its most expensive
   provider's price; one provider listed GLM 5.3 Flash at $6.04 per million input tokens
   (listed $0.15), and a run was charged $9.11 for about $0.30 of work. Now a provider
